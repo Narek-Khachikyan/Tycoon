@@ -7,7 +7,7 @@ import {
 import { newGame, type GameState } from './state';
 import { exportSave, importSave, migrate } from './save';
 import { pickNews } from './news';
-import { newlyEarned } from './achievements';
+import { awardAchievements, newlyEarned } from './achievements';
 import { availableUpgrades, clickUpgradeId, modelUpgradeId, synergyUpgradeId } from './upgrades';
 import { formatNumber } from './format';
 import { GENERATIONS } from '../data/generations';
@@ -137,6 +137,19 @@ describe('offline', () => {
     const s = { ...newGame(T0), perks: ['offline_24h'] };
     expect(applyOffline(s, T0 + 100 * 3600_000).seconds).toBe(24 * 3600);
   });
+  it('advance moves lastTick so the same interval is never paid twice', () => {
+    const s = { ...buyAgents(rich(newGame(T0), 1e6), first.id, 1), lastTick: T0 };
+    const after = advance(s, 600);
+    expect(after.lastTick).toBe(T0 + 600_000);
+    // Активный интервал уже учтён в advance — оффлайн-начисление за него обязано быть нулевым.
+    expect(applyOffline(after, after.lastTick).earned).toBe(0);
+  });
+  it('counts autoclicks in click statistics', () => {
+    const s = { ...rich(newGame(T0), 1e6), lastTick: T0, perks: ['autoclick'] };
+    const after = advance(s, 10);
+    expect(after.clicks - s.clicks).toBeCloseTo(10);
+    expect(after.runClicks - s.runClicks).toBeCloseTo(10);
+  });
 });
 
 describe('prestige', () => {
@@ -169,6 +182,12 @@ describe('prestige', () => {
     expect(isContentFinale(s)).toBe(true);
     expect(prestige(s, T0).generation).toBe(last);
   });
+  it('does not wipe the run at the content finale', () => {
+    const last = CATALOG.length - 1;
+    let s: GameState = { ...newGame(T0), generation: last, maxGeneration: last, runTokens: 1e12 };
+    s = buyAgents(rich(s), CATALOG[last].flagship.id, 1);
+    expect(prestige(s, T0)).toBe(s);
+  });
   it('buys perks with unspent compute only', () => {
     let s = { ...newGame(T0), compute: 4 };
     s = buyPerk(s, 'click_x2');
@@ -194,6 +213,19 @@ describe('save', () => {
   it('returns a new game for garbage', () => {
     expect(migrate('nope', T0).tokens).toBe(0);
     expect(importSave('%%%', T0)).toBeNull();
+  });
+  it('rejects fractional generation indexes on import', () => {
+    const b64 = (o: unknown) => btoa(JSON.stringify(o));
+    expect(importSave(b64({ version: 1, generation: 0.5 }), T0)).toBeNull();
+    expect(importSave(b64({ version: 1, generation: 0, maxGeneration: 0.5 }), T0)).toBeNull();
+    expect(importSave(b64({ version: 1, generation: 0, maxGeneration: 99 }), T0)).toBeNull();
+    expect(importSave(b64({ version: 1, generation: 0, maxGeneration: 0 }), T0)).not.toBeNull();
+  });
+  it('always produces whole generation indexes, even from a corrupt save', () => {
+    const s = migrate({ version: 1, generation: 0.5, maxGeneration: 1.5 }, T0);
+    expect(Number.isInteger(s.generation)).toBe(true);
+    expect(Number.isInteger(s.maxGeneration)).toBe(true);
+    expect(CATALOG[s.maxGeneration]).toBeDefined();
   });
 });
 
@@ -221,5 +253,22 @@ describe('news and achievements', () => {
     expect(newlyEarned(s)).toContain('click_1');
     s = { ...s, achievements: ['click_1'] };
     expect(newlyEarned(s)).not.toContain('click_1');
+  });
+
+  it('awards achievements into the state exactly once', () => {
+    const clicked = click(newGame(T0));
+    const first = awardAchievements(clicked);
+    expect(first.awarded).toContain('click_1');
+    expect(first.state.achievements).toContain('click_1');
+    // Повторный переход не должен начислять то же Достижение второй раз.
+    const second = awardAchievements(first.state);
+    expect(second.awarded).toEqual([]);
+    expect(second.state).toBe(first.state);
+  });
+
+  it('awards agent achievements from a purchase transition', () => {
+    const hired = buyAgents(rich(newGame(T0), 1e6), first.id, 1);
+    expect(newlyEarned(hired)).toContain('agents_1');
+    expect(awardAchievements(hired).state.achievements).toContain('agents_1');
   });
 });

@@ -12,6 +12,26 @@ const MIGRATIONS: Record<number, Migration> = {};
 
 const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 
+/** Индекс Поколения: только целое число в пределах каталога, иначе `fallback`. */
+function clampGeneration(v: unknown, fallback = 0): number {
+  const last = CATALOG.length - 1;
+  return Math.min(Math.max(0, Math.floor(num(v, fallback))), last);
+}
+
+/**
+ * Строгая проверка индекса Поколения для импорта.
+ * Дробное значение (`0.5`) — признак повреждённого экспорта: такой индекс
+ * не соответствует ни одной Модели каталога, поэтому файл отклоняется целиком.
+ */
+function isGenerationIndex(v: unknown): boolean {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < CATALOG.length;
+}
+
+/** `raw.generation` / `raw.maxGeneration` пригодны к импорту (отсутствие поля допустимо). */
+function hasValidGeneration(raw: Record<string, unknown>): boolean {
+  return [raw.generation, raw.maxGeneration].every((v) => v === undefined || isGenerationIndex(v));
+}
+
 /**
  * Приводит сырое сохранение к текущей версии и каталогу:
  * неизвестные Модели/Апгрейды/Перки отбрасываются, Поколение зажимается в доступный диапазон.
@@ -24,7 +44,7 @@ export function migrate(input: unknown, now: number): GameState {
   while (v < SAVE_VERSION && MIGRATIONS[v]) raw = MIGRATIONS[v++](raw);
 
   const last = CATALOG.length - 1;
-  const generation = Math.min(Math.max(0, Math.floor(num(raw.generation, 0))), last);
+  const generation = clampGeneration(raw.generation);
   const agents: Record<string, number> = {};
   for (const [id, n] of Object.entries((raw.agents as Record<string, unknown>) ?? {})) {
     if (MODEL_BY_ID[id]?.generation === generation && num(n, 0) > 0) agents[id] = Math.floor(num(n, 0));
@@ -36,7 +56,7 @@ export function migrate(input: unknown, now: number): GameState {
     ...base,
     version: SAVE_VERSION,
     generation,
-    maxGeneration: Math.min(Math.max(generation, num(raw.maxGeneration, generation)), last),
+    maxGeneration: Math.min(Math.max(generation, Math.floor(num(raw.maxGeneration, generation))), last),
     tokens: num(raw.tokens, 0),
     runTokens: num(raw.runTokens, 0),
     totalTokens: num(raw.totalTokens, 0),
@@ -72,7 +92,10 @@ export function importSave(str: string, now: number): GameState | null {
   try {
     const bin = atob(str.trim());
     const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
-    return migrate(JSON.parse(new TextDecoder().decode(bytes)), now);
+    const parsed = JSON.parse(new TextDecoder().decode(bytes));
+    // Отклоняем файл с нецелыми индексами Поколений, а не чиним его молча.
+    if (!hasValidGeneration(parsed)) return null;
+    return migrate(parsed, now);
   } catch {
     return null;
   }

@@ -46,3 +46,13 @@ export function newlyEarned(s: GameState): string[] {
   const have = new Set(s.achievements);
   return ACHIEVEMENTS.filter((a) => !have.has(a.id) && a.check(s)).map((a) => a.id);
 }
+
+/**
+ * Применяет вновь заработанные Достижения к состоянию.
+ * Вызывается из каждого перехода состояния, который может выполнить условие.
+ */
+export function awardAchievements(s: GameState): { state: GameState; awarded: string[] } {
+  const awarded = newlyEarned(s);
+  if (awarded.length === 0) return { state: s, awarded };
+  return { state: { ...s, achievements: [...s.achievements, ...awarded] }, awarded };
+}

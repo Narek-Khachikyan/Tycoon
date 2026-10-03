@@ -6,6 +6,7 @@ import {
   bulkCost,
   canPrestige,
   discountMult,
+  isContentFinale,
   maxAffordable,
   modelIncome,
   prestigeGain,
@@ -36,6 +37,7 @@ export const ShopColumn: React.FC = () => {
   const d = discountMult(state);
   const upgrades = availableUpgrades(state);
   const unspentCompute = state.compute - state.computeSpent;
+  const finale = isContentFinale(state);
 
   const toggleAA = (id: string) => {
     setExpandedAA((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -49,7 +51,8 @@ export const ShopColumn: React.FC = () => {
         padding: '16px',
         backgroundColor: 'var(--bg-panel)',
         borderLeft: '2px solid var(--border-color)',
-        minWidth: '360px',
+        // Не даём колонке стать шире контейнера: на мобильном экране это обрезало бы правую часть.
+        minWidth: 'min(360px, 100%)',
         maxWidth: '440px',
         height: '100%',
         overflowY: 'hidden',
@@ -385,14 +388,16 @@ export const ShopColumn: React.FC = () => {
                 </div>
               </div>
 
-              <button
-                onClick={triggerPrestige}
-                disabled={!canPrestige(state)}
-                className="pixel-btn pixel-btn-gold"
-                style={{ width: '100%', marginTop: '4px' }}
-              >
-                {canPrestige(state) ? 'Сделать Престиж!' : '🔒 Нужен 1 Агент Флагмана'}
-              </button>
+              {!finale && (
+                <button
+                  onClick={triggerPrestige}
+                  disabled={!canPrestige(state)}
+                  className="pixel-btn pixel-btn-gold"
+                  style={{ width: '100%', marginTop: '4px' }}
+                >
+                  {canPrestige(state) ? 'Сделать Престиж!' : '🔒 Нужен 1 Агент Флагмана'}
+                </button>
+              )}
             </div>
 
             {/* Магазин Перков */}

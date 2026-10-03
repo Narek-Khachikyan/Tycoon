@@ -121,6 +121,23 @@ body {
   z-index: 1000;
 }
 
+/* Toast entrance: unlike float-up it must END fully visible — the toast stays
+   mounted for seconds after the animation ends. */
+@keyframes toast-in {
+  0% {
+    opacity: 0;
+    transform: translateY(16px) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.toast-card {
+  animation: toast-in 0.3s ease-out forwards;
+}
+
 /* Mascot animations */
 @keyframes mascot-bob {
   0%, 100% {

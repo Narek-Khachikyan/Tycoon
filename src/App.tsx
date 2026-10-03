@@ -78,7 +78,7 @@ export const App: React.FC = () => {
       >
         {isMobile ? (
           // Мобильный вид с переключением вкладок
-          <div style={{ flex: 1, height: '100%', overflow: 'hidden' }}>
+          <div style={{ flex: 1, height: '100%', overflowX: 'auto', overflowY: 'hidden' }}>
             {activeTab === 'click' && <ClickColumn />}
             {activeTab === 'office' && <OfficeColumn />}
             {(activeTab === 'shop' || activeTab === 'upgrades' || activeTab === 'perks') && (

@@ -44,6 +44,21 @@ function normalizeKey(str) {
   return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
+/**
+ * Пишет снимок атомарно: сначала во временный файл рядом, затем переименование.
+ * Прерванный `writeFileSync` не может оставить `aa-snapshot.json` обрезанным.
+ */
+function writeSnapshotAtomic(data) {
+  const tmpPath = `${SNAPSHOT_PATH}.${process.pid}.tmp`;
+  try {
+    fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2) + '\n', 'utf8');
+    fs.renameSync(tmpPath, SNAPSHOT_PATH);
+  } catch (err) {
+    fs.rmSync(tmpPath, { force: true });
+    throw err;
+  }
+}
+
 async function main() {
   console.log('🔄 Синхронизация снимка Artificial Analysis...');
 
@@ -51,8 +66,13 @@ async function main() {
   if (fs.existsSync(SNAPSHOT_PATH)) {
     try {
       snapshot = JSON.parse(fs.readFileSync(SNAPSHOT_PATH, 'utf8'));
-    } catch {
-      snapshot = {};
+    } catch (err) {
+      // Не подставляем `{}`: следующая запись молча стёрла бы все записи,
+      // которых не оказалось в ответе API.
+      console.error(`❌ Снимок повреждён и не разбирается: ${SNAPSHOT_PATH}`);
+      console.error(`   ${err.message}`);
+      console.error('   Восстановите файл вручную или удалите его, чтобы начать с нуля.');
+      process.exit(1);
     }
   }
 
@@ -85,7 +105,7 @@ async function main() {
       }
     }
 
-    fs.writeFileSync(SNAPSHOT_PATH, JSON.stringify(snapshot, null, 2) + '\n', 'utf8');
+    writeSnapshotAtomic(snapshot);
     console.log(`✅ Снимок успешно сохранён: ${SNAPSHOT_PATH} (${updated} моделей обновлено)`);
   } catch (err) {
     console.error('❌ Ошибка синхронизации с AA:', err.message);

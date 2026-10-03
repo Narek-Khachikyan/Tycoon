@@ -18,7 +18,7 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void 
   return (
     <div
       onClick={() => onRemove(toast.id)}
-      className="pixel-card"
+      className="pixel-card toast-card"
       style={{
         padding: '12px 14px',
         backgroundColor: '#1e293b',
@@ -28,7 +28,6 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void 
         alignItems: 'center',
         gap: '10px',
         cursor: 'pointer',
-        animation: 'float-up 0.3s ease-out',
         maxWidth: '320px',
       }}
     >

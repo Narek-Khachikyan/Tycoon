@@ -143,8 +143,18 @@ export function buyPerk(state: GameState, id: string): GameState {
 export function advance(state: GameState, dt: number): GameState {
   if (dt <= 0) return state;
   const income = totalIncome(state);
-  const auto = autoclicksPerSecond(state) * clickValue(state, income);
-  return earn(state, (income + auto) * dt);
+  const autoClicks = autoclicksPerSecond(state) * dt;
+  const auto = autoClicks * clickValue(state, income);
+  const s = earn(state, income * dt + auto);
+  return {
+    ...s,
+    // Автоклики — обычные клики: они тоже должны попадать в статистику и Достижения.
+    clicks: s.clicks + autoClicks,
+    runClicks: s.runClicks + autoClicks,
+    // lastTick обязано двигаться вместе с доходом, иначе applyOffline
+    // повторно начислит уже обработанный активный интервал.
+    lastTick: state.lastTick + dt * 1000,
+  };
 }
 
 export function offlineCapHours(state: GameState): number {
@@ -185,7 +195,8 @@ export function startingTokens(state: GameState, generation: number): number {
 }
 
 export function prestige(state: GameState, now: number): GameState {
-  if (!canPrestige(state)) return state;
+  // На финальном Поколении перехода дальше нет: обнулять забег без нового Поколения нельзя.
+  if (!canPrestige(state) || isContentFinale(state)) return state;
   const next = Math.min(state.generation + 1, LAST_GENERATION);
   return {
     ...state,

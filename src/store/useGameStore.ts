@@ -8,12 +8,13 @@ import {
   canPrestige,
   click as engineClick,
   clickValue,
+  isContentFinale,
   prestige as enginePrestige,
   sellAgents as engineSellAgents,
 } from '../economy/engine';
-import { newlyEarned } from '../economy/achievements';
+import { awardAchievements } from '../economy/achievements';
 import { pickNews } from '../economy/news';
-import { migrate, SAVE_KEY, serialize } from '../economy/save';
+import { importSave, migrate, SAVE_KEY, serialize } from '../economy/save';
 import { newGame, type GameState, type Notation } from '../economy/state';
 import {
   playAchievementSound,
@@ -121,9 +122,31 @@ function loadInitialState(): { state: GameState; offline: OfflineReport | null }
 
 let floaterCounter = 0;
 let chatCounter = 0;
+let toastCounter = 0;
 
 export const useGameStore = create<GameStore>((set, get) => {
   const initial = loadInitialState();
+
+  /**
+   * Начисляет выполненные Достижения и показывает тосты.
+   * Вызывается из каждого перехода, который может выполнить условие Достижения.
+   */
+  const awardEarned = (s: GameState): GameState => {
+    const { state: next, awarded } = awardAchievements(s);
+    if (awarded.length === 0) return s;
+    playAchievementSound(s.settings.muted);
+    set((st) => ({
+      toasts: [
+        ...st.toasts,
+        ...awarded.map((id) => ({
+          id: `${id}-${++toastCounter}`,
+          title: '🏆 Достижение разблокировано!',
+          desc: id,
+        })),
+      ],
+    }));
+    return next;
+  };
 
   return {
     state: initial.state,
@@ -143,29 +166,10 @@ export const useGameStore = create<GameStore>((set, get) => {
     ],
 
     tick: (dt: number) => {
-      const { state, toasts } = get();
+      const { state } = get();
       if (dt <= 0) return;
-      const advanced = advance(state, dt);
-      const now = Date.now();
-      const updated = { ...advanced, lastTick: now };
-
-      // Проверка достижений
-      const newAchIds = newlyEarned(updated);
-      let newToasts = toasts;
-      if (newAchIds.length > 0) {
-        playAchievementSound(state.settings.muted);
-        newToasts = [
-          ...toasts,
-          ...newAchIds.map((id) => ({
-            id: `${id}-${now}`,
-            title: '🏆 Достижение разблокировано!',
-            desc: id,
-          })),
-        ];
-        updated.achievements = [...updated.achievements, ...newAchIds];
-      }
-
-      set({ state: updated, toasts: newToasts });
+      const updated = awardEarned(advance(state, dt));
+      set({ state: updated });
 
       // Сохранение в localStorage
       if (typeof window !== 'undefined') {
@@ -203,23 +207,8 @@ export const useGameStore = create<GameStore>((set, get) => {
         ];
       }
 
-      // Проверка достижений
-      const newAchIds = newlyEarned(clicked);
-      let newToasts = get().toasts;
-      if (newAchIds.length > 0) {
-        playAchievementSound(state.settings.muted);
-        newToasts = [
-          ...newToasts,
-          ...newAchIds.map((id) => ({
-            id: `${id}-${Date.now()}`,
-            title: '🏆 Достижение разблокировано!',
-            desc: id,
-          })),
-        ];
-        clicked.achievements = [...clicked.achievements, ...newAchIds];
-      }
-
-      set({ state: clicked, floaters: newFloaters, chatHistory: newChat, toasts: newToasts });
+      const awarded = awardEarned(clicked);
+      set({ state: awarded, floaters: newFloaters, chatHistory: newChat });
 
       setTimeout(() => {
         set((s) => ({ floaters: s.floaters.filter((f) => f.id !== floaterId) }));
@@ -231,7 +220,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       const next = engineBuyAgents(state, modelId, buyAmount);
       if (next !== state) {
         playBuySound(state.settings.muted);
-        set({ state: next });
+        set({ state: awardEarned(next) });
       }
     },
 
@@ -241,7 +230,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       const next = engineSellAgents(state, modelId, count);
       if (next !== state) {
         playBuySound(state.settings.muted);
-        set({ state: next });
+        set({ state: awardEarned(next) });
       }
     },
 
@@ -250,7 +239,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       const next = engineBuyUpgrade(state, upgradeId);
       if (next !== state) {
         playUpgradeSound(state.settings.muted);
-        set({ state: next });
+        set({ state: awardEarned(next) });
       }
     },
 
@@ -259,15 +248,16 @@ export const useGameStore = create<GameStore>((set, get) => {
       const next = engineBuyPerk(state, perkId);
       if (next !== state) {
         playUpgradeSound(state.settings.muted);
-        set({ state: next });
+        set({ state: awardEarned(next) });
       }
     },
 
     triggerPrestige: () => {
       const { state } = get();
-      if (!canPrestige(state)) return;
+      // На финальном Поколении Престиж обнулил бы забег без перехода в новое Поколение.
+      if (!canPrestige(state) || isContentFinale(state)) return;
       playPrestigeSound(state.settings.muted);
-      const next = enginePrestige(state, Date.now());
+      const next = awardEarned(enginePrestige(state, Date.now()));
       set({ state: next, news: pickNews(next) });
     },
 
@@ -289,22 +279,23 @@ export const useGameStore = create<GameStore>((set, get) => {
       set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 
     importSaveData: (str: string) => {
-      try {
-        const bin = atob(str.trim());
-        const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
-        const parsed = JSON.parse(new TextDecoder().decode(bytes));
-        const imported = migrate(parsed, Date.now());
-        set({ state: imported, news: pickNews(imported) });
-        return true;
-      } catch {
-        return false;
-      }
+      // `importSave` отклоняет повреждённый экспорт (например, дробное Поколение),
+      // поэтому в состояние попадают только валидные индексы каталога.
+      const imported = importSave(str, Date.now());
+      if (!imported) return false;
+      set({ state: imported, news: pickNews(imported) });
+      return true;
     },
 
     resetGame: () => {
       const fresh = newGame(Date.now());
       if (typeof window !== 'undefined') {
-        localStorage.removeItem(SAVE_KEY);
+        // localStorage может быть заблокирован (SecurityError) — сброс не должен падать.
+        try {
+          localStorage.removeItem(SAVE_KEY);
+        } catch {
+          // ignore
+        }
       }
       set({ state: fresh, news: pickNews(fresh) });
     },

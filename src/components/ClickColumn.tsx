@@ -30,7 +30,8 @@ export const ClickColumn: React.FC = () => {
         padding: '20px 16px',
         backgroundColor: 'var(--bg-panel)',
         borderRight: '2px solid var(--border-color)',
-        minWidth: '320px',
+        // Не даём колонке стать шире контейнера: на мобильном экране это обрезало бы правую часть.
+        minWidth: 'min(320px, 100%)',
         maxWidth: '380px',
         gap: '18px',
         height: '100%',
