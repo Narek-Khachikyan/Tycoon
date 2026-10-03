@@ -6,6 +6,8 @@ import {
 } from './engine';
 import { newGame, type GameState } from './state';
 import { exportSave, importSave, migrate } from './save';
+import { pickNews } from './news';
+import { newlyEarned } from './achievements';
 import { availableUpgrades, clickUpgradeId, modelUpgradeId, synergyUpgradeId } from './upgrades';
 import { formatNumber } from './format';
 import { GENERATIONS } from '../data/generations';
@@ -201,5 +203,22 @@ describe('format', () => {
     expect(formatNumber(1500)).toBe('1.500 K');
     expect(formatNumber(2.5e9)).toBe('2.500 B');
     expect(formatNumber(1.23e15, 'sci')).toBe('1.23e15');
+  });
+});
+describe('news and achievements', () => {
+  it('picks relevant news without crashing', () => {
+    const s = newGame(T0);
+    const n = pickNews(s);
+    expect(typeof n).toBe('string');
+    expect(n.length).toBeGreaterThan(5);
+  });
+
+  it('triggers achievements when criteria met', () => {
+    let s = newGame(T0);
+    expect(newlyEarned(s)).toEqual([]);
+    s = click(s);
+    expect(newlyEarned(s)).toContain('click_1');
+    s = { ...s, achievements: ['click_1'] };
+    expect(newlyEarned(s)).not.toContain('click_1');
   });
 });
