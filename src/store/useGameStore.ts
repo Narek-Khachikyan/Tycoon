@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import {
-  advance,
+  advanceTime,
   applyOffline,
   buyAgents as engineBuyAgents,
   buyPerk as engineBuyPerk,
@@ -9,6 +9,7 @@ import {
   click as engineClick,
   clickValue,
   isContentFinale,
+  OFFLINE_THRESHOLD_SEC,
   prestige as enginePrestige,
   sellAgents as engineSellAgents,
 } from '../economy/engine';
@@ -107,9 +108,8 @@ function loadInitialState(): { state: GameState; offline: OfflineReport | null }
   }
 
   const base = migrate(raw, now);
-  // Offline check if game was closed for more than 10 seconds
-  const elapsedSec = (now - base.lastTick) / 1000;
-  if (elapsedSec >= 10 && base.totalTokens > 0) {
+  // Оффлайн-начисление, если игра была закрыта дольше порога простоя
+  if ((now - base.lastTick) / 1000 >= OFFLINE_THRESHOLD_SEC && base.totalTokens > 0) {
     const { state: updated, seconds, earned } = applyOffline(base, now);
     return {
       state: updated,
@@ -168,7 +168,9 @@ export const useGameStore = create<GameStore>((set, get) => {
     tick: (dt: number) => {
       const { state } = get();
       if (dt <= 0) return;
-      const updated = awardEarned(advance(state, dt));
+      // advanceTime сам различает активный тик и простой (фон/сон) по OFFLINE_THRESHOLD_SEC,
+      // поэтому лимит оффлайн-дохода нельзя обойти просто долгим dt.
+      const updated = awardEarned(advanceTime(state, dt));
       set({ state: updated });
 
       // Сохранение в localStorage

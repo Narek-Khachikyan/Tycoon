@@ -12,6 +12,8 @@ const MIGRATIONS: Record<number, Migration> = {};
 
 const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 
+const strList = (x: unknown) => (Array.isArray(x) ? x.filter((s): s is string => typeof s === 'string') : []);
+
 /** Индекс Поколения: только целое число в пределах каталога, иначе `fallback`. */
 function clampGeneration(v: unknown, fallback = 0): number {
   const last = CATALOG.length - 1;
@@ -32,6 +34,11 @@ function hasValidGeneration(raw: Record<string, unknown>): boolean {
   return [raw.generation, raw.maxGeneration].every((v) => v === undefined || isGenerationIndex(v));
 }
 
+/** Список id: только строки, только известные сущности, без дубликатов. */
+const idList = (x: unknown, known: Record<string, unknown>): string[] => [
+  ...new Set(strList(x).filter((id) => known[id])),
+];
+
 /**
  * Приводит сырое сохранение к текущей версии и каталогу:
  * неизвестные Модели/Апгрейды/Перки отбрасываются, Поколение зажимается в доступный диапазон.
@@ -49,7 +56,6 @@ export function migrate(input: unknown, now: number): GameState {
   for (const [id, n] of Object.entries((raw.agents as Record<string, unknown>) ?? {})) {
     if (MODEL_BY_ID[id]?.generation === generation && num(n, 0) > 0) agents[id] = Math.floor(num(n, 0));
   }
-  const strList = (x: unknown) => (Array.isArray(x) ? x.filter((s): s is string => typeof s === 'string') : []);
   const settings = (raw.settings as GameState['settings']) ?? base.settings;
 
   return {
@@ -63,12 +69,13 @@ export function migrate(input: unknown, now: number): GameState {
     clicks: num(raw.clicks, 0),
     runClicks: num(raw.runClicks, 0),
     agents,
-    upgrades: strList(raw.upgrades).filter((id) => UPGRADE_BY_ID[id]),
+    upgrades: idList(raw.upgrades, UPGRADE_BY_ID),
     compute: num(raw.compute, 0),
     computeSpent: num(raw.computeSpent, 0),
-    perks: strList(raw.perks).filter((id) => PERK_BY_ID[id]),
+    // Дубликаты Перка применялись бы дважды (×2 → ×4), поэтому список дедуплицируется.
+    perks: idList(raw.perks, PERK_BY_ID),
     prestiges: num(raw.prestiges, 0),
-    achievements: strList(raw.achievements),
+    achievements: [...new Set(strList(raw.achievements))],
     lastTick: num(raw.lastTick, now),
     startedAt: num(raw.startedAt, now),
     runStartedAt: num(raw.runStartedAt, now),

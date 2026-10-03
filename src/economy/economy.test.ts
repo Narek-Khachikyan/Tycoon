@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildCatalog, CATALOG, genScale, softMod } from './catalog';
 import {
-  advance, applyOffline, bulkCost, buyAgents, buyPerk, buyUpgrade, canPrestige, click, clickValue,
+  advance, advanceTime, applyOffline, bulkCost, buyAgents, buyPerk, buyUpgrade, canPrestige, click, clickValue,
   isContentFinale, maxAffordable, prestige, prestigeGain, sellAgents, totalIncome,
 } from './engine';
 import { newGame, type GameState } from './state';
@@ -150,6 +150,31 @@ describe('offline', () => {
     expect(after.clicks - s.clicks).toBeCloseTo(10);
     expect(after.runClicks - s.runClicks).toBeCloseTo(10);
   });
+  it('caps a background pause with a backgrounded tab or sleep', () => {
+    const s = { ...buyAgents(rich(newGame(T0), 1e6), first.id, 1), lastTick: T0 };
+    const inc = totalIncome(s);
+    // 48ч простоя не должны начислиться как активная игра: срабатывает лимит оффлайна.
+    const after = advanceTime(s, 48 * 3600);
+    expect(after.tokens - s.tokens).toBeCloseTo(inc * 8 * 3600);
+    // lastTick синхронизирован с реальным временем, поэтому простой
+    // нельзя доначислить повторно ни в этом тике, ни при следующей перезагрузке.
+    expect(after.lastTick).toBe(T0 + 48 * 3600_000);
+    expect(applyOffline(after, after.lastTick).seconds).toBe(0);
+  });
+  it('honours the raised offline cap after a long pause', () => {
+    const s = {
+      ...buyAgents(rich({ ...newGame(T0), perks: ['offline_24h'] }, 1e6), first.id, 1),
+      lastTick: T0,
+    };
+    const inc = totalIncome(s);
+    expect(advanceTime(s, 48 * 3600).tokens - s.tokens).toBeCloseTo(inc * 24 * 3600);
+  });
+  it('still advances normally on short frames', () => {
+    const s = buyAgents(rich(newGame(T0), 1e6), first.id, 1);
+    const after = advanceTime(s, 0.05);
+    expect(after.tokens - s.tokens).toBeCloseTo(totalIncome(s) * 0.05);
+    expect(advanceTime(s, -1)).toBe(s);
+  });
 });
 
 describe('prestige', () => {
@@ -226,6 +251,16 @@ describe('save', () => {
     expect(Number.isInteger(s.generation)).toBe(true);
     expect(Number.isInteger(s.maxGeneration)).toBe(true);
     expect(CATALOG[s.maxGeneration]).toBeDefined();
+  });
+  it('deduplicates perks so an import cannot double-apply them', () => {
+    const s = migrate({ version: 1, perks: ['click_x2', 'click_x2'] }, T0);
+    expect(s.perks).toEqual(['click_x2']);
+    // ×2, а не ×4 из-за двух одинаковых записей.
+    expect(clickValue(s)).toBeCloseTo(2);
+  });
+  it('drops unknown and duplicate upgrade ids', () => {
+    const s = migrate({ version: 1, upgrades: ['zzz', 'c:0:0', 'c:0:0'] }, T0);
+    expect(s.upgrades).toEqual(['c:0:0']);
   });
 });
 

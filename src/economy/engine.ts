@@ -19,6 +19,9 @@ export const COMPUTE_BONUS = 0.01;
 export const PRESTIGE_DIVISOR_UNITS = 1e5;
 export const BASE_OFFLINE_HOURS = 8;
 
+/** Пауза длиннее этого порога считается оффлайном (вкладка в фоне или сон). */
+export const OFFLINE_THRESHOLD_SEC = 10;
+
 // ---------- Цены ----------
 
 export function discountMult(state: GameState): number {
@@ -173,8 +176,21 @@ export function applyOffline(state: GameState, now: number): { state: GameState;
   return { state: { ...s, lastTick: now }, seconds, earned };
 }
 
-// ---------- Престиж ----------
+/**
+ * Продвигает состояние на `dt` секунд игрового цикла.
+ *
+ * Пауза длиннее OFFLINE_THRESHOLD_SEC (фоновая вкладка, сон, переключение окон)
+ * идёт через applyOffline: иначе один тик начислил бы весь простой без лимита
+ * и обошёл cap оффлайна. applyOffline заодно приводит lastTick к текущему времени,
+ * поэтому простой нельзя «доначислить» повторно при следующей перезагрузке.
+ */
+export function advanceTime(state: GameState, dt: number): GameState {
+  if (dt <= 0) return state;
+  if (dt < OFFLINE_THRESHOLD_SEC) return advance(state, dt);
+  return applyOffline(state, state.lastTick + dt * 1000).state;
+}
 
+// ---------- Престиж ----------
 export function canPrestige(state: GameState): boolean {
   return (state.agents[CATALOG[state.generation].flagship.id] ?? 0) >= 1;
 }
