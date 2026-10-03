@@ -1,0 +1,182 @@
+:root {
+  --bg-primary: #12141d;
+  --bg-panel: #1b1e2e;
+  --bg-card: #252a3d;
+  --border-color: #3b4261;
+  --accent-color: #38bdf8;
+  --accent-hover: #0ea5e9;
+  --text-main: #f1f5f9;
+  --text-muted: #94a3b8;
+  --gold: #fbbf24;
+  --green: #22c55e;
+  --red: #ef4444;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Nunito', system-ui, -apple-system, sans-serif;
+  background-color: var(--bg-primary);
+  color: var(--text-main);
+  min-height: 100vh;
+  overflow-x: hidden;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+.pixel-font {
+  font-family: 'Pixelify Sans', cursive, monospace;
+}
+
+/* Pixel buttons */
+.pixel-btn {
+  font-family: 'Pixelify Sans', monospace;
+  font-size: 1rem;
+  letter-spacing: 0.5px;
+  background: var(--bg-card);
+  color: var(--text-main);
+  border: 2px solid var(--border-color);
+  box-shadow: 0 4px 0 #0f121d;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: all 0.08s ease-in-out;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 4px;
+}
+
+.pixel-btn:hover:not(:disabled) {
+  background: var(--border-color);
+  border-color: var(--accent-color);
+  transform: translateY(-1px);
+}
+
+.pixel-btn:active:not(:disabled) {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 #0f121d;
+}
+
+.pixel-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: grayscale(0.8);
+}
+
+.pixel-btn-accent {
+  background: #0284c7;
+  border-color: #38bdf8;
+  box-shadow: 0 4px 0 #034f78;
+}
+
+.pixel-btn-accent:hover:not(:disabled) {
+  background: #0369a1;
+  border-color: #7dd3fc;
+}
+
+.pixel-btn-gold {
+  background: #b45309;
+  border-color: #fbbf24;
+  color: #fffbeb;
+  box-shadow: 0 4px 0 #78350f;
+}
+
+.pixel-btn-gold:hover:not(:disabled) {
+  background: #d97706;
+}
+
+.pixel-card {
+  background: var(--bg-panel);
+  border: 2px solid var(--border-color);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+/* Float animation for +X tokens */
+@keyframes float-up {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -70px) scale(1.3);
+  }
+}
+
+.floater {
+  position: fixed;
+  pointer-events: none;
+  animation: float-up 0.9s cubic-bezier(0.18, 0.89, 0.32, 1.28) forwards;
+  color: #38bdf8;
+  font-family: 'Pixelify Sans', monospace;
+  font-size: 1.5rem;
+  font-weight: 700;
+  text-shadow: 0 2px 4px #000, 0 0 8px rgba(56, 189, 248, 0.6);
+  z-index: 1000;
+}
+
+/* Toast entrance: unlike float-up it must END fully visible — the toast stays
+   mounted for seconds after the animation ends. */
+@keyframes toast-in {
+  0% {
+    opacity: 0;
+    transform: translateY(16px) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.toast-card {
+  animation: toast-in 0.3s ease-out forwards;
+}
+
+/* Mascot animations */
+@keyframes mascot-bob {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+.animate-mascot-bob {
+  animation: mascot-bob 1.8s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(56, 189, 248, 0.5);
+  }
+}
+
+.pulse-glow {
+  animation: pulse-glow 2s infinite ease-in-out;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-color);
+}
