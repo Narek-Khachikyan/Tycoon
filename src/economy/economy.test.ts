@@ -201,6 +201,7 @@ describe('format', () => {
   it('uses short scale suffixes', () => {
     expect(formatNumber(999)).toBe('999');
     expect(formatNumber(1500)).toBe('1.500 K');
+    expect(formatNumber(999999)).toBe('1.000 M');
     expect(formatNumber(2.5e9)).toBe('2.500 B');
     expect(formatNumber(1.23e15, 'sci')).toBe('1.23e15');
   });

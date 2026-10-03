@@ -14,9 +14,13 @@ export function formatNumber(n: number, notation: Notation = 'short'): string {
   }
   const exp = Math.floor(Math.log10(a));
   if (notation === 'sci') return `${sign}${(a / Math.pow(10, exp)).toFixed(2)}e${exp}`;
-  const tier = Math.floor(exp / 3);
+  let tier = Math.floor(exp / 3);
+  let scaled = a / Math.pow(1000, tier);
+  if (scaled >= 999.95 && tier + 1 < SUFFIXES.length) {
+    tier += 1;
+    scaled /= 1000;
+  }
   if (tier >= SUFFIXES.length) return `${sign}${(a / Math.pow(10, exp)).toFixed(2)}e${exp}`;
-  const scaled = a / Math.pow(1000, tier);
   const digits = scaled >= 100 ? 1 : scaled >= 10 ? 2 : 3;
   return `${sign}${scaled.toFixed(digits)} ${SUFFIXES[tier]}`;
 }
