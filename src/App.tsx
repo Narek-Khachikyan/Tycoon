@@ -41,6 +41,8 @@ export const App: React.FC = () => {
       const now = performance.now();
       const dt = (now - lastTime) / 1000;
       lastTime = now;
+      // dt может оказаться большим, если вкладка была в фоне или машина спала.
+      // Ограничивает начисление advanceTime() — иначе простой обошёл бы лимит оффлайна.
       tick(dt);
     }, 50);
 
