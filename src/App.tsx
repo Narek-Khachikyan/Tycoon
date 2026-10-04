@@ -13,6 +13,7 @@ import {
   StatsModal,
 } from './components/Modals';
 import { Toasts } from './components/Toasts';
+import { PrestigeOverlay } from './components/PrestigeOverlay';
 import { Icon, type IconName } from './components/Icon';
 import { CATALOG } from './economy/catalog';
 import { clickColWidth, shopColWidth, THREE_COL_MIN } from './layout';
@@ -215,6 +216,7 @@ export const App: React.FC = () => {
       />
       <OfflineModal />
       <Toasts />
+      <PrestigeOverlay />
     </div>
   );
 };

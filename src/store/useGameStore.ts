@@ -11,8 +11,10 @@ import {
   isContentFinale,
   OFFLINE_THRESHOLD_SEC,
   prestige as enginePrestige,
+  prestigeGain,
   sellAgents as engineSellAgents,
 } from '../economy/engine';
+import { LAST_GENERATION } from '../economy/catalog';
 import { awardAchievements } from '../economy/achievements';
 import { formatNumber } from '../economy/format';
 import { pickNews } from '../economy/news';
@@ -51,6 +53,9 @@ export interface BurstEvent {
   /** Растёт на каждое событие: потребитель смотрит на него, а не на сам факт события, поэтому
    *  два одинаковых подряд не схлопываются в один отклик. */
   nonce: number;
+  /** Данные для оверлея Престижа: новое Поколение и полученный Compute. Только UI-слой,
+   *  в GameState не попадает и в сейв не пишется. */
+  prestige?: { generation: number; computeGain: number };
 }
 
 interface OfflineReport {
@@ -359,11 +364,18 @@ export const useGameStore = create<GameStore>((set, get) => {
       // На финальном Поколении Престиж обнулил бы забег без перехода в новое Поколение.
       if (!canPrestige(state) || isContentFinale(state)) return;
       playPrestigeSound(state.settings.muted);
+      const gain = prestigeGain(state);
       const next = awardEarned(enginePrestige(state, Date.now()));
       set({ state: next, news: pickNews(next) });
       // Ставится после awardEarned намеренно: если тот же тик выполнил Достижение, тряска
       // перебивает его отклик. Тост Достижения всё равно живёт и озвучен — теряется только веер искр.
-      set({ burst: { kind: 'prestige', nonce: ++burstCounter } });
+      set({
+        burst: {
+          kind: 'prestige',
+          nonce: ++burstCounter,
+          prestige: { generation: Math.min(state.generation + 1, LAST_GENERATION), computeGain: gain },
+        },
+      });
     },
 
     setBuyAmount: (amt: BuyAmount) => set({ buyAmount: amt }),
