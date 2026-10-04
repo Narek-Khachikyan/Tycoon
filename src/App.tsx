@@ -14,6 +14,7 @@ import {
 } from './components/Modals';
 import { Toasts } from './components/Toasts';
 import { CATALOG } from './economy/catalog';
+import { clickColWidth, shopColWidth, THREE_COL_MIN } from './layout';
 
 export const App: React.FC = () => {
   const tick = useGameStore((s) => s.tick);
@@ -26,17 +27,22 @@ export const App: React.FC = () => {
   const [isAchievementsOpen, setAchievementsOpen] = useState(false);
   const [isStatsOpen, setStatsOpen] = useState(false);
   const [isSettingsOpen, setSettingsOpen] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
+  // Ширина окна нужна не для порога, а для базиса колонок: он считается из той же доли окна,
+  // что и раньше, иначе колонки стали бы постоянными. Порог и базис берутся из одного модуля.
+  const [viewport, setViewport] = useState({ width: 0, single: true });
   const rootRef = useRef<HTMLDivElement>(null);
 
   // Responsive check
   useEffect(() => {
-    const handleResize = () => {
-      setIsMobile(window.innerWidth < 960);
+    const measure = () => {
+      const width = window.innerWidth;
+      // Та же проверка, что и раньше, но порог приходит из модуля раскладки: отдельное число
+      // здесь разошлось бы с минимумами колонок при первом же изменении сетки.
+      setViewport((prev) => (prev.width === width ? prev : { width, single: width < THREE_COL_MIN }));
     };
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
   }, []);
 
   // Главный игровой цикл (tick loop 20 FPS)
@@ -83,8 +89,14 @@ export const App: React.FC = () => {
 
   // Единственное, что перекрашивается при смене Поколения (ADR-0002). Ставится на корневой
   // элемент, поэтому производные --accent-hover / --tint-accent из .app-root видят тот же цвет.
+  // Ширины колонок живут здесь же по той же причине: кастомное свойство подставляется на том
+  // элементе, где объявлено, поэтому колонки не пересчитывают базис сами.
   // Приведение нужно потому, что кастомных свойств нет в React.CSSProperties.
-  const accent = { '--accent-color': CATALOG[generation].theme.accent } as React.CSSProperties;
+  const accent = {
+    '--accent-color': CATALOG[generation].theme.accent,
+    '--col-click': `${clickColWidth(viewport.width)}px`,
+    '--col-shop': `${shopColWidth(viewport.width)}px`,
+  } as React.CSSProperties;
 
   return (
     <div
@@ -124,13 +136,14 @@ export const App: React.FC = () => {
           position: 'relative',
         }}
       >
-        {isMobile ? (
-          // Мобильный вид с переключением вкладок
+        {viewport.single ? (
+          // Одноколоночный режим: единственная колонка растягивается на всю ширину, поэтому её
+          // базис из трёхколоночной раскладки здесь не применяется.
           <div style={{ flex: 1, height: '100%', overflowX: 'auto', overflowY: 'hidden' }}>
-            {activeTab === 'click' && <ClickColumn />}
-            {activeTab === 'office' && <OfficeColumn />}
+            {activeTab === 'click' && <ClickColumn full />}
+            {activeTab === 'office' && <OfficeColumn full />}
             {(activeTab === 'shop' || activeTab === 'upgrades' || activeTab === 'perks') && (
-              <ShopColumn />
+              <ShopColumn full />
             )}
           </div>
         ) : (
@@ -144,7 +157,7 @@ export const App: React.FC = () => {
       </main>
 
       {/* Мобильная панель навигации внизу экрана */}
-      {isMobile && (
+      {viewport.single && (
         <nav
           style={{
             display: 'flex',

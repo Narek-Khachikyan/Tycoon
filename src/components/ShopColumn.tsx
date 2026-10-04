@@ -116,7 +116,7 @@ const ModelRow: React.FC<{
   );
 };
 
-export const ShopColumn: React.FC = () => {
+export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const [tab, setTab] = useState<'models' | 'upgrades' | 'perks'>('models');
   const [expandedAA, setExpandedAA] = useState<Record<string, boolean>>({});
 
@@ -150,9 +150,11 @@ export const ShopColumn: React.FC = () => {
         padding: '16px',
         backgroundColor: 'var(--bg-panel)',
         borderLeft: '2px solid var(--border)',
-        // Не даём колонке стать шире контейнера: на мобильном экране это обрезало бы правую часть.
-        minWidth: 'min(360px, 100%)',
-        maxWidth: '440px',
+        // Базис приходит из модуля раскладки: раньше ширина считалась по содержимому вкладки,
+        // и переход «Модели» → «Апгрейды» сужал колонку примерно на 18%, а офис вбирал разницу.
+        // В одноколоночном режиме колонка единственная и занимает всю ширину.
+        flex: full ? '1 1 auto' : '0 0 var(--col-shop)',
+        minWidth: 0,
         height: '100%',
         overflowY: 'hidden',
       }}

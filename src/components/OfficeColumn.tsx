@@ -7,6 +7,7 @@ import { labAgents, SYNERGY_PER_AGENT, synergyUpgradeId } from '../economy/upgra
 import { formatCount, formatNumber } from '../economy/format';
 import { MascotSprite } from './MascotSprite';
 import { Num } from './Num';
+import { OFFICE_COL_MIN } from '../layout';
 
 // Сцен четыре, по две эпохи Поколения на каждую (ADR-0002), поэтому индекс Сцены —
 // floor(Поколение / 2). Список имён выводится из количества, а не дублируется руками:
@@ -83,7 +84,7 @@ const moteStyle = (i: number): React.CSSProperties =>
     '--mote-delay': MOTES[i].delay,
   }) as React.CSSProperties;
 
-export const OfficeColumn: React.FC = () => {
+export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const state = useGameStore((s) => s.state);
   const triggerPrestige = useGameStore((s) => s.triggerPrestige);
   const notation = state.settings.notation;
@@ -116,6 +117,10 @@ export const OfficeColumn: React.FC = () => {
     <div
       style={{
         flex: 1,
+        // Офис — единственная растягиваемая колонка. Её минимум держит офис читаемым в сетке
+        // из трёх колонок, а в одноколоночном режиме он снимается: иначе на узком экране колонка
+        // не влезла бы и обёртка пустила горизонтальную прокрутку.
+        minWidth: full ? 0 : OFFICE_COL_MIN,
         display: 'flex',
         flexDirection: 'column',
         backgroundColor: 'var(--bg-primary)',

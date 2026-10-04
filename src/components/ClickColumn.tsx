@@ -9,7 +9,7 @@ import { Num } from './Num';
  *  не зависит от частоты кадров. */
 const APPROACH_MS = 55;
 
-export const ClickColumn: React.FC = () => {
+export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const state = useGameStore((s) => s.state);
   const clickPrompt = useGameStore((s) => s.clickPrompt);
   const floaters = useGameStore((s) => s.floaters);
@@ -125,9 +125,11 @@ export const ClickColumn: React.FC = () => {
         padding: '20px 16px',
         backgroundColor: 'var(--bg-panel)',
         borderRight: '2px solid var(--border)',
-        // Не даём колонке стать шире контейнера: на мобильном экране это обрезало бы правую часть.
-        minWidth: 'min(320px, 100%)',
-        maxWidth: '380px',
+        // Базис приходит из модуля раскладки, а не из содержимого колонки: раньше ширина была
+        // min/max по содержимому, и переключение вкладки магазина дёргало всю сетку.
+        // В одноколоночном режиме колонка единственная и занимает всю ширину.
+        flex: full ? '1 1 auto' : '0 0 var(--col-click)',
+        minWidth: 0,
         gap: '18px',
         height: '100%',
         overflowY: 'auto',
