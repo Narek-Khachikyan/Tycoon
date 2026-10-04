@@ -10,6 +10,7 @@ import {
   isContentFinale,
   maxAffordable,
   prestigeGain,
+  progressToNextAgent,
   sellRefund,
   shortfall,
 } from '../economy/engine';
@@ -61,7 +62,8 @@ const TokenDeficit: React.FC<{ amount: number; notation: Notation }> = ({ amount
       {amount > 0 && (
         <>
           Не хватает <Num>{formatNumber(amount, notation)}</Num>{' '}
-          {formatCount(Math.round(amount), 'Токен', 'Токена', 'Токенов')}
+          {/* Нотация обязательна: форма считается по цифрам той же записи, что и число. */}
+          {formatCount(amount, 'Токен', 'Токена', 'Токенов', notation)}
         </>
       )}
     </div>
@@ -395,6 +397,13 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
+            // Перенос строк обязателен: сумма двух групп кнопок не помещается в
+            // SHOP_COL_MIN, и без переноса «Max» уезжал за правый край колонки на всём
+            // диапазоне от трёхколоночного порога до ~1190px. Поднимать минимум колонки
+            // ради этого не стоит — он поднял бы и порог одноколоночного режима, а перенос
+            // читается: на узкой колонке множители просто встают вторым рядом.
+            flexWrap: 'wrap',
+            rowGap: '4px',
             marginBottom: '12px',
             backgroundColor: 'var(--bg-card)',
             padding: '6px 10px',
@@ -486,6 +495,11 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               // которая не по карману, подпись всё равно заслуживает: рядом стоит строка дефицита.
               // А вот продать нечего — и обе цифры, и кнопка были бы пустыми.
               const showsGain = sellMode ? owned > 0 : count > 0;
+
+              // Доля для полосы цели — из движка, по той же цене, что и покупка. Число дефицита
+              // ниже показывает, сколько не хватает, а полоса показывает, как близко цель:
+              // одно без другого игроку не сообщает, что цель достижима.
+              const missingShare = progressToNextAgent(state, m);
 
               // Прогресс до синергий — чистый derived render из состояния: число Агентов
               // каждой Лаборатории через labAgents, без нового состояния и без таймеров.
@@ -600,6 +614,22 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                   {/* Дефицит — отдельной строкой с зарезервированной высотой, поэтому ни размер
                       кнопки, ни высота карточки не прыгают на каждом тике. */}
                   <TokenDeficit amount={missing} notation={notation} />
+
+                  {/* Полоса цели: строка дефицита отвечает на «сколько не хватает», полоса — на
+                      «как близко». Подписи у полосы нет, число уже показано строкой выше.
+
+                      Ширина целым процентами и без перехода: магазин перерисовывается двадцать
+                      раз в секунду, а переход на ширину, который перезапускался бы каждый кадр,
+                      тянул бы заливку позади настоящей доли и перезапускал бы анимацию на ровном
+                      месте. */}
+                  <div className="model-goal">
+                    <div className="model-goal__track">
+                      <div
+                        className="model-goal__fill"
+                        style={{ width: `${Math.round((1 - missingShare) * 100)}%` }}
+                      />
+                    </div>
+                  </div>
                   </div>
 
                   {/* Прогресс до синергий Лаборатории: одиночный датасет — счёт одной лабы,

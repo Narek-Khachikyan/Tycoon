@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { motionAllowed, useGameStore, type ToastMessage } from '../store/useGameStore';
-import { ACHIEVEMENTS } from '../economy/achievements';
 import { Icon } from './Icon';
 import { Num } from './Num';
 
@@ -96,8 +95,8 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void 
     return () => clearTimeout(timer);
   }, [toast.id, onRemove]);
 
-  const ach = ACHIEVEMENTS.find((a) => a.id === toast.desc);
-
+  // Название и описание приезжают в тосте текстом, а не id. Раньше компонент сам искал запись
+  // в ACHIEVEMENTS, и теневой id — а он в другой таблице — выводился бы на экран как есть.
   return (
     <div
       ref={ref}
@@ -122,9 +121,9 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void 
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: '0.85rem', color: 'var(--gold)' }}>{toast.title}</div>
         <div style={{ fontSize: '0.8rem', color: 'var(--text-main)', fontWeight: 600 }}>
-          {ach?.name ?? toast.desc}
+          {toast.name}
         </div>
-        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{ach?.desc}</div>
+        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{toast.desc}</div>
       </div>
       {/* Видимая кнопка закрытия: автозакрытие и клик по карточке остаются, но ждать четыре
           секунды, чтобы убрать тост, игрок не обязан. stopPropagation обязателен — иначе нажатие

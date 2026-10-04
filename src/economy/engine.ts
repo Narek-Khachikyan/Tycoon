@@ -76,6 +76,24 @@ export function nextAgentCost(state: GameState): number {
   return min === Infinity ? 0 : min;
 }
 
+/**
+ * Доля `[0, 1]` того, сколько Токенов ещё не хватает до следующего Агента `model`:
+ * `0` — Агент доступен прямо сейчас, `1` — не хватает всего.
+ *
+ * Не то же самое, что `nextAgentCost`: там минимальная цена по Поколению для одной строки
+ * «сколько не хватает», здесь доля по конкретной Модели, чтобы полоса цели была у каждой
+ * карточки своей. Обе величины считаются через `bulkCost` со скидкой, иначе полоса и кнопка
+ * покупки разошлись бы по цене.
+ *
+ * Верхняя граница защищает долю от Токенов ниже нуля, которые `migrate` из повреждённого
+ * сохранения не отсекает.
+ */
+export function progressToNextAgent(state: GameState, model: Model): number {
+  const cost = bulkCost(model, state.agents[model.id] ?? 0, 1, discountMult(state));
+  if (state.tokens >= cost) return 0;
+  return Math.min(1, 1 - state.tokens / cost);
+}
+
 // ---------- Доход ----------
 
 export function globalMult(state: GameState): number {
