@@ -58,7 +58,8 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Логотип — единственное место, где пиксельный шрифт законен на словах (ADR-0003). */}
         <h1 className="pixel-font" style={{ fontSize: '1.4rem', color: 'var(--accent-color)', letterSpacing: '1px' }}>
           AI TYCOON
-        </h1>        <span
+        </h1>
+        <span
           style={{
             fontSize: '0.85rem',
             backgroundColor: 'var(--tint-accent)',
