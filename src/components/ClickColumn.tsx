@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import { motionAllowed, reduceMotionMedia, useGameStore } from '../store/useGameStore';
 import { totalIncome, clickValue } from '../economy/engine';
 import { formatNumber } from '../economy/format';
@@ -16,6 +16,13 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const floaters = useGameStore((s) => s.floaters);
   const chatHistory = useGameStore((s) => s.chatHistory);
   const btnRef = useRef<HTMLButtonElement>(null);
+  const chatRef = useRef<HTMLDivElement>(null);
+
+  // Свежая пара лежит первой, поэтому якорь — это ноль прокрутки, а не конец списка.
+  const newestReplyId = chatHistory[0]?.id;
+  useEffect(() => {
+    chatRef.current?.scrollTo({ top: 0 });
+  }, [newestReplyId]);
 
   const income = totalIncome(state);
   const cVal = clickValue(state, income);
@@ -217,7 +224,12 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
       >
         <div style={{ fontSize: '0.95rem', color: 'var(--text-muted)' }}>Диалог с моделью:</div>
 
+        {/* Якорь на свежую реплику. Свежая пара кладётся сверху, поэтому после прихода она
+            выталкивает прочитанное вниз и без якоря игрок вынужден искать её прокруткой.
+            Ставится ровно на смену верхней пары: пока игрок читает старую, лента не дёргается
+            под ногами. */}
         <div
+          ref={chatRef}
           style={{
             display: 'flex',
             flexDirection: 'column',

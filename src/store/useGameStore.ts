@@ -74,6 +74,27 @@ const PROMPT_TEMPLATES = [
   ['Как достичь AGI?', 'Нужно ещё больше чипов, кофе и токенов!'],
 ];
 
+/**
+ * Шаблон, который нельзя повторить дважды подряд.
+ *
+ * Один `Math.random` давал две одинаковые реплики подряд примерно в одном случае из
+ * восьми, и чат выглядел залипшим наглухо. Индекс живёт в UI-слое рядом со счётчиками и в
+ * GameState не попадает: это не часть сохранения, и его добавление не должно стоить миграции.
+ */
+let lastTemplateIndex = -1;
+const nextTemplateIndex = (): number => {
+  const len = PROMPT_TEMPLATES.length;
+  const i = Math.floor(Math.random() * len);
+  if (i !== lastTemplateIndex) {
+    lastTemplateIndex = i;
+    return i;
+  }
+  // Выбор из остальных: сдвиг на единицу давал бы заметный перекос в пользу следующего шаблона.
+  const j = (i + 1 + Math.floor(Math.random() * (len - 1))) % len;
+  lastTemplateIndex = j;
+  return j;
+};
+
 interface GameStore {
   state: GameState;
   news: string;
@@ -265,7 +286,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       // Обновление чата раз в несколько кликов
       let newChat = chatHistory;
       if (clicked.clicks % 5 === 1) {
-        const pair = PROMPT_TEMPLATES[Math.floor(Math.random() * PROMPT_TEMPLATES.length)];
+        const pair = PROMPT_TEMPLATES[nextTemplateIndex()];
         chatCounter++;
         newChat = [
           { id: chatCounter, userPrompt: pair[0], aiResponse: pair[1] },
