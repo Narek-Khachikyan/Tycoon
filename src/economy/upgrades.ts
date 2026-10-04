@@ -82,6 +82,26 @@ export function labAgents(state: GameState, lab: LabId): number {
     .reduce((s, m) => s + (state.agents[m.id] ?? 0), 0);
 }
 
+/** Высший Апгрейд Модели, купленный хотя бы у одной Модели Лаборатории, или -1, пока не куплен
+ *  ни один: Апгрейды Моделей покупаются поштучно, и у Лаборатории их столько же, сколько Моделей. */
+export function labTopTier(state: GameState, lab: LabId): number {
+  let top = -1;
+  for (const m of CATALOG[state.generation].models) {
+    if (m.lab !== lab) continue;
+    for (let tier = 0; tier < MODEL_TIERS.length; tier++) {
+      if (state.upgrades.includes(modelUpgradeId(m.id, tier))) top = Math.max(top, tier);
+    }
+  }
+  return top;
+}
+
+/** Название работы, которой занята Лаборатория, по её высшему Апгрейду; пусто, пока их нет.
+ *  Строка уже игровая, поэтому интерфейс не дублирует названия тиров. */
+export function labWork(state: GameState, lab: LabId): string {
+  const top = labTopTier(state, lab);
+  return top >= 0 ? MODEL_TIERS[top].name : '';
+}
+
 /** Апгрейд появляется в магазине, когда выполнено его условие открытия. */
 export function isUpgradeUnlocked(state: GameState, u: Upgrade): boolean {
   switch (u.kind) {
