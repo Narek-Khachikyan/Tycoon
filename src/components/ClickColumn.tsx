@@ -1,7 +1,12 @@
-import React, { useRef } from 'react';
+import React, { useLayoutEffect, useRef } from 'react';
 import { useGameStore } from '../store/useGameStore';
 import { totalIncome, clickValue } from '../economy/engine';
 import { formatNumber } from '../economy/format';
+
+/** За сколько миллисекунд счётчик съедает 63% расстояния до цели: каждый кадр отнимает
+ *  долю dt / APPROACH_MS остатка, поэтому число тормозит, а не разгоняется, и скорость
+ *  не зависит от частоты кадров. */
+const APPROACH_MS = 55;
 
 export const ClickColumn: React.FC = () => {
   const state = useGameStore((s) => s.state);
@@ -13,6 +18,60 @@ export const ClickColumn: React.FC = () => {
   const income = totalIncome(state);
   const cVal = clickValue(state, income);
   const notation = state.settings.notation;
+  const reducedMotion = state.settings.reducedMotion;
+
+  const counterRef = useRef<HTMLDivElement>(null);
+  const targetRef = useRef(state.tokens);
+  const shownRef = useRef(state.tokens);
+
+  useLayoutEffect(() => {
+    targetRef.current = state.tokens;
+  }, [state.tokens]);
+
+  // Счётчик живёт вне React: колонки перерисовываются каждый тик, и любое значение,
+  // проведённое через состояние, копилось бы в очередь ререндеров вместо отрисовки.
+  // Узел при этом рендерится пустым — иначе React затрёт написанное в textContent
+  // своими детьми на каждом тике.
+  useLayoutEffect(() => {
+    const node = counterRef.current;
+    if (!node) return;
+
+    let painted = '';
+    const paint = (value: number) => {
+      const text = formatNumber(value, notation);
+      if (text !== painted) {
+        node.textContent = text;
+        painted = text;
+      }
+    };
+
+    let last = performance.now();
+    let frame = 0;
+    paint(reducedMotion ? targetRef.current : shownRef.current);
+
+    const step = (now: number) => {
+      const target = targetRef.current;
+      const shown = shownRef.current;
+      if (reducedMotion || shown >= target) {
+        // Цель ушла вниз (Престиж, Импорт, сброс) или движение выключено: показываем
+        // ровно её, не пересчитывая вниз через весь ряд.
+        shownRef.current = target;
+        paint(target);
+      } else {
+        const next = shown + (target - shown) * (1 - Math.exp(-(now - last) / APPROACH_MS));
+        // Как только строка совпала, показанное значение выравнивается по цели: около
+        // 1e300 прибавка тонет в мантиссе и интерполяция иначе не завершилась бы.
+        shownRef.current =
+          formatNumber(next, notation) === formatNumber(target, notation) ? target : next;
+        paint(shownRef.current);
+      }
+      last = now;
+      frame = requestAnimationFrame(step);
+    };
+
+    frame = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frame);
+  }, [notation, reducedMotion]);
 
   const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -29,7 +88,7 @@ export const ClickColumn: React.FC = () => {
         alignItems: 'center',
         padding: '20px 16px',
         backgroundColor: 'var(--bg-panel)',
-        borderRight: '2px solid var(--border-color)',
+        borderRight: '2px solid var(--border)',
         // Не даём колонке стать шире контейнера: на мобильном экране это обрезало бы правую часть.
         minWidth: 'min(320px, 100%)',
         maxWidth: '380px',
@@ -47,18 +106,23 @@ export const ClickColumn: React.FC = () => {
 
       {/* Токены и Доход */}
       <div style={{ textAlign: 'center', width: '100%' }}>
+        {/* Пустой узел: текст сюда пишет только requestAnimationFrame, и любой ререндер
+            React затирал бы его своими детьми на каждом тике. */}
         <div
+          ref={counterRef}
           className="pixel-font"
           style={{
             fontSize: '2.2rem',
             fontWeight: 700,
-            color: '#38bdf8',
+            color: 'var(--accent-color)',
             lineHeight: 1.1,
-            textShadow: '0 0 12px rgba(56, 189, 248, 0.4)',
+            // nowrap плюс блочная коробка во всю ширину держат колонку: разряд больше не
+            // перетекает весь столбец. Табличные цифры не заказаны — в Pixelify Sans нет
+            // фичи tnum, см. пояснение в index.css.
+            whiteSpace: 'nowrap',
+            textShadow: '0 0 12px var(--accent-glow)',
           }}
-        >
-          {formatNumber(state.tokens, notation)}
-        </div>
+        />
         <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: '2px' }}>
           Токенов
         </div>
@@ -66,7 +130,7 @@ export const ClickColumn: React.FC = () => {
           className="pixel-font"
           style={{
             fontSize: '1.1rem',
-            color: '#4ade80',
+            color: 'var(--green)',
             marginTop: '8px',
             fontWeight: 600,
           }}
@@ -94,7 +158,7 @@ export const ClickColumn: React.FC = () => {
         <span
           style={{
             fontSize: '0.85rem',
-            color: '#bae6fd',
+            color: 'var(--text-main)',
             fontWeight: 400,
             fontFamily: 'Nunito',
           }}
@@ -131,7 +195,9 @@ export const ClickColumn: React.FC = () => {
             paddingRight: '4px',
           }}
         >
-          {chatHistory.map((item) => (
+          {/* Только свежая обменная реплика: старые уже стоят на месте, и анимация на них
+              давно доиграла. Класс на новой реплике появляется вместе с её узлом. */}
+          {chatHistory.map((item, index) => (
             <div
               key={item.id}
               style={{
@@ -143,10 +209,11 @@ export const ClickColumn: React.FC = () => {
             >
               {/* Промпт игрока */}
               <div
+                className={index === 0 ? 'chat-prompt--in' : undefined}
                 style={{
                   alignSelf: 'flex-end',
-                  backgroundColor: '#0369a1',
-                  color: '#f0f9ff',
+                  backgroundColor: 'var(--accent-solid-hover)',
+                  color: 'var(--text-main)',
                   padding: '6px 10px',
                   borderRadius: '12px 12px 2px 12px',
                   maxWidth: '85%',
@@ -158,13 +225,14 @@ export const ClickColumn: React.FC = () => {
 
               {/* Ответ ИИ */}
               <div
+                className={index === 0 ? 'chat-reply--in' : undefined}
                 style={{
                   alignSelf: 'flex-start',
                   backgroundColor: 'var(--bg-card)',
-                  color: '#e2e8f0',
+                  color: 'var(--text-main)',
                   padding: '6px 10px',
                   borderRadius: '12px 12px 12px 2px',
-                  border: '1px solid var(--border-color)',
+                  border: '1px solid var(--border)',
                   maxWidth: '90%',
                   whiteSpace: 'pre-line',
                   wordBreak: 'break-word',

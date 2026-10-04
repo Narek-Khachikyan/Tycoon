@@ -14,6 +14,7 @@ import {
   sellAgents as engineSellAgents,
 } from '../economy/engine';
 import { awardAchievements } from '../economy/achievements';
+import { formatNumber } from '../economy/format';
 import { pickNews } from '../economy/news';
 import { importSave, migrate, SAVE_KEY, serialize } from '../economy/save';
 import { newGame, type GameState, type Notation } from '../economy/state';
@@ -39,6 +40,16 @@ export interface ClickFloater {
   x: number;
   y: number;
   text: string;
+}
+
+/** Событие, на которое интерфейсу нужен собственный громкий отклик. */
+export type BurstKind = 'achievement' | 'prestige';
+
+export interface BurstEvent {
+  kind: BurstKind;
+  /** Растёт на каждое событие: потребитель смотрит на него, а не на сам факт события, поэтому
+   *  два одинаковых подряд не схлопываются в один отклик. */
+  nonce: number;
 }
 
 interface OfflineReport {
@@ -73,6 +84,11 @@ interface GameStore {
   toasts: ToastMessage[];
   floaters: ClickFloater[];
   chatHistory: ChatMessage[];
+  /** Канал громких событий. Намеренно вне GameState: это не часть сохранения, и его добавление
+   *  не должно стоить миграции. Событие перезаписывается следующим, а тождество у него — nonce:
+   *  потребитель смотрит на nonce, поэтому два одинаковых подряд не схлопываются в один отклик
+   *  и гасить канал вручную не нужно — тот, кто показал отклик, и так его показал. */
+  burst: BurstEvent | null;
 
   // Actions
   tick: (dt: number) => void;
@@ -88,6 +104,7 @@ interface GameStore {
   setActiveTab: (tab: ActiveTab) => void;
   setNotation: (notation: Notation) => void;
   toggleMute: () => void;
+  setReducedMotion: (on: boolean) => void;
   dismissOfflineReport: () => void;
   removeToast: (id: string) => void;
   importSaveData: (str: string) => boolean;
@@ -123,6 +140,18 @@ function loadInitialState(): { state: GameState; offline: OfflineReport | null }
 let floaterCounter = 0;
 let chatCounter = 0;
 let toastCounter = 0;
+let burstCounter = 0;
+
+/**
+ * Разрешено ли движение прямо сейчас — по настройке игрока и по системе.
+ * Одноразовые частицы создаются только здесь: CSS-гейт умеет сделать элемент неподвижным,
+ * но не умеет его убрать, поэтому без этой проверки они остались бы в DOM навсегда —
+ * у них не наступил бы animationend.
+ */
+export function motionAllowed(): boolean {
+  if (useGameStore.getState().state.settings.reducedMotion) return false;
+  return !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
 
 export const useGameStore = create<GameStore>((set, get) => {
   const initial = loadInitialState();
@@ -144,6 +173,7 @@ export const useGameStore = create<GameStore>((set, get) => {
           desc: id,
         })),
       ],
+      burst: { kind: 'achievement', nonce: ++burstCounter },
     }));
     return next;
   };
@@ -164,6 +194,7 @@ export const useGameStore = create<GameStore>((set, get) => {
         aiResponse: 'Добро пожаловать в эру искусственного интеллекта! Нажмите «Отправить промпт».',
       },
     ],
+    burst: null,
 
     tick: (dt: number) => {
       const { state } = get();
@@ -195,7 +226,9 @@ export const useGameStore = create<GameStore>((set, get) => {
         id: floaterId,
         x: x ?? window.innerWidth / 2,
         y: y ?? window.innerHeight / 2,
-        text: `+${Math.floor(earned)}`,
+        // Не через Math.floor: у Токенов до 1e300 сырое число растянулось бы на весь экран,
+        // а формат обязан совпадать с подписью под кнопкой Клика.
+        text: `+${formatNumber(earned, state.settings.notation)}`,
       }];
 
       // Обновление чата раз в несколько кликов
@@ -261,6 +294,9 @@ export const useGameStore = create<GameStore>((set, get) => {
       playPrestigeSound(state.settings.muted);
       const next = awardEarned(enginePrestige(state, Date.now()));
       set({ state: next, news: pickNews(next) });
+      // Ставится после awardEarned намеренно: если тот же тик выполнил Достижение, тряска
+      // перебивает его отклик. Тост Достижения всё равно живёт и озвучен — теряется только веер искр.
+      set({ burst: { kind: 'prestige', nonce: ++burstCounter } });
     },
 
     setBuyAmount: (amt: BuyAmount) => set({ buyAmount: amt }),
@@ -273,6 +309,13 @@ export const useGameStore = create<GameStore>((set, get) => {
     toggleMute: () =>
       set((s) => ({
         state: { ...s.state, settings: { ...s.state.settings, muted: !s.state.settings.muted } },
+      })),
+
+    // Настройка только умеет уменьшать движение, поэтому принимает флаг, а не переключает его:
+    // системное «уменьшить движение» игрок отменить не вправе.
+    setReducedMotion: (on: boolean) =>
+      set((s) => ({
+        state: { ...s.state, settings: { ...s.state.settings, reducedMotion: on } },
       })),
 
     dismissOfflineReport: () => set({ offlineReport: null }),

@@ -71,13 +71,17 @@ export const MascotSprite: React.FC<MascotProps> = ({
       case 'xai': // Кубик: темный футуристичный куб с кибер-визором
         return (
           <g>
-            <rect x="5" y="5" width="14" height="14" fill="#1e2029" stroke="#374151" strokeWidth="1" />
+            {/* Серые подняты до холодного графита: на почти чёрном полу Сцены куб был не виден
+                (1.24:1). Заливка держит 3.18:1 на --bg-card в магазине и 4.26:1 на самом
+                тёмном полу, оставаясь самой тёмной заливкой спрайтов, а визор — самым
+                ярким пятном. */}
+            <rect x="5" y="5" width="14" height="14" fill="#6d7480" stroke="#8b95a7" strokeWidth="1" />
             {/* Неоновый визор */}
             <rect x="7" y="10" width="10" height="3" fill="#38bdf8" />
             <rect x="8" y="11" width="3" height="1" fill="#ffffff" />
             {/* Гексагон / X паттерн */}
-            <rect x="9" y="15" width="2" height="2" fill="#475569" />
-            <rect x="13" y="15" width="2" height="2" fill="#475569" />
+            <rect x="9" y="15" width="2" height="2" fill="#98a2b4" />
+            <rect x="13" y="15" width="2" height="2" fill="#98a2b4" />
           </g>
         );
       case 'deepseek': // Китик: синий пиксельный кит с фонтанчиком
@@ -163,7 +167,7 @@ export const MascotSprite: React.FC<MascotProps> = ({
       width={size}
       height={size}
       viewBox="0 0 24 24"
-      className={`inline-block select-none image-rendering-pixelated ${animClass} ${className}`}
+      className={`${animClass} ${className}`.trim()}
       style={{ imageRendering: 'pixelated' }}
     >
       {renderGraphic()}

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useGameStore } from '../store/useGameStore';
 import { ACHIEVEMENTS } from '../economy/achievements';
+import { PERKS } from '../economy/perks';
 import { exportSave } from '../economy/save';
 import { formatDuration, formatNumber } from '../economy/format';
 import { CATALOG } from '../economy/catalog';
@@ -21,7 +22,7 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
       style={{
         position: 'fixed',
         inset: 0,
-        backgroundColor: 'rgba(0,0,0,0.7)',
+        backgroundColor: 'var(--bg-scrim)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -44,7 +45,7 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 className="pixel-font" style={{ fontSize: '1.3rem', color: '#fbbf24' }}>
+          <h2 className="pixel-font" style={{ fontSize: '1.3rem', color: 'var(--gold)' }}>
             🏆 ДОСТИЖЕНИЯ ({state.achievements.length} / {ACHIEVEMENTS.length})
           </h2>
           <button className="pixel-btn" onClick={onClose} style={{ padding: '4px 10px' }}>
@@ -59,8 +60,8 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
               <div
                 key={a.id}
                 style={{
-                  backgroundColor: unlocked ? 'rgba(34, 197, 94, 0.1)' : 'var(--bg-card)',
-                  border: unlocked ? '1px solid #22c55e' : '1px solid var(--border-color)',
+                  backgroundColor: unlocked ? 'var(--tint-green)' : 'var(--bg-card)',
+                  border: unlocked ? '1px solid var(--green)' : '1px solid var(--border)',
                   borderRadius: '6px',
                   padding: '10px 12px',
                   display: 'flex',
@@ -72,7 +73,13 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
                 <div style={{ flex: 1 }}>
                   <div
                     className="pixel-font"
-                    style={{ fontSize: '0.95rem', color: unlocked ? '#86efac' : '#94a3b8' }}
+                    /* Светлее --green намеренно: так открытое Достижение читается ярче
+                       закрытой строки, а --green на подложке сравнялся бы с --text-muted
+                       соседнего описания. */
+                    style={{
+                      fontSize: '0.95rem',
+                      color: unlocked ? '#86efac' : 'var(--text-muted)',
+                    }}
                   >
                     {a.name}
                   </div>
@@ -109,7 +116,7 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
     ['Максимальное Поколение', `${CATALOG[state.maxGeneration].id}: ${CATALOG[state.maxGeneration].name}`],
     ['Престижей совершено', state.prestiges.toString()],
     ['Всего Compute', `${state.compute} (+${state.compute}% к доходу)`],
-    ['Перков открыто', `${state.perks.length} / 13`],
+    ['Перков открыто', `${state.perks.length} / ${PERKS.length}`],
     ['Время в текущем Забеге', formatDuration(runTimeSec)],
     ['Время за всё время игры', formatDuration(playTimeSec)],
   ];
@@ -119,7 +126,7 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
       style={{
         position: 'fixed',
         inset: 0,
-        backgroundColor: 'rgba(0,0,0,0.7)',
+        backgroundColor: 'var(--bg-scrim)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -142,7 +149,7 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 className="pixel-font" style={{ fontSize: '1.3rem', color: '#38bdf8' }}>
+          <h2 className="pixel-font" style={{ fontSize: '1.3rem', color: 'var(--accent-color)' }}>
             📊 СТАТИСТИКА
           </h2>
           <button className="pixel-btn" onClick={onClose} style={{ padding: '4px 10px' }}>
@@ -164,7 +171,7 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
               }}
             >
               <span style={{ color: 'var(--text-muted)' }}>{label}</span>
-              <span className="pixel-font" style={{ color: '#f8fafc', fontWeight: 600 }}>
+              <span className="pixel-font" style={{ color: 'var(--text-main)', fontWeight: 600 }}>
                 {val}
               </span>
             </div>
@@ -179,6 +186,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   const state = useGameStore((s) => s.state);
   const setNotation = useGameStore((s) => s.setNotation);
   const toggleMute = useGameStore((s) => s.toggleMute);
+  const setReducedMotion = useGameStore((s) => s.setReducedMotion);
   const importSaveData = useGameStore((s) => s.importSaveData);
   const resetGame = useGameStore((s) => s.resetGame);
 
@@ -220,7 +228,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
       style={{
         position: 'fixed',
         inset: 0,
-        backgroundColor: 'rgba(0,0,0,0.7)',
+        backgroundColor: 'var(--bg-scrim)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -243,7 +251,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 className="pixel-font" style={{ fontSize: '1.3rem', color: '#f8fafc' }}>
+          <h2 className="pixel-font" style={{ fontSize: '1.3rem', color: 'var(--text-main)' }}>
             ⚙️ НАСТРОЙКИ
           </h2>
           <button className="pixel-btn" onClick={onClose} style={{ padding: '4px 10px' }}>
@@ -294,6 +302,23 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
           </button>
         </div>
 
+        {/* Настройка анимации */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontWeight: 600 }}>Меньше анимации</div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              Выключает движение в игре
+            </div>
+          </div>
+          <button
+            onClick={() => setReducedMotion(!state.settings.reducedMotion)}
+            className={`pixel-btn ${state.settings.reducedMotion ? 'pixel-btn-accent' : ''}`}
+            style={{ padding: '6px 12px', fontSize: '0.85rem' }}
+          >
+            {state.settings.reducedMotion ? 'Включено' : 'Выключено'}
+          </button>
+        </div>
+
         {/* Экспорт и Импорт */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <div style={{ fontWeight: 600 }}>Сохранение данных</div>
@@ -311,8 +336,8 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
               style={{
                 flex: 1,
                 backgroundColor: 'var(--bg-card)',
-                border: '1px solid var(--border-color)',
-                color: '#fff',
+                border: '1px solid var(--border)',
+                color: 'var(--text-main)',
                 padding: '8px',
                 borderRadius: '4px',
                 fontSize: '0.85rem',
@@ -326,18 +351,20 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
               Импорт
             </button>
           </div>
-          {errorMsg && <div style={{ color: '#ef4444', fontSize: '0.8rem' }}>{errorMsg}</div>}
+          {errorMsg && <div style={{ color: 'var(--red)', fontSize: '0.8rem' }}>{errorMsg}</div>}
         </div>
 
         {/* Полный сброс */}
-        <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '10px' }}>
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
           <button
             onClick={handleReset}
             className="pixel-btn"
             style={{
               width: '100%',
-              backgroundColor: 'rgba(239, 68, 68, 0.15)',
-              borderColor: '#ef4444',
+              backgroundColor: 'var(--tint-red)',
+              borderColor: 'var(--red)',
+              // Светлее --red намеренно: на собственной красной подложке --red даёт 3.43:1
+              // и подпись тонет в заливке.
               color: '#fca5a5',
             }}
           >
@@ -361,7 +388,7 @@ export const OfflineModal: React.FC = () => {
       style={{
         position: 'fixed',
         inset: 0,
-        backgroundColor: 'rgba(0,0,0,0.75)',
+        backgroundColor: 'var(--bg-scrim)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -380,17 +407,17 @@ export const OfflineModal: React.FC = () => {
           alignItems: 'center',
           textAlign: 'center',
           gap: '14px',
-          border: '2px solid #38bdf8',
+          border: '2px solid var(--accent-color)',
         }}
       >
         <div style={{ fontSize: '3rem' }}>🌙⚡</div>
-        <h2 className="pixel-font" style={{ fontSize: '1.4rem', color: '#38bdf8' }}>
+        <h2 className="pixel-font" style={{ fontSize: '1.4rem', color: 'var(--accent-color)' }}>
           С ВОЗВРАЩЕНИЕМ!
         </h2>
 
-        <div style={{ fontSize: '0.9rem', color: '#cbd5e1' }}>
+        <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>
           Пока вы отдыхали (
-          <span style={{ color: '#fbbf24', fontWeight: 700 }}>
+          <span style={{ color: 'var(--gold)', fontWeight: 700 }}>
             {formatDuration(offlineReport.seconds)}
           </span>
           ), ваши ИИ-Агенты усердно трудились и заработали:
@@ -400,7 +427,8 @@ export const OfflineModal: React.FC = () => {
           className="pixel-font"
           style={{
             fontSize: '2rem',
-            color: '#4ade80',
+            color: 'var(--green)',
+            // Ореол остаётся литералом: --tint-green — это 10% подложка, а свечению нужно 50%.
             textShadow: '0 0 10px rgba(74, 222, 128, 0.5)',
           }}
         >
