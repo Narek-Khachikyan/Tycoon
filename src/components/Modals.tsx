@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useGameStore } from '../store/useGameStore';
 import { ACHIEVEMENTS } from '../economy/achievements';
 import { GLOSSARY } from '../data/glossary';
@@ -40,7 +40,9 @@ function useModalExit(
   useEffect(() => {
     closeRef.current = onClose;
   }, [onClose]);
-  useEffect(() => {
+  // Сброс closing — layout-эффектом, до кадра: иначе при повторном открытии виден
+  // один кадр выходной анимации (пассивный эффект срабатывает уже после отрисовки).
+  useLayoutEffect(() => {
     if (open) setClosing(false);
   }, [open]);
   useEffect(() => {
