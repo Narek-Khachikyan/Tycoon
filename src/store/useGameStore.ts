@@ -14,6 +14,7 @@ import {
   sellAgents as engineSellAgents,
 } from '../economy/engine';
 import { awardAchievements } from '../economy/achievements';
+import { formatNumber } from '../economy/format';
 import { pickNews } from '../economy/news';
 import { importSave, migrate, SAVE_KEY, serialize } from '../economy/save';
 import { newGame, type GameState, type Notation } from '../economy/state';
@@ -39,6 +40,16 @@ export interface ClickFloater {
   x: number;
   y: number;
   text: string;
+}
+
+/** Событие, на которое интерфейсу нужен собственный громкий отклик. */
+export type BurstKind = 'achievement' | 'prestige';
+
+export interface BurstEvent {
+  kind: BurstKind;
+  /** Растёт на каждое событие: потребитель смотрит на него, а не на сам факт события, поэтому
+   *  два одинаковых подряд не схлопываются в один отклик. */
+  nonce: number;
 }
 
 interface OfflineReport {
@@ -73,6 +84,11 @@ interface GameStore {
   toasts: ToastMessage[];
   floaters: ClickFloater[];
   chatHistory: ChatMessage[];
+  /** Канал громких событий. Намеренно вне GameState: это не часть сохранения, и его добавление
+   *  не должно стоить миграции. Событие перезаписывается следующим, а тождество у него — nonce:
+   *  потребитель смотрит на nonce, поэтому два одинаковых подряд не схлопываются в один отклик
+   *  и гасить канал вручную не нужно — тот, кто показал отклик, и так его показал. */
+  burst: BurstEvent | null;
 
   // Actions
   tick: (dt: number) => void;
@@ -88,6 +104,7 @@ interface GameStore {
   setActiveTab: (tab: ActiveTab) => void;
   setNotation: (notation: Notation) => void;
   toggleMute: () => void;
+  setReducedMotion: (on: boolean) => void;
   dismissOfflineReport: () => void;
   removeToast: (id: string) => void;
   importSaveData: (str: string) => boolean;
@@ -123,6 +140,49 @@ function loadInitialState(): { state: GameState; offline: OfflineReport | null }
 let floaterCounter = 0;
 let chatCounter = 0;
 let toastCounter = 0;
+let burstCounter = 0;
+
+/** Системная настройка движения. Литерал живёт здесь один раз: тот же запрос читает
+ *  CSS-гейт в index.css, а JS нужен ещё и сам список — для слушателя смены настройки. */
+export const REDUCE_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
+
+/**
+ * Список системной настройки движения и единственное место, где он читается: предикат
+ * motionAllowed() и слушатель в ClickColumn спрашивают его здесь, чтобы «прочитано или
+ * нет» решалось единожды. null — читать нечем, и тогда движения нет.
+ *
+ * Здесь нужен fail closed, потому что читатели несимметричны: CSS-гейт в index.css спрашивает
+ * no-preference и на движке без фичи просто не показывает анимацию, а этот список спрашивает
+ * reduce, и такой движок на `reduce` отвечает «движение разрешено». Одноразовые частицы при
+ * этом создаются с animation: none, а элемент без анимации не устанет никогда.
+ */
+export function reduceMotionMedia(): MediaQueryList | null {
+  if (typeof window.matchMedia !== 'function') return null;
+  const media = window.matchMedia(REDUCE_MOTION_QUERY);
+  // `.media` сериализует разобранный запрос, поэтому `not all` — это ровно случай
+  // «движок запрос не разобрал». По .matches он от «движения нет» не отличим, а значит
+  // без этой проверки непрочитанная настройка выглядела бы как разрешённое движение.
+  return media.media === 'not all' ? null : media;
+}
+
+/**
+ * Разрешено ли движение прямо сейчас — по настройке игрока и по системе.
+ * Одноразовые частицы создаются только здесь: CSS-гейт умеет сделать элемент неподвижным,
+ * но не умеет его убрать, поэтому без этой проверки они остались бы в DOM навсегда.
+ * Проверка ловит момент создания, и только его: гейт умеет ещё и отменить уже идущую
+ * анимацию, а после отмены animationend не наступает — за снятие отвечает useOneShot
+ * в Toasts.tsx, потому что магазин не знает, какие элементы уже на выходе.
+ */
+export function motionAllowed(): boolean {
+  if (useGameStore.getState().state.settings.reducedMotion) return false;
+  const media = reduceMotionMedia();
+  // `reduce`, а не `no-preference` как в CSS-гейте, и это не опечатка: здесь важно само
+  // решение — выбрал ли игрок движение, — а не то, как оно выражено в таблице стилей.
+  // Менять строку на no-preference «для симметрии» нельзя, не тронув сравнение: на движке
+  // без этой фичи она сама по себе ответит «движение разрешено».
+  if (!media) return false;
+  return !media.matches;
+}
 
 export const useGameStore = create<GameStore>((set, get) => {
   const initial = loadInitialState();
@@ -144,6 +204,7 @@ export const useGameStore = create<GameStore>((set, get) => {
           desc: id,
         })),
       ],
+      burst: { kind: 'achievement', nonce: ++burstCounter },
     }));
     return next;
   };
@@ -164,6 +225,7 @@ export const useGameStore = create<GameStore>((set, get) => {
         aiResponse: 'Добро пожаловать в эру искусственного интеллекта! Нажмите «Отправить промпт».',
       },
     ],
+    burst: null,
 
     tick: (dt: number) => {
       const { state } = get();
@@ -195,7 +257,9 @@ export const useGameStore = create<GameStore>((set, get) => {
         id: floaterId,
         x: x ?? window.innerWidth / 2,
         y: y ?? window.innerHeight / 2,
-        text: `+${Math.floor(earned)}`,
+        // Не через Math.floor: у Токенов до 1e300 сырое число растянулось бы на весь экран,
+        // а формат обязан совпадать с подписью под кнопкой Клика.
+        text: `+${formatNumber(earned, state.settings.notation)}`,
       }];
 
       // Обновление чата раз в несколько кликов
@@ -261,6 +325,9 @@ export const useGameStore = create<GameStore>((set, get) => {
       playPrestigeSound(state.settings.muted);
       const next = awardEarned(enginePrestige(state, Date.now()));
       set({ state: next, news: pickNews(next) });
+      // Ставится после awardEarned намеренно: если тот же тик выполнил Достижение, тряска
+      // перебивает его отклик. Тост Достижения всё равно живёт и озвучен — теряется только веер искр.
+      set({ burst: { kind: 'prestige', nonce: ++burstCounter } });
     },
 
     setBuyAmount: (amt: BuyAmount) => set({ buyAmount: amt }),
@@ -273,6 +340,16 @@ export const useGameStore = create<GameStore>((set, get) => {
     toggleMute: () =>
       set((s) => ({
         state: { ...s.state, settings: { ...s.state.settings, muted: !s.state.settings.muted } },
+      })),
+
+    // Настройка только умеет уменьшать движение, поэтому принимает флаг, а не переключает его:
+    // системное «уменьшить движение» игрок отменить не вправе.
+    // Уходящие тосты и веер оно не трогает намеренно: магазин не знает, какие из них уже
+    // на выходе, а снять все означало бы обрезать время показа. Гасит их тот, кто их создал,
+    // в своём коммите — тем же действием, что переводит data-motion.
+    setReducedMotion: (on: boolean) =>
+      set((s) => ({
+        state: { ...s.state, settings: { ...s.state.settings, reducedMotion: on } },
       })),
 
     dismissOfflineReport: () => set({ offlineReport: null }),

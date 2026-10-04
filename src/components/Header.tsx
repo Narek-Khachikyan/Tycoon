@@ -1,5 +1,5 @@
-import React from 'react';
-import { useGameStore } from '../store/useGameStore';
+import React, { useEffect, useRef } from 'react';
+import { motionAllowed, useGameStore } from '../store/useGameStore';
 import { CATALOG } from '../economy/catalog';
 import { ACHIEVEMENTS } from '../economy/achievements';
 import { formatNumber } from '../economy/format';
@@ -17,11 +17,27 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const state = useGameStore((s) => s.state);
   const toggleMute = useGameStore((s) => s.toggleMute);
+  const burst = useGameStore((s) => s.burst);
+  const badgeRef = useRef<HTMLButtonElement>(null);
 
   const gen = CATALOG[state.generation];
   const unlockedAchCount = state.achievements.length;
   const totalAchCount = ACHIEVEMENTS.length;
   const isMuted = state.settings.muted;
+
+  // Значок — единственное место на экране, где Достижение остаётся видимым после того, как
+  // тост уйдёт, поэтому пульсирует он, а не тост: вспышка тоста длится полсекунды.
+  useEffect(() => {
+    if (burst?.kind !== 'achievement' || !motionAllowed()) return;
+    const node = badgeRef.current;
+    if (!node) return;
+    node.classList.remove('ach-badge--pulse');
+    void node.offsetWidth;
+    node.classList.add('ach-badge--pulse');
+    const done = () => node.classList.remove('ach-badge--pulse');
+    node.addEventListener('animationend', done);
+    return () => node.removeEventListener('animationend', done);
+  }, [burst?.nonce]);
 
   return (
     <header
@@ -31,22 +47,22 @@ export const Header: React.FC<HeaderProps> = ({
         justifyContent: 'space-between',
         padding: '10px 16px',
         backgroundColor: 'var(--bg-panel)',
-        borderBottom: '2px solid var(--border-color)',
+        borderBottom: '2px solid var(--border)',
         flexWrap: 'wrap',
         gap: '10px',
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-        <h1 className="pixel-font" style={{ fontSize: '1.4rem', color: '#38bdf8', letterSpacing: '1px' }}>
+        <h1 className="pixel-font" style={{ fontSize: '1.4rem', color: 'var(--accent-color)', letterSpacing: '1px' }}>
           ⚡ AI TYCOON
         </h1>
         <span
           className="pixel-font"
           style={{
             fontSize: '0.85rem',
-            backgroundColor: 'rgba(56, 189, 248, 0.15)',
-            border: '1px solid #38bdf8',
-            color: '#7dd3fc',
+            backgroundColor: 'var(--tint-accent)',
+            border: '1px solid var(--accent-color)',
+            color: 'var(--accent-hover)',
             padding: '2px 8px',
             borderRadius: '4px',
           }}
@@ -58,9 +74,9 @@ export const Header: React.FC<HeaderProps> = ({
             className="pixel-font"
             style={{
               fontSize: '0.85rem',
-              backgroundColor: 'rgba(251, 191, 36, 0.15)',
-              border: '1px solid #fbbf24',
-              color: '#fef08a',
+              backgroundColor: 'var(--tint-gold)',
+              border: '1px solid var(--gold)',
+              color: 'var(--gold)',
               padding: '2px 8px',
               borderRadius: '4px',
             }}
@@ -82,7 +98,8 @@ export const Header: React.FC<HeaderProps> = ({
         </button>
 
         <button
-          className="pixel-btn"
+          ref={badgeRef}
+          className="pixel-btn ach-badge"
           onClick={onOpenAchievements}
           style={{ padding: '6px 12px', fontSize: '0.9rem' }}
         >

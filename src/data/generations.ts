@@ -21,7 +21,8 @@ export interface GenerationSeed {
   id: number;
   name: string;
   period: string;
-  theme: { bg: string; panel: string; accent: string };
+  /** Только акцент: база интерфейса общая для всех Поколений (ADR-0002). */
+  theme: { accent: string };
   models: ModelSeed[];
 }
 
@@ -35,7 +36,7 @@ export const GENERATIONS: GenerationSeed[] = [
     id: 1,
     name: 'Рассвет',
     period: '2023 H1',
-    theme: { bg: '#ffe9c7', panel: '#fff7ea', accent: '#ff9f43' },
+    theme: { accent: '#ff7a2f' },
     models: m([
       ['llama-2-chat-7b', 'Llama 2 7B', 'meta', 3, 95, 0.1],
       ['mistral-7b-instruct', 'Mistral 7B', 'mistral', 5, 110, 0.15],
@@ -51,7 +52,7 @@ export const GENERATIONS: GenerationSeed[] = [
     id: 2,
     name: 'Эра GPT-4',
     period: '2023 H2',
-    theme: { bg: '#d9f5ff', panel: '#f1fbff', accent: '#2fa8e0' },
+    theme: { accent: '#35a7ff' },
     models: m([
       ['deepseek-llm-67b-chat', 'DeepSeek LLM 67B', 'deepseek', 9, 30, 0.8],
       ['qwen-72b-chat', 'Qwen 72B', 'alibaba', 10, 35, 0.9],
@@ -68,7 +69,7 @@ export const GENERATIONS: GenerationSeed[] = [
     id: 3,
     name: 'Мультимодальная',
     period: '2024 H1',
-    theme: { bg: '#e9ddff', panel: '#f7f2ff', accent: '#8a5cff' },
+    theme: { accent: '#a174ff' },
     models: m([
       ['llama-3-instruct-8b', 'Llama 3 8B', 'meta', 12, 150, 0.1],
       ['claude-3-haiku', 'Claude 3 Haiku', 'anthropic', 14, 130, 0.5],
@@ -88,7 +89,7 @@ export const GENERATIONS: GenerationSeed[] = [
     id: 4,
     name: 'Omni',
     period: '2024 H2',
-    theme: { bg: '#d7ffe6', panel: '#f0fff5', accent: '#21c56b' },
+    theme: { accent: '#1fc9c0' },
     models: m([
       ['gpt-4o-mini', 'GPT-4o mini', 'openai', 24, 115, 0.26],
       ['claude-3-5-haiku', 'Claude 3.5 Haiku', 'anthropic', 25, 65, 1.6],
@@ -106,7 +107,7 @@ export const GENERATIONS: GenerationSeed[] = [
     id: 5,
     name: 'Reasoning',
     period: 'конец 2024 – начало 2025',
-    theme: { bg: '#fff3b8', panel: '#fffbe2', accent: '#f5b700' },
+    theme: { accent: '#ff4f8b' },
     models: m([
       ['llama-3-3-instruct-70b', 'Llama 3.3 70B', 'meta', 28, 100, 0.6],
       ['mistral-small-3', 'Mistral Small 3', 'mistral', 29, 130, 0.15],
@@ -125,7 +126,7 @@ export const GENERATIONS: GenerationSeed[] = [
     id: 6,
     name: 'Агентная',
     period: '2025 H1',
-    theme: { bg: '#ffd9ec', panel: '#fff0f7', accent: '#ff4fa3' },
+    theme: { accent: '#b6e024' },
     models: m([
       ['llama-4-maverick', 'Llama 4 Maverick', 'meta', 36, 140, 0.4],
       ['mistral-medium-3', 'Mistral Medium 3', 'mistral', 39, 80, 0.8],
@@ -144,7 +145,7 @@ export const GENERATIONS: GenerationSeed[] = [
     id: 7,
     name: 'GPT-5',
     period: '2025 H2',
-    theme: { bg: '#cdf3ff', panel: '#ecfbff', accent: '#00a8d6' },
+    theme: { accent: '#7483ff' },
     models: m([
       ['gpt-oss-120b', 'gpt-oss-120B', 'openai', 58, 300, 0.3],
       ['mistral-medium-3-1', 'Mistral Medium 3.1', 'mistral', 40, 90, 0.8],
@@ -161,7 +162,7 @@ export const GENERATIONS: GenerationSeed[] = [
     id: 8,
     name: 'Фронтир',
     period: 'конец 2025',
-    theme: { bg: '#ffe0d1', panel: '#fff3ed', accent: '#ff6a3d' },
+    theme: { accent: '#e05cff' },
     models: m([
       ['deepseek-v3-2-reasoning', 'DeepSeek V3.2', 'deepseek', 62, 35, 0.3],
       ['grok-4-1-fast-reasoning', 'Grok 4.1 Fast', 'xai', 63, 180, 0.3],

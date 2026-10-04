@@ -1,15 +1,83 @@
+/* База интерфейса — одна на всю игру (ADR-0002): тёмная нейтральная лестница с тёплым
+   уклоном. Каналы идут R ≥ G ≥ B с малыми дельтами, поэтому это тёплый почти-нейтральный
+   тауп, а не коричневый. Цвет живёт в акценте Поколения, поэтому базу не перекрашивают. */
 :root {
-  --bg-primary: #12141d;
-  --bg-panel: #1b1e2e;
-  --bg-card: #252a3d;
-  --border-color: #3b4261;
-  --accent-color: #38bdf8;
-  --accent-hover: #0ea5e9;
-  --text-main: #f1f5f9;
-  --text-muted: #94a3b8;
-  --gold: #fbbf24;
-  --green: #22c55e;
-  --red: #ef4444;
+  --bg-void: #100e0c;
+  --bg-primary: #1a1714;
+  --bg-panel: #221e1a;
+  --bg-card: #2b2621;
+  --bg-raised: #37312b;
+  --bg-scrim: rgba(0, 0, 0, 0.72);
+
+  --border: #453e36;
+  --border-strong: #5c5348;
+
+  --text-main: #f0ebe3;
+  --text-muted: #a49c91;
+
+  /* Семантические цвета не привязаны к Поколению и никогда не становятся его акцентом. */
+  --gold: #e8a33d;
+  --green: #4fbf6a;
+  --red: #e15959;
+
+  /* Сплошные заливки семейств пиксельных кнопок: заливка темнее самого цвета, под ней —
+     жёсткая тень ещё темнее. Значение золота чуть темнее прежнего #b45309, иначе подпись
+     Престижа на нём падает с 4.84:1 до 4.23:1. */
+  --gold-solid: #aa4b07;
+  --gold-solid-hover: #d97706;
+  --gold-shadow: #78350f;
+  --red-solid: #b91c1c;
+
+  /* Полупрозрачные подложки. Название — по роли, а не по цвету. */
+  --tint-strong: rgba(0, 0, 0, 0.25);
+  --tint-gold: rgba(232, 163, 61, 0.15);
+  --tint-green: rgba(79, 191, 106, 0.1);
+  --tint-red: rgba(225, 89, 89, 0.15);
+
+  /* Фолбэк до первого рендера: настоящий акцент приходит из theme.accent текущего
+     Поколения и ставится на корневой элемент приложения. Значение совпадает с акцентом
+     Поколения 1, чтобы фолбэк не выглядел чужим. */
+  --accent-color: #ff7a2f;
+}
+
+/* Производные от акцента обязаны жить на том же элементе, что и --accent-color: значение
+   кастомного свойства подставляется на том элементе, где оно объявлено, а не там,
+   где прочитано. Иначе производные остались бы цветами первого Поколения.
+
+   Значения ниже взяты из акцента Поколения 1, поэтому без color-mix() картинка не
+   «ломается», а остаётся рабочей. Повторить объявление вместо @supports нельзя: у
+   кастомного свойства все объявления валидны на этапе разбора, поэтому в каскаде всегда
+   побеждает последнее — и без color-mix() потребитель получит неразрешимую функцию и
+   уйдёт в unset. Признак поддержки и есть единственный рабочий способ разделить ветки.
+
+   Заливка акцентной кнопки берёт половину акцента: этого хватает, чтобы подпись
+   --text-main держала 4.5:1 на любом из восьми акцентов, а третья часть даёт читаемую
+   тень под заливкой.
+
+   Ореолу вокруг текста нужен собственный токен, а не --tint-accent: подложка — это 15%
+   поверх панели, а ореол держит 50% и оседает на самом тексте, --text-main на 15% его бы
+   погасил. Зашитый в литерал оттенок Поколения 1 рассыпается уже на втором: текст уезжает
+   вместе с --accent-color, а ореол остаётся синим. Половина выбрана как средина между
+   прежними 0.4 у счётчика и 0.6 у всплывающего числа — лишний вес у второго добирает
+   оставленный член 0 2px 4px #000. */
+.app-root {
+  --accent-hover: #ff975d;
+  --tint-accent: rgba(255, 122, 47, 0.15);
+  --accent-glow: rgba(255, 122, 47, 0.5);
+  --accent-solid: #803d18;
+  --accent-solid-hover: #663113;
+  --accent-shadow: #4d250e;
+}
+
+@supports (color: color-mix(in srgb, red, blue)) {
+  .app-root {
+    --accent-hover: color-mix(in srgb, var(--accent-color) 78%, #ffffff);
+    --tint-accent: color-mix(in srgb, var(--accent-color) 15%, transparent);
+    --accent-glow: color-mix(in srgb, var(--accent-color) 50%, transparent);
+    --accent-solid: color-mix(in srgb, var(--accent-color) 50%, #000000);
+    --accent-solid-hover: color-mix(in srgb, var(--accent-color) 40%, #000000);
+    --accent-shadow: color-mix(in srgb, var(--accent-color) 30%, #000000);
+  }
 }
 
 * {
@@ -32,6 +100,253 @@ body {
   font-family: 'Pixelify Sans', cursive, monospace;
 }
 
+/* font-variant-numeric: tabular-nums у счётчика Токенов нет намеренно: в Pixelify Sans
+   нет OpenType-фичи tnum (замерено — цифра 1 уже на 29% уже остальных, и включение
+   tnum не меняет ничего, в отличие от шрифта, у которого фича есть), поэтому свойство
+   молча ничего бы не делало. Ширина вместо этого зарезервирована родителем. */
+
+/* ── Акценты событий ────────────────────────────────────────────────────────
+   Громкость — бюджет, а не украшение: редкое и важное событие получает громкий отклик, а
+   рутинное — тихий, иначе важное перестаёт читаться. Отсюда порядок и размеры:
+
+   Покупка Модели   — короткий хлопок строки и 8 искр: событие повторяется десятки раз за
+                      Забег, поэтому всё, что крупнее, превратилось бы в рябь.
+   Достижение      — 24 искры, вспышка тоста, пульс значка: первое по-настоящему крупное
+                      событие, но локальное. Вспышки на весь экран здесь нет намеренно:
+                      яркая вспышка большой площади — известный триггер фоточувствительности.
+   Престиж         — единственная тряска во всей игре: 10 px и 0.45° за 90 мс плюс провал
+                      яркости. Дальше эта шкала кончается: на Клике, на покупке, на ошибке и
+                      на повторном Престиже тряски нет, и добавлять её «для соли» не нужно.
+   Чат             — приход реплики: тихо, но обязательно, потому что это и есть игра. */
+
+@keyframes prestige-shake {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+    opacity: 1;
+  }
+  32% {
+    transform: translate3d(-10px, 4px, 0) rotate(-0.45deg);
+    opacity: 0.86;
+  }
+  64% {
+    transform: translate3d(7px, -3px, 0) rotate(0.3deg);
+    opacity: 0.94;
+  }
+  100% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+    opacity: 1;
+  }
+}
+
+/* Пусто правило: без движения Престиж не сдвигает экран. */
+.app-root--shake {
+}
+
+/* Покупка. Масштаб никогда не падает ниже единицы: строка под курсором не должна уехать из-под
+   него — тот же приём, что у .pixel-btn:active, только в другую сторону. */
+@keyframes model-row-pop {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.045);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.model-row--pop {
+}
+
+@keyframes spark-fly {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) scale(0.4);
+  }
+  22% {
+    opacity: 0.95;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--spark-dx), var(--spark-dy), 0) scale(1);
+  }
+}
+
+.spark {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  background-color: var(--accent-color);
+}
+
+/* Слой искр не обрезается: они улетают за верхний край строки, и обрезка съела бы половину
+   жеста. */
+.spark-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Достижение. Искры вылетают веером из центра карточки и гаснут, а пик приходится на 18%
+   времени их жизни: вспышка читается как акцент, а не как засветка. */
+@keyframes burst-fly {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) scale(0.3);
+  }
+  18% {
+    opacity: 1;
+    transform: translate3d(calc(var(--burst-dx) * 0.35), calc(var(--burst-dy) * 0.35), 0) scale(1.15);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--burst-dx), var(--burst-dy), 0) scale(0.5);
+  }
+}
+
+.burst-layer {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 300;
+}
+
+.burst-particle {
+  position: absolute;
+  opacity: 0;
+  background-color: var(--gold);
+}
+
+/* Пульс значка Достижений. Живёт на ::after, как ореол у .pulse-glow: transform самой кнопки
+   принадлежит её :hover и :active, а ореол мерцает поверх — иначе пульс отменял бы отклик
+   на нажатие. Значок — единственное место на экране, где Достижение остаётся видимым после
+   ухода тоста, поэтому вспышка здесь, а не на тосте: золото держится полсекунды на площади
+   кнопки, то есть в разы меньше и в разы тусклее, чем засветка, вредная при
+   фоточувствительности. */
+@keyframes ach-badge-pulse {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  25% {
+    opacity: 0.5;
+    transform: scale(1.12);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.3);
+  }
+}
+
+.ach-badge {
+  position: relative;
+}
+
+.ach-badge::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: 0 0 12px 5px var(--gold);
+  opacity: 0;
+}
+
+/* Пульс живёт на классе, который Header ставит на каждое Достижение: иначе ореол мигал бы
+   сам по себе при загрузке страницы. */
+.ach-badge--pulse::after {
+  animation: none;
+}
+
+/* Чат. Реплика игрока падает сверху, ответ модели поднимается снизу: они стартуют одновременно,
+   поэтому ответ не задерживается, но глаз всё равно различает, кто первый заговорил. */
+@keyframes chat-prompt-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes chat-reply-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.chat-prompt--in {
+}
+
+.chat-reply--in {
+}
+
+/* Живой фон Сцены. Пыль держится на 50% непрозрачности и дрейфует вверх на 6–9 с: медленнее
+   примерно в шесть раз, чем граница частоты мерцания, поэтому ряд из восемнадцати точек
+   не читается как мигание. Пик подобран по самой светлой подложке под пылью — это жёлтый
+   пол Сцены (L≈0.90), а не белый: на 16% точка давала контраст 1.15:1 и не была видна вовсе. */
+@keyframes mote-drift {
+  0%,
+  100% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    opacity: 0.5;
+    transform: translate3d(var(--mote-dx), var(--mote-dy), 0);
+  }
+}
+
+.scene__motes {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.mote {
+  display: none;
+  position: absolute;
+  background-color: var(--text-muted);
+  opacity: 0;
+}
+
+/* Маскоты качаются вразнобой: без задержек все восемь идут на одной фазе, и Сцена читается как
+   механизм. Отрицательные задержки разводят их сразу, а не через секунду после загрузки. */
+.scene__mascots > :nth-child(1) .animate-mascot-bob {
+  animation-delay: -0.15s;
+}
+.scene__mascots > :nth-child(2) .animate-mascot-bob {
+  animation-delay: -0.72s;
+}
+.scene__mascots > :nth-child(3) .animate-mascot-bob {
+  animation-delay: -1.31s;
+}
+.scene__mascots > :nth-child(4) .animate-mascot-bob {
+  animation-delay: -0.38s;
+}
+.scene__mascots > :nth-child(5) .animate-mascot-bob {
+  animation-delay: -1.05s;
+}
+.scene__mascots > :nth-child(6) .animate-mascot-bob {
+  animation-delay: -0.55s;
+}
+.scene__mascots > :nth-child(7) .animate-mascot-bob {
+  animation-delay: -1.58s;
+}
+.scene__mascots > :nth-child(8) .animate-mascot-bob {
+  animation-delay: -0.94s;
+}
+
 /* Pixel buttons */
 .pixel-btn {
   font-family: 'Pixelify Sans', monospace;
@@ -39,11 +354,20 @@ body {
   letter-spacing: 0.5px;
   background: var(--bg-card);
   color: var(--text-main);
-  border: 2px solid var(--border-color);
-  box-shadow: 0 4px 0 #0f121d;
+  border: 2px solid var(--border);
+  box-shadow: 0 4px 0 var(--bg-void);
   padding: 8px 14px;
   cursor: pointer;
-  transition: all 0.08s ease-in-out;
+  /* Не all: all тянет в переход box-shadow и прочие свойства раскладки, которые на :active
+     меняются, а красить их каждый кадр незачем. Ниже только то, что действительно меняется:
+     цвет и transform. Пружина 0.24s с перелётом — это отпускание кнопки, см. блок движения. */
+  transition:
+    background-color 0.08s ease-in-out,
+    border-color 0.08s ease-in-out,
+    transform 0.24s cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* Прижатая кнопка растёт вширь и садится по высоте: ось у нижней грани, поэтому нажатие
+     читается как уход в поверхность, а не как пульс на месте. */
+  transform-origin: 50% 100%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -52,15 +376,13 @@ body {
 }
 
 .pixel-btn:hover:not(:disabled) {
-  background: var(--border-color);
+  background: var(--border);
   border-color: var(--accent-color);
-  transform: translateY(-1px);
 }
 
-.pixel-btn:active:not(:disabled) {
-  transform: translateY(3px);
-  box-shadow: 0 1px 0 #0f121d;
-}
+/* Отклик на нажатие без движения живёт в разделе «Движение» в конце файла: там он стоит
+   после всех .pixel-btn-*:hover, а их `background` — шорткат, и шорткат сбрасывает
+   background-image, если встретится позже. Подъём и вдавливание — там же, в медиазапросе. */
 
 .pixel-btn:disabled {
   opacity: 0.5;
@@ -69,32 +391,32 @@ body {
 }
 
 .pixel-btn-accent {
-  background: #0284c7;
-  border-color: #38bdf8;
-  box-shadow: 0 4px 0 #034f78;
+  background: var(--accent-solid);
+  border-color: var(--accent-color);
+  box-shadow: 0 4px 0 var(--accent-shadow);
 }
 
 .pixel-btn-accent:hover:not(:disabled) {
-  background: #0369a1;
-  border-color: #7dd3fc;
+  background: var(--accent-solid-hover);
+  border-color: var(--accent-hover);
 }
 
 .pixel-btn-gold {
-  background: #b45309;
-  border-color: #fbbf24;
-  color: #fffbeb;
-  box-shadow: 0 4px 0 #78350f;
+  background: var(--gold-solid);
+  border-color: var(--gold);
+  color: var(--text-main);
+  box-shadow: 0 4px 0 var(--gold-shadow);
 }
 
 .pixel-btn-gold:hover:not(:disabled) {
-  background: #d97706;
+  background: var(--gold-solid-hover);
 }
 
 .pixel-card {
   background: var(--bg-panel);
-  border: 2px solid var(--border-color);
+  border: 2px solid var(--border);
   border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 4px 12px var(--tint-strong);
 }
 
 /* Float animation for +X tokens */
@@ -109,15 +431,27 @@ body {
   }
 }
 
+/* Та же жизнь всплывающего числа без перемещения: пропадает оно по таймеру в сторе, и без
+   fade просто мигало бы на месте. */
+@keyframes float-fade {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
 .floater {
   position: fixed;
   pointer-events: none;
-  animation: float-up 0.9s cubic-bezier(0.18, 0.89, 0.32, 1.28) forwards;
-  color: #38bdf8;
+  animation: float-fade 0.9s ease-out forwards;
+  color: var(--accent-color);
   font-family: 'Pixelify Sans', monospace;
   font-size: 1.5rem;
   font-weight: 700;
-  text-shadow: 0 2px 4px #000, 0 0 8px rgba(56, 189, 248, 0.6);
+  /* Ореол держит цвет текста, поэтому и живёт в .app-root, а не в палитре панели. */
+  text-shadow: 0 2px 4px #000, 0 0 8px var(--accent-glow);
   z-index: 1000;
 }
 
@@ -134,8 +468,62 @@ body {
   }
 }
 
+/* Выход короче входа и уходит на высокой скорости: тост нельзя перехватить, он уже
+   необратим. Кривая без торможения к концу — поэтому «улетел», а не «уехал». */
+@keyframes toast-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-14px) scale(0.94);
+  }
+}
+
+@keyframes toast-flash {
+  0% {
+    opacity: 0;
+  }
+  22% {
+    opacity: 0.22;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes toast-fade {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
 .toast-card {
-  animation: toast-in 0.3s ease-out forwards;
+  position: relative;
+  animation: toast-fade 0.3s ease-out forwards;
+}
+
+/* Вспышка лежит на ::before, а не на ::after: псевдоэлемент после содержимого закрыл бы текст
+   тоста золотом на 22% и на эти полсекунды уронил его контраст. */
+.toast-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background-color: var(--gold);
+  opacity: 0;
+}
+
+/* Двойной класс по той же причине, что и у .app-root: только он перебивает базовую
+   анимацию входа и не зависит от того, какой из двух одинаковых по весу селекторов
+   окажется в каскаде раньше. */
+.toast-card.toast-card--out {
+  animation: none;
 }
 
 /* Mascot animations */
@@ -149,20 +537,94 @@ body {
 }
 
 .animate-mascot-bob {
-  animation: mascot-bob 1.8s ease-in-out infinite;
+  /* Базовое правило пустое намеренно: без движения Маскот стоит, а покачивание включается
+     только в @media (prefers-reduced-motion: no-preference) в конце файла. */
 }
 
+/* Ореол живёт на ::after, а не на самой кнопке. box-shadow — свойство краски, и пульс на нём
+   полностью затирал жёсткую нижнюю тень .pixel-btn-accent: кнопка Клика не показывала её ни
+   одного мгновения. Здесь анимируются только opacity и transform — они идут через композитор,
+   а transform остаётся на ::after, чтобы не отнять у .pixel-btn:hover подъём и у :active
+   вдавливание. Цвет берётся из --accent-glow, то есть ореол живёт тем же акцентом Поколения,
+   что и сама кнопка; зашитый в литерал синий устарел вместе с прежней базой. */
 @keyframes pulse-glow {
   0%, 100% {
-    box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
+    opacity: 0.4;
+    transform: scale(1);
   }
   50% {
-    box-shadow: 0 0 20px rgba(56, 189, 248, 0.5);
+    opacity: 1;
+    transform: scale(1.04);
+  }
+}
+
+/* Тот же ореол без масштаба: свечение остаётся, площадь, которую он занимает, — нет. */
+@keyframes pulse-fade {
+  0%, 100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
   }
 }
 
 .pulse-glow {
-  animation: pulse-glow 2s infinite ease-in-out;
+  position: relative;
+}
+
+.pulse-glow::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* Радиус повторяет кнопку: без него ореол обвёл бы её прямоугольником. */
+  border-radius: inherit;
+  box-shadow: 0 0 10px 4px var(--accent-glow);
+  animation: pulse-fade 2s infinite ease-in-out;
+}
+
+/* Бегущая строка. Двигается только transform внутренней дорожки: background-position —
+   свойство раскраски, и на элементе во всю ширину оно перерисовывало бы кадр целиком.
+   Длина дорожки и срок цикла приходят из NewsTicker: там меряется окно и набирается столько
+   копий, чтобы полоса перекрывала два окна (иначе к концу цикла она пустеет), причём чётное
+   число — тогда сдвиг на -50% попадает ровно на стык копий и цикл незаметен. Разделитель
+   лежит внутри каждой копии, поэтому ширина копии одинакова и узор повторяется без сдвига. */
+@keyframes news-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.news-ticker-viewport {
+  /* min-width: 0 обязателен: у флекс-элемента автоматический минимум равен min-content,
+     а nowrap делает min-content равным всей строке — многоточие так не включается. */
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.news-ticker-track {
+  display: flex;
+  /* По умолчанию строка неподвижна: копия одна и обрезается многоточием, как раньше. */
+  width: 100%;
+}
+
+.news-ticker-copy {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.news-ticker-copy--dup {
+  display: none;
+}
+
+.news-ticker-sep {
+  display: none;
 }
 
 /* Custom scrollbar */
@@ -174,9 +636,205 @@ body {
   background: var(--bg-primary);
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--border-color);
+  background: var(--border);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--accent-color);
+}
+
+/* ── Движение ─────────────────────────────────────────────────────────────────
+   Настройка игрока умеет только уменьшать движение, поэтому базовые правила выше
+   всегда описывают неподвижный вариант, а движение включается одним блоком там, где
+   система его разрешает (WCAG C39: «инвертировать, а не выключать»). Второй блок
+   снимает движение по data-motion на .app-root и перекрывает медиазапрос по
+   специфичности, поэтому переключатель игрока сильнее системы, а система — не
+   отменяема игроком. Всё, что двигается здесь, — только transform и opacity. */
+
+/* Нажатие без движения: кнопка не смещается, но обязана подтвердить нажатие — иначе она
+   читается как нерабочая. Затемнение идёт слоем background-image поверх заливки, а не
+   сменой цвета, поэтому одинаково работает на всех вариантах кнопки. Литерал, а не
+   --tint-strong: это не цвет палитры, а тень нажатия. */
+.pixel-btn:active:not(:disabled) {
+  background-image: linear-gradient(rgba(0, 0, 0, 0.25), rgba(0, 0, 0, 0.25));
+  box-shadow: 0 1px 0 var(--bg-void);
+}
+
+/* Полное движение: система разрешает, игрок не выключал. */
+@media (prefers-reduced-motion: no-preference) {
+  .pixel-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+
+  .pixel-btn:active:not(:disabled) {
+    /* Подъём и сплющивание идут навстречу друг другу: 1.04 × 0.96 ≈ 1.0, площадь
+       сохраняется, поэтому кнопка читается как нажатая, а не раздутая. Масштаб взят так,
+       чтобы верхний край вместе с уже существующим translateY(3px) уехал меньше чем на
+       6% высоты: иначе он уходит из-под курсора и браузер глотает click на самой
+       кнопке Клика. */
+    transform: translateY(3px) scale(1.04, 0.96);
+    background-image: none;
+    /* Вдавливание быстрое и тупое, а пружина отпускания живёт в базовом переходе:
+       CSS берёт переход из стиля после изменения, поэтому на отпускании, когда
+       палец снят и остаётся только :hover, снова применяется кривая с перелётом. */
+    transition: transform 0.11s cubic-bezier(0.2, 0, 0.2, 1);
+  }
+
+  .floater {
+    animation: float-up 0.9s cubic-bezier(0.18, 0.89, 0.32, 1.28) forwards;
+  }
+
+  .toast-card {
+    animation: toast-in 0.3s ease-out forwards;
+  }
+
+  .toast-card::before {
+    animation: toast-flash 0.48s ease-out;
+  }
+
+  .toast-card.toast-card--out {
+    animation: toast-out 0.18s cubic-bezier(0.3, 0, 0.8, 0.15) forwards;
+  }
+
+  /* Строка покупки и значок Достижений откликаются только при разрешённом движении. */
+  .model-row--pop {
+    animation: model-row-pop 0.26s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .spark {
+    animation: spark-fly 0.56s cubic-bezier(0.15, 0.7, 0.3, 1) forwards;
+  }
+
+  .burst-particle {
+    animation: burst-fly 0.72s cubic-bezier(0.12, 0.6, 0.3, 1) forwards;
+  }
+
+  .ach-badge--pulse::after {
+    animation: ach-badge-pulse 0.52s ease-out;
+  }
+
+  .app-root--shake {
+    animation: prestige-shake 0.09s ease-out;
+  }
+
+  .chat-prompt--in {
+    animation: chat-prompt-in 0.24s ease-out;
+  }
+
+  .chat-reply--in {
+    animation: chat-reply-in 0.26s cubic-bezier(0.2, 0.8, 0.3, 1);
+  }
+
+  .mote {
+    display: block;
+    animation: mote-drift var(--mote-dur) ease-in-out var(--mote-delay) infinite alternate;
+  }
+
+  .animate-mascot-bob {
+    animation: mascot-bob 1.8s ease-in-out infinite;
+  }
+
+  .pulse-glow::after {
+    animation: pulse-glow 2s infinite ease-in-out;
+  }
+
+  .news-ticker-track {
+    width: max-content;
+    /* Срок цикла задаёт компонент: --marquee-dur = половина копий × 20 с, то есть одна копия
+       всегда идёт мимо окна 20 секунд. Запасное значение нужно только на первом кадре. */
+    animation: news-marquee var(--marquee-dur, 20s) linear infinite;
+  }
+
+  .news-ticker-copy--dup,
+  .news-ticker-sep {
+    display: inline;
+  }
+}
+
+/* Переключатель игрока: движение снимается, даже если система его разрешает. */
+[data-motion='reduced'] .pixel-btn {
+  transition:
+    background-color 0.08s ease-in-out,
+    border-color 0.08s ease-in-out;
+}
+
+[data-motion='reduced'] .pixel-btn:hover:not(:disabled) {
+  transform: none;
+}
+
+[data-motion='reduced'] .pixel-btn:active:not(:disabled) {
+  transform: none;
+  background-image: linear-gradient(rgba(0, 0, 0, 0.25), rgba(0, 0, 0, 0.25));
+}
+
+[data-motion='reduced'] .floater {
+  animation: float-fade 0.9s ease-out forwards;
+}
+
+[data-motion='reduced'] .toast-card {
+  animation: toast-fade 0.3s ease-out forwards;
+}
+
+[data-motion='reduced'] .toast-card::before {
+  animation: none;
+  opacity: 0;
+}
+
+/* Тост без движения уходит сразу, а не кадром анимации: см. motionAllowed() в сторе. */
+[data-motion='reduced'] .toast-card.toast-card--out {
+  animation: none;
+}
+
+[data-motion='reduced'] .model-row--pop {
+  animation: none;
+}
+
+[data-motion='reduced'] .spark {
+  animation: none;
+  opacity: 0;
+}
+
+[data-motion='reduced'] .burst-particle {
+  animation: none;
+  opacity: 0;
+}
+
+[data-motion='reduced'] .ach-badge--pulse::after {
+  animation: none;
+  opacity: 0;
+}
+
+/* Единственная тряска в игре — и она же первое, что должно исчезнуть, когда движение
+   выключено: смещение всего экрана противно и при укачивании, и при фоточувствительности.
+   Селектор составной, а не нисходящий: data-motion и app-root--shake — два атрибута одного и
+   того же корневого элемента, а .app-root--shake — единственный класс движения на нём. */
+[data-motion='reduced'].app-root--shake {
+  animation: none;
+}
+
+[data-motion='reduced'] .chat-prompt--in,
+[data-motion='reduced'] .chat-reply--in {
+  animation: none;
+}
+
+[data-motion='reduced'] .mote {
+  display: none;
+}
+
+[data-motion='reduced'] .animate-mascot-bob {
+  animation: none;
+}
+
+[data-motion='reduced'] .pulse-glow::after {
+  animation: pulse-fade 2s infinite ease-in-out;
+}
+
+[data-motion='reduced'] .news-ticker-track {
+  width: 100%;
+  animation: none;
+}
+
+[data-motion='reduced'] .news-ticker-copy--dup,
+[data-motion='reduced'] .news-ticker-sep {
+  display: none;
 }

@@ -25,7 +25,7 @@ export const ACHIEVEMENTS: Achievement[] = [
   tokens('tok_12', 'Триллион токенов', 1e12),
   tokens('tok_18', 'Весь интернет', 1e18),
   tokens('tok_27', 'Датасет вселенной', 1e27),
-  { id: 'agents_1', name: 'Первый сотрудник', desc: 'Нанять первого Агента', check: (s) => totalAgents(s) >= 1 },
+  { id: 'agents_1', name: 'Первый Агент', desc: 'Нанять первого Агента', check: (s) => totalAgents(s) >= 1 },
   { id: 'agents_50', name: 'Стартап', desc: '50 Агентов одновременно', check: (s) => totalAgents(s) >= 50 },
   { id: 'agents_250', name: 'Скейлап', desc: '250 Агентов одновременно', check: (s) => totalAgents(s) >= 250 },
   { id: 'one_100', name: 'Монокультура', desc: '100 Агентов одной Модели', check: (s) => Object.values(s.agents).some((n) => n >= 100) },

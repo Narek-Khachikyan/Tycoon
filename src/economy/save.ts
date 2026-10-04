@@ -8,7 +8,15 @@ export const SAVE_KEY = 'ai-tycoon-save';
 type Migration = (raw: Record<string, unknown>) => Record<string, unknown>;
 
 /** migrations[v] переводит сохранение из версии v в v+1. */
-const MIGRATIONS: Record<number, Migration> = {};
+const MIGRATIONS: Record<number, Migration> = {
+  // Запись нужна, чтобы bump SAVE_VERSION не остался без миграции; новое поле получает
+  // здесь значение по умолчанию, как и каждое следующее, добавленное в settings.
+  1: (raw) => ({
+    ...raw,
+    version: 2,
+    settings: { ...((raw.settings as object) ?? {}), reducedMotion: false },
+  }),
+};
 
 const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 
@@ -82,6 +90,7 @@ export function migrate(input: unknown, now: number): GameState {
     settings: {
       notation: settings.notation === 'sci' ? 'sci' : 'short',
       muted: !!settings.muted,
+      reducedMotion: !!settings.reducedMotion,
     },
   };
 }

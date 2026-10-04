@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useGameStore, type BuyAmount } from '../store/useGameStore';
+import React, { useEffect, useRef, useState } from 'react';
+import { motionAllowed, useGameStore, type BuyAmount } from '../store/useGameStore';
 import { CATALOG } from '../economy/catalog';
 import { LABS } from '../data/labs';
 import {
@@ -16,6 +16,104 @@ import { availableUpgrades } from '../economy/upgrades';
 import { PERKS } from '../economy/perks';
 import { formatNumber } from '../economy/format';
 import { MascotSprite } from './MascotSprite';
+
+// 8 искр из точки покупки. Радиус 14–26 px — чуть больше самой кнопки, поэтому жест читается
+// как отклик на нажатие, а не как залп.
+const SPARK_COUNT = 8;
+const SPARK = Array.from({ length: SPARK_COUNT }, (_, i) => {
+  const angle = (i * 2.399963) % (Math.PI * 2);
+  const dist = 14 + (i % 4) * 4;
+  // Смещение вверх на 6 px: иначе веер уходит под строку и половина искр пропадает на краю карточки.
+  return { dx: Math.round(Math.cos(angle) * dist), dy: Math.round(Math.sin(angle) * dist) - 6, size: 3 + (i % 2) };
+});
+
+let sparkCounter = 0;
+
+/**
+ * Строка Модели. Владеет своим откликом на покупку: магазин перерисовывается каждый тик, и
+ * отмечать покупку в сторе значило бы гонять эффект по всей колонке двадцать раз в секунду.
+ */
+const ModelRow: React.FC<{
+  owned: number;
+  isFlagship: boolean;
+  children: React.ReactNode;
+}> = ({ owned, isFlagship, children }) => {
+  const rowRef = useRef<HTMLDivElement>(null);
+  const prevOwned = useRef(owned);
+  const [sparks, setSparks] = useState<{ id: number; x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    // Сравниваем с предыдущим значением, а записываем новое при любом изменении: если писать
+    // только на покупке, после продажи ref навсегда остался бы на историческом максимуме, и
+    // возврат к уже державшемуся числу Агентов не дал бы ни хлопка, ни искр.
+    const before = prevOwned.current;
+    prevOwned.current = owned;
+    if (owned <= before) return;
+
+    const node = rowRef.current;
+    if (!node) return;
+    // Чтение ширины между снятием и возвратом класса — обязательный сброс анимации:
+    // иначе второй хлопок подряд не запустится, класс ведь не менялся.
+    node.classList.remove('model-row--pop');
+    void node.offsetWidth;
+    node.classList.add('model-row--pop');
+
+    if (!motionAllowed()) return;
+    // Искры летят из кнопки покупки — это и есть точка покупки. Координаты пересчитываются
+    // в систему строки, потому что слой искр позиционирован относительно неё.
+    const row = node.getBoundingClientRect();
+    const buy = node.querySelector('.model-row__buy');
+    const at = (buy ?? node).getBoundingClientRect();
+    setSparks({
+      id: ++sparkCounter,
+      x: at.left + at.width / 2 - row.left,
+      y: at.top + at.height / 2 - row.top,
+    });
+  }, [owned]);
+
+  // Снимается целиком по последнему animationend: все восемь гаснут в один кадр, а таймеры
+  // для их уборки в игре запрещены.
+  const handleSparkEnd = () => setSparks(null);
+
+  return (
+    <div
+      ref={rowRef}
+      style={{
+        position: 'relative',
+        backgroundColor: 'var(--bg-card)',
+        border: isFlagship ? '2px solid var(--gold)' : '1px solid var(--border)',
+        borderRadius: '6px',
+        padding: '10px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '8px',
+      }}
+    >
+      {children}
+
+      {sparks && (
+        <div className="spark-layer" onAnimationEnd={handleSparkEnd}>
+          {SPARK.map((s, i) => (
+            <span
+              key={`${sparks.id}-${i}`}
+              className="spark"
+              style={
+                {
+                  left: sparks.x,
+                  top: sparks.y,
+                  width: s.size,
+                  height: s.size,
+                  '--spark-dx': `${s.dx}px`,
+                  '--spark-dy': `${s.dy}px`,
+                } as React.CSSProperties
+              }
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export const ShopColumn: React.FC = () => {
   const [tab, setTab] = useState<'models' | 'upgrades' | 'perks'>('models');
@@ -50,7 +148,7 @@ export const ShopColumn: React.FC = () => {
         flexDirection: 'column',
         padding: '16px',
         backgroundColor: 'var(--bg-panel)',
-        borderLeft: '2px solid var(--border-color)',
+        borderLeft: '2px solid var(--border)',
         // Не даём колонке стать шире контейнера: на мобильном экране это обрезало бы правую часть.
         minWidth: 'min(360px, 100%)',
         maxWidth: '440px',
@@ -77,7 +175,9 @@ export const ShopColumn: React.FC = () => {
             <span
               style={{
                 marginLeft: '4px',
-                backgroundColor: '#ef4444',
+                backgroundColor: 'var(--red)',
+                /* Чистый белый на насыщенной заливке: --text-main уводит подпись в тёплый
+                   и роняет и без того пограничную пару до 3.06:1. */
                 color: '#fff',
                 fontSize: '0.7rem',
                 padding: '1px 5px',
@@ -108,7 +208,7 @@ export const ShopColumn: React.FC = () => {
             backgroundColor: 'var(--bg-card)',
             padding: '6px 10px',
             borderRadius: '6px',
-            border: '1px solid var(--border-color)',
+            border: '1px solid var(--border)',
           }}
         >
           {/* Режим покупки / продажи */}
@@ -119,8 +219,8 @@ export const ShopColumn: React.FC = () => {
               style={{
                 padding: '4px 8px',
                 fontSize: '0.8rem',
-                backgroundColor: !sellMode ? '#0284c7' : 'transparent',
-                borderColor: !sellMode ? '#38bdf8' : 'var(--border-color)',
+                backgroundColor: !sellMode ? 'var(--accent-solid)' : 'transparent',
+                borderColor: !sellMode ? 'var(--accent-color)' : 'var(--border)',
               }}
             >
               Купить
@@ -131,8 +231,8 @@ export const ShopColumn: React.FC = () => {
               style={{
                 padding: '4px 8px',
                 fontSize: '0.8rem',
-                backgroundColor: sellMode ? '#b91c1c' : 'transparent',
-                borderColor: sellMode ? '#ef4444' : 'var(--border-color)',
+                backgroundColor: sellMode ? 'var(--red-solid)' : 'transparent',
+                borderColor: sellMode ? 'var(--red)' : 'var(--border)',
               }}
             >
               Продать (25%)
@@ -149,8 +249,8 @@ export const ShopColumn: React.FC = () => {
                 style={{
                   padding: '4px 7px',
                   fontSize: '0.8rem',
-                  backgroundColor: buyAmount === amt ? 'var(--border-color)' : 'transparent',
-                  color: buyAmount === amt ? '#38bdf8' : 'var(--text-main)',
+                  backgroundColor: buyAmount === amt ? 'var(--border)' : 'transparent',
+                  color: buyAmount === amt ? 'var(--accent-color)' : 'var(--text-main)',
                 }}
               >
                 {amt === 'max' ? 'Max' : `×${amt}`}
@@ -176,32 +276,21 @@ export const ShopColumn: React.FC = () => {
               const lab = LABS[m.lab];
 
               return (
-                <div
-                  key={m.id}
-                  style={{
-                    backgroundColor: 'var(--bg-card)',
-                    border: m.isFlagship ? '2px solid #fbbf24' : '1px solid var(--border-color)',
-                    borderRadius: '6px',
-                    padding: '10px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '8px',
-                  }}
-                >
+                <ModelRow key={m.id} owned={owned} isFlagship={m.isFlagship}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <MascotSprite lab={m.lab} size={28} />
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span className="pixel-font" style={{ fontSize: '1rem', color: '#f8fafc' }}>
+                          <span className="pixel-font" style={{ fontSize: '1rem', color: 'var(--text-main)' }}>
                             {m.name}
                           </span>
                           {m.isFlagship && (
                             <span
                               style={{
                                 fontSize: '0.65rem',
-                                backgroundColor: '#b45309',
-                                color: '#fef08a',
+                                backgroundColor: 'var(--gold-solid)',
+                                color: 'var(--text-main)',
                                 padding: '1px 5px',
                                 borderRadius: '4px',
                                 fontWeight: 700,
@@ -217,26 +306,26 @@ export const ShopColumn: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="pixel-font" style={{ fontSize: '1.2rem', color: '#94a3b8' }}>
+                    <div className="pixel-font" style={{ fontSize: '1.2rem', color: 'var(--text-muted)' }}>
                       {owned}
                     </div>
                   </div>
 
                   {/* Доход и Кнопка покупки/продажи */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ fontSize: '0.8rem', color: '#4ade80' }}>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--green)' }}>
                       +{formatNumber(mIncome, notation)}/сек
                     </div>
 
                     <button
                       onClick={() => (sellMode ? sellAgents(m.id) : buyAgents(m.id))}
                       disabled={!canAfford}
-                      className={`pixel-btn ${sellMode ? 'pixel-btn-accent' : 'pixel-btn-accent'}`}
+                      className={`pixel-btn pixel-btn-accent model-row__buy`}
                       style={{
                         padding: '6px 12px',
                         fontSize: '0.85rem',
-                        backgroundColor: sellMode ? '#b91c1c' : undefined,
-                        borderColor: sellMode ? '#ef4444' : undefined,
+                        backgroundColor: sellMode ? 'var(--red-solid)' : undefined,
+                        borderColor: sellMode ? 'var(--red)' : undefined,
                       }}
                     >
                       {sellMode
@@ -246,12 +335,15 @@ export const ShopColumn: React.FC = () => {
                   </div>
 
                   {/* Справка AA переключатель */}
+                  {/* Волосяная линия остаётся литералом: 6% белого — это заведомо слабее
+                     любой ступени лестницы рамок, и --border здесь превратил бы её в
+                     самостоятельную рамку. */}
                   <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '6px' }}>
                     <div
                       onClick={() => toggleAA(m.id)}
                       style={{
                         fontSize: '0.75rem',
-                        color: '#38bdf8',
+                        color: 'var(--accent-color)',
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
@@ -267,7 +359,7 @@ export const ShopColumn: React.FC = () => {
                         style={{
                           marginTop: '6px',
                           padding: '6px 8px',
-                          backgroundColor: '#12141d',
+                          backgroundColor: 'var(--bg-void)',
                           borderRadius: '4px',
                           fontSize: '0.75rem',
                           display: 'grid',
@@ -277,20 +369,20 @@ export const ShopColumn: React.FC = () => {
                       >
                         <div>
                           <div style={{ color: 'var(--text-muted)' }}>Intelligence:</div>
-                          <div style={{ color: '#fbbf24', fontWeight: 700 }}>{m.iq} IQ</div>
+                          <div style={{ color: 'var(--gold)', fontWeight: 700 }}>{m.iq} IQ</div>
                         </div>
                         <div>
                           <div style={{ color: 'var(--text-muted)' }}>Скорость:</div>
-                          <div style={{ color: '#38bdf8', fontWeight: 700 }}>{m.speed} t/s</div>
+                          <div style={{ color: 'var(--accent-color)', fontWeight: 700 }}>{m.speed} t/s</div>
                         </div>
                         <div>
                           <div style={{ color: 'var(--text-muted)' }}>Цена API:</div>
-                          <div style={{ color: '#4ade80', fontWeight: 700 }}>${m.price}/1M</div>
+                          <div style={{ color: 'var(--green)', fontWeight: 700 }}>${m.price}/1M</div>
                         </div>
                       </div>
                     )}
                   </div>
-                </div>
+                </ModelRow>
               );
             })}
           </div>
@@ -311,7 +403,7 @@ export const ShopColumn: React.FC = () => {
                     key={u.id}
                     style={{
                       backgroundColor: 'var(--bg-card)',
-                      border: '1px solid var(--border-color)',
+                      border: '1px solid var(--border)',
                       borderRadius: '6px',
                       padding: '10px',
                       display: 'flex',
@@ -320,10 +412,10 @@ export const ShopColumn: React.FC = () => {
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span className="pixel-font" style={{ fontSize: '0.95rem', color: '#f8fafc' }}>
+                      <span className="pixel-font" style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>
                         {u.name}
                       </span>
-                      <span className="pixel-font" style={{ fontSize: '0.85rem', color: '#38bdf8' }}>
+                      <span className="pixel-font" style={{ fontSize: '0.85rem', color: 'var(--accent-color)' }}>
                         {formatNumber(u.cost, notation)}
                       </span>
                     </div>
@@ -355,23 +447,23 @@ export const ShopColumn: React.FC = () => {
               className="pixel-card"
               style={{
                 padding: '12px',
-                border: '2px solid #fbbf24',
+                border: '2px solid var(--gold)',
                 display: 'flex',
                 flexDirection: 'column',
                 gap: '8px',
               }}
             >
-              <div className="pixel-font" style={{ fontSize: '1.1rem', color: '#fbbf24' }}>
+              <div className="pixel-font" style={{ fontSize: '1.1rem', color: 'var(--gold)' }}>
                 🚀 Престиж в следующее Поколение
               </div>
 
-              <div style={{ fontSize: '0.85rem', color: '#cbd5e1' }}>
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
                 Сбросит текущий Забег (Токены, Агенты, Апгрейды) и перенесёт вас в следующее Поколение.
               </div>
 
               <div
                 style={{
-                  backgroundColor: 'rgba(0,0,0,0.3)',
+                  backgroundColor: 'var(--tint-strong)',
                   padding: '8px',
                   borderRadius: '4px',
                   fontSize: '0.85rem',
@@ -379,7 +471,7 @@ export const ShopColumn: React.FC = () => {
               >
                 <div>
                   Получите Compute:{' '}
-                  <span className="pixel-font" style={{ color: '#fde047', fontWeight: 700 }}>
+                  <span className="pixel-font" style={{ color: 'var(--gold)', fontWeight: 700 }}>
                     +{prestigeGain(state)}
                   </span>
                 </div>
@@ -404,7 +496,7 @@ export const ShopColumn: React.FC = () => {
             <div>
               <div
                 className="pixel-font"
-                style={{ fontSize: '1rem', color: '#f8fafc', marginBottom: '8px' }}
+                style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: '8px' }}
               >
                 Постоянные Перки (Свободно: {unspentCompute} Compute)
               </div>
@@ -419,7 +511,7 @@ export const ShopColumn: React.FC = () => {
                       key={p.id}
                       style={{
                         backgroundColor: 'var(--bg-card)',
-                        border: owned ? '1px solid #22c55e' : '1px solid var(--border-color)',
+                        border: owned ? '1px solid var(--green)' : '1px solid var(--border)',
                         borderRadius: '6px',
                         padding: '10px',
                         display: 'flex',
@@ -428,10 +520,10 @@ export const ShopColumn: React.FC = () => {
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span className="pixel-font" style={{ fontSize: '0.95rem', color: '#f8fafc' }}>
+                        <span className="pixel-font" style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>
                           {p.name}
                         </span>
-                        <span className="pixel-font" style={{ fontSize: '0.85rem', color: '#fbbf24' }}>
+                        <span className="pixel-font" style={{ fontSize: '0.85rem', color: 'var(--gold)' }}>
                           {p.cost} Compute
                         </span>
                       </div>

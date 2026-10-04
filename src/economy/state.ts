@@ -1,4 +1,4 @@
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 
 export type Notation = 'short' | 'sci';
 
@@ -21,7 +21,7 @@ export interface GameState {
   lastTick: number;
   startedAt: number;
   runStartedAt: number;
-  settings: { notation: Notation; muted: boolean };
+  settings: { notation: Notation; muted: boolean; reducedMotion: boolean };
 }
 
 export function newGame(now: number): GameState {
@@ -44,6 +44,6 @@ export function newGame(now: number): GameState {
     lastTick: now,
     startedAt: now,
     runStartedAt: now,
-    settings: { notation: 'short', muted: false },
+    settings: { notation: 'short', muted: false, reducedMotion: false },
   };
 }
