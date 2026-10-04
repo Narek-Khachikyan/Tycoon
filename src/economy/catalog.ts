@@ -26,7 +26,6 @@ export interface Model {
   baseCost: number;
   baseIncome: number;
   costMod: number;
-  incomeMod: number;
 }
 
 export interface Generation {
@@ -71,11 +70,9 @@ export function buildCatalog(seeds: GenerationSeed[], snap: AASnapshot): Generat
     const scale = genScale(index);
     const merged = g.models.map((seed) => ({ seed, ...mergeSeed(seed, snap) }));
     merged.sort((a, b) => a.iq - b.iq || a.price - b.price);
-    const medSpeed = median(merged.map((x) => x.speed));
     const medPrice = median(merged.map((x) => x.price));
     const models: Model[] = merged.map((x, rank) => {
       const costMod = softMod(x.price, medPrice, 0.5);
-      const incomeMod = softMod(x.speed, medSpeed, 1);
       return {
         id: x.seed.id,
         name: x.seed.name,
@@ -88,9 +85,12 @@ export function buildCatalog(seeds: GenerationSeed[], snap: AASnapshot): Generat
         price: x.price,
         fromSnapshot: x.fromSnapshot,
         costMod,
-        incomeMod,
         baseCost: COST_BASE * Math.pow(COST_STEP, rank) * scale * costMod,
-        baseIncome: INCOME_BASE * Math.pow(INCOME_STEP, rank) * scale * incomeMod,
+        // Доход — чистая лестница Ранга. Скорость из AA сюда не входит: AA публикует t/s
+        // для меньшинства моделей, поэтому медиана равна нулю и softMod отдавал бы 1.30 тем,
+        // чью скорость измерили, и 1.00 всем остальным. Это артефакт разрежённости данных,
+        // а не разница скоростей. Скорость остаётся в Модели как справка AA.
+        baseIncome: INCOME_BASE * Math.pow(INCOME_STEP, rank) * scale,
       };
     });
     return {

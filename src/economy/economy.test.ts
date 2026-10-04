@@ -44,6 +44,15 @@ describe('catalog', () => {
     expect(genScale(2)).toBe(1e6);
     expect(CATALOG[1].scale / CATALOG[0].scale).toBe(1000);
   });
+  // Инвариант перехода: Флагман следующего Поколения бьёт Флагмана текущего. Масштаб ×1000
+  // перевешивает лестницу Ранга ×6.5 ровно на три ступени, поэтому разница числа Моделей
+  // между соседними Поколениями не может быть меньше −3: 5 Моделей против 9 как раз ломали
+  // переход 6→7.
+  it('makes each generation flagship strictly stronger than the previous', () => {
+    for (let i = 0; i < CATALOG.length - 1; i++) {
+      expect(CATALOG[i + 1].flagship.baseIncome).toBeGreaterThan(CATALOG[i].flagship.baseIncome);
+    }
+  });
   it('prefers snapshot values over seeds unless pinned', () => {
     const seeds = [{ ...GENERATIONS[0], models: GENERATIONS[0].models.map((m, i) => (i === 0 ? { ...m, pin: ['speed' as const] } : m)) }];
     const id = seeds[0].models[0].aa;
@@ -164,14 +173,20 @@ describe('income and click', () => {
 });
 
 describe('lab readout', () => {
-  it('splits the income of the eight labs so the roster covers all of it', () => {
-    // Поколение, где Модели есть у всех восьми Лабораторий: доли обязаны дать единицу,
-    // иначе строка ростера показывала бы Лабораторию, будто она не приносит Доход.
-    let s = rich({ ...newGame(T0), generation: 5 }, 1e300);
-    for (const m of CATALOG[5].models) s = buyAgents(s, m.id, 1000);
-    const shares = LAB_IDS.map((l) => labIncomeShare(s, l));
-    expect(shares.every((x) => x > 0)).toBe(true);
-    expect(shares.reduce((a, b) => a + b, 0)).toBeCloseTo(1);
+  it('splits the income of every generation so the roster covers all of it', () => {
+    // Доли обязаны дать единицу в каждом Поколении, иначе строка ростера показывала бы
+    // Лабораторию, будто она не приносит Доход. Нулевая доля допустима только у
+    // Лаборатории, у которой в этом Поколении нет ни одной Модели.
+    for (let g = 0; g < CATALOG.length; g++) {
+      let s = rich({ ...newGame(T0), generation: g }, 1e300);
+      for (const m of CATALOG[g].models) s = buyAgents(s, m.id, 1);
+      const shares = LAB_IDS.map((l) => labIncomeShare(s, l));
+      expect(shares.reduce((a, b) => a + b, 0)).toBeCloseTo(1);
+      for (const l of LAB_IDS) {
+        const inRoster = CATALOG[g].models.some((m) => m.lab === l);
+        expect(shares[LAB_IDS.indexOf(l)] > 0).toBe(inRoster);
+      }
+    }
   });
   it('reads a lab without agents as zero rather than NaN', () => {
     const s = newGame(T0);
@@ -473,8 +488,10 @@ describe('news and achievements', () => {
     expect(s.generation).toBe(CATALOG.length - 1);
 
     // Финальный Забег: Агент каждой Модели («Полный зоопарк») и 250 Агентов флагмана,
-    // плюс Апгрейд, Перк и 10 000 Кликов — остальные условия.
-    s = rich(s);
+    // плюс Апгрейд, Перк и 10 000 Кликов — остальные условия. Бюджет берётся с запасом:
+    // пачка растёт как 1.15^n, и 250 Агентов флагмана последнего Поколения стоят дороже
+    // прежнего 1e50.
+    s = rich(s, 1e300);
     for (const m of CATALOG[s.generation].models) s = buyAgents(s, m.id, m.isFlagship ? 250 : 1);
     s = buyUpgrade(s, clickUpgradeId(s.generation, 0));
     s = buyPerk(s, 'click_x2');
