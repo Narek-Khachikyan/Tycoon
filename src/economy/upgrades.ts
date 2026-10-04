@@ -2,22 +2,39 @@ import { CATALOG, type Generation } from './catalog';
 import { LAB_IDS, LABS, type LabId } from '../data/labs';
 import type { GameState } from './state';
 
+// Слайг спрайта живёт рядом со строкой, которую он изображает, а не в компоненте: список
+// тиров и список картинок обязаны расти вместе, иначе индексы разъедутся. Спрайт один на
+// все Модели Поколения — имя Модели и так стоит в заголовке карточки.
 export const MODEL_TIERS = [
-  { threshold: 1, costMult: 10, name: 'Fine-tuning' },
-  { threshold: 5, costMult: 50, name: 'RLHF' },
-  { threshold: 25, costMult: 500, name: 'Chain-of-Thought' },
-  { threshold: 50, costMult: 50_000, name: '1M контекст' },
-  { threshold: 100, costMult: 5_000_000, name: 'Tool use' },
+  { threshold: 1, costMult: 10, name: 'Fine-tuning', sprite: 'fine-tuning' },
+  { threshold: 5, costMult: 50, name: 'RLHF', sprite: 'rlhf' },
+  { threshold: 25, costMult: 500, name: 'Chain-of-Thought', sprite: 'chain-of-thought' },
+  { threshold: 50, costMult: 50_000, name: '1M контекст', sprite: 'context-1m' },
+  { threshold: 100, costMult: 5_000_000, name: 'Tool use', sprite: 'tool-use' },
 ] as const;
 
 export const CLICK_UPGRADES = [
-  { units: 100, kind: 'x2', name: 'Prompt engineering', desc: 'клик ×2' },
-  { units: 500, kind: 'x2', name: 'System prompt', desc: 'клик ×2' },
-  { units: 10_000, kind: 'x2', name: 'Few-shot примеры', desc: 'клик ×2' },
-  { units: 100_000, kind: 'pct', name: 'Вайб-кодинг', desc: '+1% дохода за клик' },
-  { units: 10_000_000, kind: 'pct', name: 'Мультиагентный промпт', desc: '+1% дохода за клик' },
-  { units: 1_000_000_000, kind: 'pct', name: 'Промпт-оркестратор', desc: '+1% дохода за клик' },
+  { units: 100, kind: 'x2', name: 'Prompt engineering', desc: 'клик ×2', sprite: 'prompt-engineering' },
+  { units: 500, kind: 'x2', name: 'System prompt', desc: 'клик ×2', sprite: 'system-prompt' },
+  { units: 10_000, kind: 'x2', name: 'Few-shot примеры', desc: 'клик ×2', sprite: 'few-shot' },
+  { units: 100_000, kind: 'pct', name: 'Вайб-кодинг', desc: '+1% дохода за клик', sprite: 'vibe-coding' },
+  {
+    units: 10_000_000,
+    kind: 'pct',
+    name: 'Мультиагентный промпт',
+    desc: '+1% дохода за клик',
+    sprite: 'multi-agent-prompt',
+  },
+  {
+    units: 1_000_000_000,
+    kind: 'pct',
+    name: 'Промпт-оркестратор',
+    desc: '+1% дохода за клик',
+    sprite: 'prompt-orchestrator',
+  },
 ] as const;
+
+export const SYNERGY_SPRITE = 'shared-dataset';
 
 export const SYNERGY_MIN_AGENTS = 15;
 export const SYNERGY_PER_AGENT = 0.01;
@@ -29,11 +46,21 @@ export const PAIR_SYNERGY_MULT = 1.5;
 export const MAX_PAIR_SYNERGIES_PER_GEN = 3;
 
 export type Upgrade =
-  | { id: string; kind: 'model'; name: string; desc: string; cost: number; modelId: string; tier: number }
-  | { id: string; kind: 'click'; name: string; desc: string; cost: number; effect: 'x2' | 'pct' }
+  | {
+      id: string;
+      kind: 'model';
+      name: string;
+      desc: string;
+      cost: number;
+      modelId: string;
+      tier: number;
+      sprite: string;
+    }
+  | { id: string; kind: 'click'; name: string; desc: string; cost: number; effect: 'x2' | 'pct'; sprite: string }
   // Парная синергия — тот же kind: `lab` держит первую Лабораторию для совместимости
   // (магазин и ростер читают её как раньше), вторая лежит в `pairLab`, если он есть.
-  | { id: string; kind: 'synergy'; name: string; desc: string; cost: number; lab: LabId; pairLab?: LabId };
+  // Спрайт тот же, что у одиночной: это тоже общий датасет, различается только подпись.
+  | { id: string; kind: 'synergy'; name: string; desc: string; cost: number; lab: LabId; sprite: string; pairLab?: LabId };
 
 export const modelUpgradeId = (modelId: string, tier: number) => `m:${modelId}:${tier}`;
 export const clickUpgradeId = (gen: number, i: number) => `c:${gen}:${i}`;
@@ -57,6 +84,7 @@ export function upgradesFor(gen: Generation): Upgrade[] {
         cost: m.baseCost * t.costMult,
         modelId: m.id,
         tier,
+        sprite: t.sprite,
       }),
     );
   }
@@ -68,6 +96,7 @@ export function upgradesFor(gen: Generation): Upgrade[] {
       desc: c.desc,
       cost: c.units * gen.scale,
       effect: c.kind,
+      sprite: c.sprite,
     }),
   );
   for (const lab of LAB_IDS) {
@@ -80,6 +109,7 @@ export function upgradesFor(gen: Generation): Upgrade[] {
       desc: `Каждый агент ${LABS[lab].name} даёт +1% дохода всем моделям ${LABS[lab].name}`,
       cost: labModels[0].baseCost * 1000,
       lab,
+      sprite: SYNERGY_SPRITE,
     });
   }
   // Парные синергии «Совместный датасет A×B»: в отличие от одиночных, каждой Лаборатории
@@ -122,6 +152,7 @@ export function upgradesFor(gen: Generation): Upgrade[] {
       cost: Math.max(firstCost.get(a)!, firstCost.get(b)!) * 1000,
       lab: a,
       pairLab: b,
+      sprite: SYNERGY_SPRITE,
     });
   }
   return list;

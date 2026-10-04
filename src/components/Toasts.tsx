@@ -2,8 +2,17 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { motionAllowed, useGameStore, type ToastMessage } from '../store/useGameStore';
 import { ACHIEVEMENTS } from '../economy/achievements';
 import { Icon } from './Icon';
+import { Num } from './Num';
 
 const TOAST_MS = 4000;
+
+// Стопка растёт вверх от низа экрана, поэтому девять Достижений разом занимали
+// весь левый столбец и накрывали логотип, счётчик Токенов и кнопку Клика —
+// то есть ровно те элементы, ради которых игрок смотрит на уведомление.
+// Показываем только свежие, а длину очереди передаём счётчиком: молча выбрасывать
+// Достижения нельзя, они остаются в модальном окне и в счётчике в шапке, но игрок
+// должен видеть, что список не кончился.
+const VISIBLE_TOASTS = 3;
 
 // 24 искры вокруг Достижения. Угол и дальность разводит золотой угол: по равномерной сетке
 // веер встаёт в правильную розетку и читается как гирлянда, а не как вспышка.
@@ -144,6 +153,13 @@ export const Toasts: React.FC = () => {
   const stackRef = useRef<HTMLDivElement>(null);
   const [fan, setFan] = useState<{ id: number; x: number; y: number } | null>(null);
 
+  // Обрезаем хвост, а не начало: стопка прижата к низу экрана, поэтому её последний
+  // элемент — самый свежий, и именно он должен остаться на виду. Порядок внутри
+  // оставшихся не трогаем: счётчик веера берёт последнюю карточку как метку о Достижении.
+  const visible = toasts.slice(-VISIBLE_TOASTS);
+  const queuedToasts = toasts.slice(0, -VISIBLE_TOASTS);
+  const queued = queuedToasts.length;
+
   useEffect(() => {
     if (burst?.kind !== 'achievement') return;
     if (!motionAllowed()) return;
@@ -185,9 +201,29 @@ export const Toasts: React.FC = () => {
           zIndex: 100,
         }}
       >
-        {toasts.map((t) => (
+        {visible.map((t) => (
           <ToastItem key={t.id} toast={t} onRemove={removeToast} />
         ))}
+
+        {/* Хвост очереди виден, но не занимает место: счётчик не перекрывает колонку,
+            а игрок понимает, что Достижения ещё предъявят. Он же и кнопка закрытия
+            очереди — молчаливый хвост выглядел бы как зависшая игра. */}
+        {queued > 0 && (
+          <button
+            onClick={() => queuedToasts.forEach((t) => removeToast(t.id))}
+            className="pixel-card"
+            style={{
+              alignSelf: 'flex-start',
+              padding: '6px 10px',
+              backgroundColor: 'var(--bg-card)',
+              fontSize: '0.8rem',
+              color: 'var(--text-muted)',
+              cursor: 'pointer',
+            }}
+          >
+            ещё <Num>{queued}</Num>
+          </button>
+        )}
       </div>
 
       {fan && (
