@@ -5,7 +5,7 @@ import { GLOSSARY } from '../data/glossary';
 import { PERKS } from '../economy/perks';
 import { exportSave } from '../economy/save';
 import { formatCount, formatDuration, formatNumber } from '../economy/format';
-import { discountMult, labIncomeShare, maxAffordable } from '../economy/engine';
+import { discountMult, isContentFinale, labIncomeShare, maxAffordable, prestigePreview } from '../economy/engine';
 import { availableUpgrades } from '../economy/upgrades';
 import { SHADOW_ACHIEVEMENTS } from '../economy/shadow';
 import { CATALOG } from '../economy/catalog';
@@ -805,6 +805,240 @@ export const OfflineModal: React.FC = () => {
         >
           Забрать Токены!
         </button>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Окно подтверждения Престижа: единственное место, где игрок видит, сколько Compute
+ * начислит переход, что сгорит и в какое Поколение он попадёт. Открывается из обеих
+ * колонок через `requestPrestige`, а сам переход выполняет `triggerPrestige` — условия
+ * отказа живут в сторе, поэтому окно их только показывает словами.
+ */
+export const PrestigeModal: React.FC = () => {
+  const isOpen = useGameStore((s) => s.prestigePrompt);
+  const dismiss = useGameStore((s) => s.dismissPrestigePrompt);
+  const triggerPrestige = useGameStore((s) => s.triggerPrestige);
+  const state = useGameStore((s) => s.state);
+  // Хуки стоят до раннего выхода, иначе окно то ловило бы Esc, то нет. Выход — тем же
+  // closing-путём, что и у остальных окон: мгновенный dismiss возвращал бы карточку в DOM
+  // без последнего кадра анимации.
+  const { closing, requestClose } = useModalExit(isOpen, dismiss);
+  const cardRef = useDialogFocus<HTMLDivElement>(isOpen, requestClose);
+  if (!isOpen) return null;
+
+  const preview = prestigePreview(state);
+  const gen = CATALOG[state.generation];
+  const nextGen = CATALOG[preview.generation];
+  const flagship = gen.flagship;
+  const finale = isContentFinale(state);
+  const notation = state.settings.notation;
+
+  const blocked = finale
+    ? `Финал контента: Поколение ${gen.id} — последнее. Продолжение выйдет с новыми реальными Моделями.`
+    : `Нужен 1 Агент Флагмана — ${flagship.name} (${LABS[flagship.lab].name}). Найми первого Агента, и Престиж откроется.`;
+
+  const burns: [string, React.ReactNode][] = [
+    [
+      'Агенты',
+      <>
+        <Num>{formatNumber(preview.agentsLost, notation)}</Num>{' '}
+        {formatCount(preview.agentsLost, 'Агент', 'Агента', 'Агентов', notation)}
+      </>,
+    ],
+    [
+      'Апгрейды',
+      <>
+        <Num>{formatNumber(preview.upgradesLost, notation)}</Num>{' '}
+        {formatCount(preview.upgradesLost, 'Апгрейд', 'Апгрейда', 'Апгрейдов', notation)}
+      </>,
+    ],
+    [
+      'Токены',
+      <>
+        <Num>{formatNumber(preview.tokensLost, notation)}</Num> Токенов
+      </>,
+    ],
+  ];
+
+  // Подтверждение зовёт тот же переход, что и раньше: условия отказа живут в сторе, и вторую
+  // проверку в окне писать нельзя. Закрытие здесь мгновенное, а не через requestClose: переход
+  // уже сменил Поколение, и оставшийся кадр выхода показал бы вместо разбора «нужен Агент
+  // Флагмана» нового Поколения — вперемешку с оверлеем Престижа.
+  const handleConfirm = () => {
+    triggerPrestige();
+    dismiss();
+  };
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        backgroundColor: 'var(--bg-scrim)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 60,
+        padding: '16px',
+        // Вход — существующий toast-fade, выход — тот же кадр в реверсе (только opacity,
+        // поэтому при reducedMotion картина та же, нового CSS ноль).
+        animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.2s ease-out',
+      }}
+      onClick={requestClose}
+    >
+      <div
+        ref={cardRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="prestige-title"
+        className="pixel-card"
+        style={{
+          width: '100%',
+          maxWidth: '520px',
+          maxHeight: '85vh',
+          padding: '24px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '14px',
+          border: '2px solid var(--gold)',
+          animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.2s ease-out',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexShrink: 0,
+          }}
+        >
+          {/* Без pixel-font: в заголовке есть кириллица, а по ADR-0003 пиксельный шрифт
+              допустим только на строках без неё. */}
+          <h2 id="prestige-title" style={{ fontSize: '1.3rem', color: 'var(--gold)' }}>
+            <span aria-hidden="true">🚀</span> ПРЕСТИЖ
+          </h2>
+          <button
+            className="pixel-btn"
+            onClick={requestClose}
+            aria-label="Закрыть"
+            title="Закрыть"
+            style={{ padding: '4px 10px' }}
+          >
+            ✕
+          </button>
+        </div>
+
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px',
+            // minHeight: 0 обязателен: без него флекс-элемент не сожмётся ниже своего
+            // содержимого и окно выпирало бы за 85vh на низком экране.
+            flex: 1,
+            minHeight: 0,
+            overflowY: 'auto',
+          }}
+        >
+          <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>
+            Сейчас Поколение {gen.id}: {gen.name}.
+            {!preview.blocked && (
+              <>
+                {' '}
+                Престиж завершит Забег и перенесёт тебя в Поколение {nextGen.id}: {nextGen.name}.
+              </>
+            )}
+          </div>
+
+          {/* Пока Престиж невозможен, окно не обещает ни Compute, ни сгорания: и то и другое
+              было бы обещанием, которое переход не выполнит. */}
+          {preview.blocked ? (
+            <div
+              style={{
+                backgroundColor: 'var(--tint-red)',
+                border: '1px solid var(--red)',
+                borderRadius: '4px',
+                padding: '10px 12px',
+                fontSize: '0.9rem',
+                // Светлее --red намеренно: на собственной красной подложке --red тонет в
+                // заливке, а причина отказа обязана читаться.
+                color: '#fca5a5',
+              }}
+            >
+              Престиж сейчас невозможен. {blocked}
+            </div>
+          ) : (
+            <>
+              <div
+                style={{
+                  backgroundColor: 'var(--tint-gold)',
+                  border: '1px solid var(--gold)',
+                  borderRadius: '4px',
+                  padding: '10px 12px',
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  justifyContent: 'space-between',
+                  gap: '10px',
+                }}
+              >
+                <span style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>
+                  Начислим Compute
+                </span>
+                <span style={{ fontSize: '1.6rem', color: 'var(--gold)', fontWeight: 700 }}>
+                  <Num>{`+${formatNumber(preview.gain, notation)}`}</Num>
+                </span>
+              </div>
+
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>Сгорит:</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {burns.map(([label, value]) => (
+                  <div
+                    key={label}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: '10px',
+                      padding: '6px 8px',
+                      backgroundColor: 'var(--bg-card)',
+                      borderRadius: '4px',
+                      fontSize: '0.85rem',
+                    }}
+                  >
+                    <span style={{ color: 'var(--text-muted)' }}>{label}</span>
+                    {/* Слово рядом с числом — в Nunito: по ADR-0003 пиксельный шрифт живёт
+                        только внутри числа, поэтому Num стоит на самом числе. */}
+                    <span style={{ color: 'var(--text-main)', fontWeight: 600 }}>{value}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                Останутся: Compute, Перки, Достижения и вся статистика за всё время.
+              </div>
+            </>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+          <button className="pixel-btn" onClick={requestClose} style={{ flex: 1, padding: '12px' }}>
+            Отмена
+          </button>
+          <button
+            onClick={handleConfirm}
+            disabled={preview.blocked}
+            className="pixel-btn pixel-btn-gold"
+            style={{ flex: 2, padding: '12px' }}
+          >
+            {preview.blocked
+              ? finale
+                ? 'Финал контента'
+                : 'Нужен Агент Флагмана'
+              : 'Сделать Престиж!'}
+          </button>
+        </div>
       </div>
     </div>
   );

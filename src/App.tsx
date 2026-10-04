@@ -9,6 +9,7 @@ import { Footer } from './components/Footer';
 import {
   AchievementsModal,
   OfflineModal,
+  PrestigeModal,
   SettingsModal,
   StatsModal,
 } from './components/Modals';
@@ -216,6 +217,8 @@ export const App: React.FC = () => {
       />
       <OfflineModal />
       <Toasts />
+      <PrestigeModal />
+      {/* Оверлей — празднование ПОСЛЕ Престижа, окно выше — подтверждение ДО него. */}
       <PrestigeOverlay />
     </div>
   );

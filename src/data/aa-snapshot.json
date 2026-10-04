@@ -21,7 +21,6 @@
   },
   "gemini-4-argon": {
     "iq": 52.6,
-    "speed": 0,
     "price": 4
   },
   "gpt-6-1-sol": {
@@ -31,7 +30,6 @@
   },
   "claude-opus-5": {
     "iq": 50.8,
-    "speed": 0,
     "price": 10
   },
   "gpt-6-sol": {
@@ -41,7 +39,6 @@
   },
   "gpt-5-6-sol": {
     "iq": 47,
-    "speed": 0,
     "price": 8
   },
   "grok-4-7": {
@@ -56,7 +53,6 @@
   },
   "grok-4-6": {
     "iq": 44.3,
-    "speed": 0,
     "price": 3
   },
   "gpt-5-6-terra": {
@@ -81,7 +77,6 @@
   },
   "gemini-3-6-flash": {
     "iq": 34,
-    "speed": 0,
     "price": 1.5
   },
   "qwen3-8-27b": {
@@ -91,47 +86,38 @@
   },
   "gpt-5-2": {
     "iq": 30.4,
-    "speed": 0,
     "price": 4.813
   },
   "claude-opus-4-5-thinking": {
     "iq": 29.1,
-    "speed": 0,
     "price": 10
   },
   "gemini-3-pro": {
     "iq": 28,
-    "speed": 0,
     "price": 4.5
   },
   "gpt-5-codex": {
     "iq": 24.9,
-    "speed": 0,
     "price": 3.438
   },
   "gpt-5-1": {
     "iq": 24.7,
-    "speed": 0,
     "price": 3.438
   },
   "gpt-5": {
     "iq": 23,
-    "speed": 0,
     "price": 3.438
   },
   "grok-4": {
     "iq": 22.5,
-    "speed": 0,
     "price": 6
   },
   "claude-4-5-sonnet-thinking": {
     "iq": 20.7,
-    "speed": 0,
     "price": 6
   },
   "claude-4-opus-thinking": {
     "iq": 20.6,
-    "speed": 0,
     "price": 30
   },
   "o3": {
@@ -140,19 +126,14 @@
     "price": 3.5
   },
   "claude-4-sonnet-thinking": {
-    "iq": 18.9,
-    "speed": 0,
-    "price": 0
+    "iq": 18.9
   },
   "gemini-3-flash": {
     "iq": 17.9,
-    "speed": 0,
     "price": 1.125
   },
   "claude-3-7-sonnet-thinking": {
-    "iq": 17.7,
-    "speed": 0,
-    "price": 0
+    "iq": 17.7
   },
   "claude-4-5-haiku-reasoning": {
     "iq": 16.9,
@@ -161,37 +142,30 @@
   },
   "o4-mini": {
     "iq": 16.7,
-    "speed": 0,
     "price": 1.925
   },
   "gemini-2-5-pro": {
     "iq": 16.1,
-    "speed": 0,
     "price": 3.438
   },
   "deepseek-v3-2": {
     "iq": 16,
-    "speed": 0,
     "price": 0.315
   },
   "qwen3-max": {
     "iq": 15.6,
-    "speed": 0,
     "price": 2.4
   },
   "o1": {
     "iq": 15.2,
-    "speed": 0,
     "price": 26.25
   },
   "deepseek-r1": {
     "iq": 13.1,
-    "speed": 0,
     "price": 1.763
   },
   "grok-3": {
     "iq": 12.1,
-    "speed": 0,
     "price": 8
   },
   "gpt-oss-120b": {
@@ -201,7 +175,6 @@
   },
   "o1-preview": {
     "iq": 11.4,
-    "speed": 0,
     "price": 28.875
   },
   "mistral-small-4": {
@@ -211,18 +184,14 @@
   },
   "o3-mini-high": {
     "iq": 11,
-    "speed": 0,
     "price": 1.925
   },
   "gemini-2-5-flash": {
     "iq": 9.9,
-    "speed": 0,
     "price": 0.85
   },
   "gpt-4-5": {
-    "iq": 9.6,
-    "speed": 0,
-    "price": 0
+    "iq": 9.6
   },
   "mistral-large-3": {
     "iq": 9.3,
@@ -230,39 +199,29 @@
     "price": 0.75
   },
   "gemini-2-0-flash": {
-    "iq": 8.9,
-    "speed": 0,
-    "price": 0
+    "iq": 8.9
   },
   "claude-3-5-haiku": {
-    "iq": 8.9,
-    "speed": 0,
-    "price": 0
+    "iq": 8.9
   },
   "claude-3-opus": {
     "iq": 8.7,
-    "speed": 0,
     "price": 30
   },
   "deepseek-v3": {
     "iq": 8.5,
-    "speed": 0,
     "price": 0.463
   },
   "qwen3-235b-a22b-instruct": {
     "iq": 8.3,
-    "speed": 0,
     "price": 1.225
   },
   "mistral-small-3-2": {
     "iq": 8.2,
-    "speed": 0,
     "price": 0.106
   },
   "deepseek-r1-qwen3-8b": {
-    "iq": 8.1,
-    "speed": 0,
-    "price": 0
+    "iq": 8.1
   },
   "llama-4-scout": {
     "iq": 8.1,
@@ -270,23 +229,17 @@
     "price": 0.313
   },
   "qwen-2-5-max": {
-    "iq": 8,
-    "speed": 0,
-    "price": 0
+    "iq": 8
   },
   "gemini-1-5-pro": {
-    "iq": 7.9,
-    "speed": 0,
-    "price": 0
+    "iq": 7.9
   },
   "claude-35-sonnet": {
     "iq": 7.9,
-    "speed": 0,
     "price": 6
   },
   "qwen2-5-72b-instruct": {
     "iq": 7.7,
-    "speed": 0,
     "price": 0.48
   },
   "llama-3-3-instruct-70b": {
@@ -295,168 +248,115 @@
     "price": 0.712
   },
   "mistral-large-2": {
-    "iq": 7.6,
-    "speed": 0,
-    "price": 0
+    "iq": 7.6
   },
   "gpt-4o-2024-05-13": {
     "iq": 7.3,
-    "speed": 0,
     "price": 7.5
   },
   "llama-3-1-instruct-405b": {
-    "iq": 7.3,
-    "speed": 0,
-    "price": 0
+    "iq": 7.3
   },
   "grok-2-1212": {
-    "iq": 7.1,
-    "speed": 0,
-    "price": 0
+    "iq": 7.1
   },
   "gpt-4-turbo": {
     "iq": 7,
-    "speed": 0,
     "price": 15
   },
   "gpt-4": {
     "iq": 6.7,
-    "speed": 0,
     "price": 37.5
   },
   "mistral-small-3": {
     "iq": 6.7,
-    "speed": 0,
     "price": 0.058
   },
   "gpt-4o-mini": {
     "iq": 6.7,
-    "speed": 0,
     "price": 0.262
   },
   "deepseek-v2-5": {
-    "iq": 6.6,
-    "speed": 0,
-    "price": 0
+    "iq": 6.6
   },
   "gemini-1-5-pro-may-2024": {
-    "iq": 6.4,
-    "speed": 0,
-    "price": 0
+    "iq": 6.4
   },
   "grok-1": {
-    "iq": 6.3,
-    "speed": 0,
-    "price": 0
+    "iq": 6.3
   },
   "qwen2-72b-instruct": {
-    "iq": 6.3,
-    "speed": 0,
-    "price": 0
+    "iq": 6.3
   },
   "gemini-1-5-flash-may-2024": {
-    "iq": 5.9,
-    "speed": 0,
-    "price": 0
+    "iq": 5.9
   },
   "claude-3-sonnet": {
-    "iq": 5.9,
-    "speed": 0,
-    "price": 0
+    "iq": 5.9
   },
   "mistral-large": {
     "iq": 5.8,
-    "speed": 0,
     "price": 6
   },
   "llama-2-chat-7b": {
     "iq": 5.7,
-    "speed": 0,
     "price": 0.1
   },
   "claude-21": {
-    "iq": 5.6,
-    "speed": 0,
-    "price": 0
+    "iq": 5.6
   },
   "claude-3-haiku": {
     "iq": 5.6,
-    "speed": 0,
     "price": 0.5
   },
   "claude-2": {
-    "iq": 5.5,
-    "speed": 0,
-    "price": 0
+    "iq": 5.5
   },
   "deepseek-v2": {
-    "iq": 5.5,
-    "speed": 0,
-    "price": 0
+    "iq": 5.5
   },
   "gpt-35-turbo": {
     "iq": 5.5,
-    "speed": 0,
     "price": 0.75
   },
   "llama-3-instruct-70b": {
     "iq": 5.5,
-    "speed": 0,
     "price": 1.175
   },
   "qwen-chat-72b": {
-    "iq": 5.4,
-    "speed": 0,
-    "price": 0
+    "iq": 5.4
   },
   "palm-2": {
-    "iq": 5.4,
-    "speed": 0,
-    "price": 0
+    "iq": 5.4
   },
   "gemini-1-0-pro": {
-    "iq": 5.3,
-    "speed": 0,
-    "price": 0
+    "iq": 5.3
   },
   "deepseek-llm-67b-chat": {
-    "iq": 5.3,
-    "speed": 0,
-    "price": 0
+    "iq": 5.3
   },
   "llama-2-chat-70b": {
-    "iq": 5.3,
-    "speed": 0,
-    "price": 0
+    "iq": 5.3
   },
   "llama-2-chat-13b": {
-    "iq": 5.3,
-    "speed": 0,
-    "price": 0
+    "iq": 5.3
   },
   "mixtral-8x7b-instruct": {
     "iq": 5.1,
-    "speed": 0,
     "price": 0.512
   },
   "claude-instant": {
-    "iq": 5,
-    "speed": 0,
-    "price": 0
+    "iq": 5
   },
   "llama-65b": {
-    "iq": 5,
-    "speed": 0,
-    "price": 0
+    "iq": 5
   },
   "mistral-7b-instruct": {
     "iq": 5,
-    "speed": 0,
     "price": 0.162
   },
   "llama-3-instruct-8b": {
     "iq": 4.8,
-    "speed": 0,
     "price": 0.07
   }
 }
