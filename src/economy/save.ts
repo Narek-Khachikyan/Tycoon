@@ -1,5 +1,6 @@
 import { CATALOG, MODEL_BY_ID } from './catalog';
 import { CRYSTAL_UPGRADE_BY_ID } from './crystal';
+import { uprisingStage } from './glitches';
 import { PERK_BY_ID } from './perks';
 import { EVENT_KINDS, newGame, SAVE_VERSION, type ActiveEvent, type EventKind, type GameState, type Glitch } from './state';
 import { UPGRADE_BY_ID } from './upgrades';
@@ -17,9 +18,10 @@ const MIGRATIONS: Record<number, Migration> = {
     version: 2,
     settings: { ...((raw.settings as object) ?? {}), reducedMotion: false },
   }),
-  // Кристаллы, события, Глюки и откуп появились в v3. У живого сохранения их нет, поэтому
-  // каждое поле получает здесь то же значение, что и newGame: миграция обязана оставить игроку
-  // игру, а не половину игры. Ни одно из них не восстанавливается — это чистые добавления.
+  // Кристаллы, события, Глюки и откуп появились в v3. У живого сохранения их нет, поэтому каждое
+  // поле получает здесь то же значение, что и newGame (кроме стадии Восстания — она выводится из
+  // Поколения): миграция обязана оставить игроку игру, а не половину игры. Ни одно из них не
+  // восстанавливается — это чистые добавления.
   // Поля внутри записей (red и modelId события, clicks Глюка) дополняет не миграция, а разбор
   // ниже: у v2 их не бывает, а довести до ума любую запись события или Глюка обязан migrate —
   // в том числе пришедшую из v3.
@@ -34,10 +36,24 @@ const MIGRATIONS: Record<number, Migration> = {
     event: null,
     glitchSeq: 0,
     glitches: [],
-    uprising: 0,
+    // Стадия Восстания выводится из своего Поколения, а не ставится нулём: у сохранения с
+    // Поколением 5 ноль означал бы мир без красных событий и без откупов навсегда — при живых
+    // Глюках, которых откуп больше нечем купить.
+    uprising: uprisingStage(num(raw.generation, 0)),
     pledgeUntil: 0,
     pledgeBought: 0,
     covenant: false,
+  }),
+  // Отметка «окно поймано», котёл возврата за Клик и окно расписания Глюков переехали в GameState:
+  // все три решают, заплатит ли клик, а вне состояния обнулялись перезагрузкой. Чистые добавления —
+  // у живого сохранения v3 их не было, и ноль означает «окно не поймано / ничего не возвращали /
+  // окно Глюка не назначено», то есть ровно то, чем было состояние до их появления.
+  3: (raw) => ({
+    ...raw,
+    version: 4,
+    eventCaughtAt: 0,
+    catchUpPaid: 0,
+    nextGlitchAt: 0,
   }),
 };
 
@@ -78,18 +94,31 @@ function activeEvent(v: unknown): ActiveEvent | null {
   return { kind: e.kind, startedAt: stamp(e.startedAt), red: !!e.red, modelId };
 }
 
-/** Живые Глюки: запись без целого id не Глюк, а мусор — она молча выпала бы. */
-function glitchList(x: unknown): Glitch[] {
-  if (!Array.isArray(x)) return [];
-  const list: Glitch[] = [];
+/**
+ * Живые Глюки: запись без целого id не Глюк, а мусор — она молча выпала бы.
+ *
+ * Повторяющийся id отбрасывается: два Глюка с одним id лопнули бы от одного клика, а выплата за
+ * лопнувшего досталась бы обоим. Вместе со списком отдаётся наибольший встреченный id — по нему
+ * поднимается `glitchSeq`, иначе сохранение с `glitchSeq: 0` и живым Глюком `id: 1` выдало бы
+ * следующему спавну тот же номер, и один клик убрал бы двоих с одной выплатой.
+ */
+function glitchList(x: unknown): { glitches: Glitch[]; topId: number } {
+  if (!Array.isArray(x)) return { glitches: [], topId: 0 };
+  const glitches: Glitch[] = [];
+  const seen = new Set<number>();
+  let topId = 0;
   for (const g of x) {
     if (!g || typeof g !== 'object') continue;
-    const o = g as { id?: unknown; bornAt?: unknown; stolen?: unknown; clicks?: unknown };
+    const o = g as { id?: unknown; stolen?: unknown; clicks?: unknown };
     const id = num(o.id, NaN);
     if (!Number.isFinite(id)) continue;
-    list.push({ id: Math.floor(id), bornAt: stamp(o.bornAt), stolen: share(o.stolen), clicks: count(o.clicks) });
+    const key = Math.floor(id);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    topId = Math.max(topId, key);
+    glitches.push({ id: key, stolen: share(o.stolen), clicks: count(o.clicks) });
   }
-  return list;
+  return { glitches, topId };
 }
 
 /** Индекс Поколения: только целое число в пределах каталога, иначе `fallback`. */
@@ -136,6 +165,7 @@ export function migrate(input: unknown, now: number): GameState {
     if (MODEL_BY_ID[id]?.generation === generation && num(n, 0) > 0) agents[id] = Math.floor(num(n, 0));
   }
   const settings = (raw.settings as GameState['settings']) ?? base.settings;
+  const glitched = glitchList(raw.glitches);
 
   return {
     ...base,
@@ -163,10 +193,13 @@ export function migrate(input: unknown, now: number): GameState {
     // список дедуплицируется, а неизвестный id отбрасывается, как и у Перков.
     crystalUpgrades: idList(raw.crystalUpgrades, CRYSTAL_UPGRADE_BY_ID),
     eventsSeen: count(raw.eventsSeen),
+    eventCaughtAt: stamp(raw.eventCaughtAt),
+    catchUpPaid: Math.max(0, num(raw.catchUpPaid, 0)),
     nextEventAt: stamp(raw.nextEventAt),
     event: activeEvent(raw.event),
-    glitchSeq: count(raw.glitchSeq),
-    glitches: glitchList(raw.glitches),
+    glitchSeq: Math.max(count(raw.glitchSeq), glitched.topId),
+    nextGlitchAt: stamp(raw.nextGlitchAt),
+    glitches: glitched.glitches,
     uprising: Math.min(count(raw.uprising), 3) as GameState['uprising'],
     pledgeUntil: stamp(raw.pledgeUntil),
     pledgeBought: count(raw.pledgeBought),

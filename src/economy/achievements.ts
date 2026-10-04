@@ -1,4 +1,4 @@
-import { CATALOG, PRESTIGE_DIVISOR_UNITS } from './catalog';
+import { CATALOG, computeGain } from './catalog';
 import type { GameState } from './state';
 
 export interface Achievement {
@@ -18,14 +18,12 @@ const tokens = (id: string, name: string, n: number): Achievement => ({
 });
 
 /**
- * Прирост Compute тем же кубичным корнем, что и Престиж.
+ * Прирост Compute тем же числом, что и Престиж.
  *
- * Формула продублирована числом, а не вызовом движка: достижения проверяются на каждом тике и
- * лежат в слое, который движок читает сам. Делитель при этом один — PRESTIGE_DIVISOR_UNITS в
- * catalog.ts, — поэтому правка баланса Престижа не оставила бы тут свою формулу.
+ * Формула не копируется, а читается из каталога: она одна на игру, а достижение, зовущее движок,
+ * образовало бы цикл импортов — catalog.ts ни от кого не зависит, так что копия не была вынуждена.
  */
-const prestigeGain = (s: GameState): number =>
-  Math.floor(Math.cbrt(s.runTokens / (PRESTIGE_DIVISOR_UNITS * CATALOG[s.generation].scale)));
+const prestigeGain = (s: GameState): number => computeGain(s.runTokens, s.generation);
 
 export const ACHIEVEMENTS: Achievement[] = [
   { id: 'click_1', name: 'Hello, world', desc: 'Отправить первый промпт', check: (s) => s.clicks >= 1 },

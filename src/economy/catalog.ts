@@ -122,3 +122,18 @@ export const MODEL_BY_ID: Record<string, Model> = Object.fromEntries(
 );
 
 export const LAST_GENERATION = CATALOG.length - 1;
+
+/** Делитель прироста Compute, приведённый к масштабу Поколения. */
+export const prestigeDivisor = (generation: number): number =>
+  PRESTIGE_DIVISOR_UNITS * CATALOG[generation].scale;
+
+/**
+ * Сколько Compute даёт Забег: кубический корень от заработка через делитель своего Поколения.
+ *
+ * Живёт здесь рядом с делителем и читается тремя местами — самим Престижем, порогом следующей
+ * единицы Compute в интерфейсе и теневым Достижением «Счастливый Compute». Формула одна: три копии
+ * разошлись бы при первой же правке баланса, а цикл импортов обойти нечем — модуль ничего не
+ * импортирует, поэтому копия не была вынуждена.
+ */
+export const computeGain = (runTokens: number, generation: number): number =>
+  Math.floor(Math.cbrt(runTokens / prestigeDivisor(generation)));

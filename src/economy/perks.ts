@@ -8,7 +8,7 @@ export type PerkEffect =
   | { kind: 'discount'; pct: number }
   | { kind: 'clickMult'; mult: number }
   | { kind: 'autoclick'; perSecond: number }
-  /** Звук при появлении случайного события: сам по себе он ничего не множит и читается в UI. */
+  /** Звук при появлении События: сам по себе он ничего не множит и читается в UI. */
   | { kind: 'eventAlert' };
 
 export interface Perk {
@@ -42,7 +42,7 @@ export const PERKS: Perk[] = [
   { id: 'autoclick', name: 'Скрипт-автокликер', desc: '1 клик в секунду автоматически', cost: 25, effect: { kind: 'autoclick', perSecond: 1 } },
   // Дороже автокликера и всех Партнёрств: сигнал покупают после Престижа, когда события уже идут
   // минутами и мимо экрана проходят.
-  { id: 'event_alert', name: 'Сигналка на события', desc: 'звук, когда появляется случайное событие', cost: 30, effect: { kind: 'eventAlert' } },
+  { id: 'event_alert', name: 'Сигналка на события', desc: 'звук, когда появляется Событие', cost: 30, effect: { kind: 'eventAlert' } },
   ...LAB_IDS.map<Perk>((lab) => ({
     id: `lab_${lab}`,
     name: `Партнёрство с ${LABS[lab].name}`,

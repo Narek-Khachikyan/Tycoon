@@ -19,7 +19,15 @@ import {
 import { awardAchievements } from '../economy/achievements';
 import { activeSpec, grantAmount, isEventActive } from '../economy/events';
 import { formatNumber } from '../economy/format';
-import { crashAmount, hitGlitch as engineHitGlitch, spawnGlitch } from '../economy/glitches';
+import { buyCrystalUpgrade as engineBuyCrystalUpgrade } from '../economy/crystal';
+import {
+  buyLicense as engineBuyLicense,
+  buyPledge as engineBuyPledge,
+  crashAmount,
+  hitGlitch as engineHitGlitch,
+  revokeLicense as engineRevokeLicense,
+  uprisingStage,
+} from '../economy/glitches';
 import { pickNews } from '../economy/news';
 import { perkEffects } from '../economy/perks';
 import { availableUpgrades } from '../economy/upgrades';
@@ -108,64 +116,6 @@ const nextTemplateIndex = (): number => {
 };
 
 /**
- * Первый Глюк не раньше третьего экрана.
- *
- * На первых двух Поколениях игрок знакомится с Агентами, Престижем и откупом, а пригларённый
- * враг в этот момент читается как глюк в коде, а не как механика. Порог стоит здесь, а не в
- * экономике, потому что заводятся Глюки здесь же: у событий окно лежит в `GameState`
- * (`nextEventAt`), потому что тик их заводит сам, а у Глюков окна в состоянии нет.
- */
-const GLITCH_FIRST_GENERATION = 2;
-
-/** Пауза между Глюками: от минуты до трёх минут. */
-const GLITCH_MIN_MS = 60_000;
-const GLITCH_MAX_MS = 180_000;
-
-/**
- * Окно между Глюками. Разброс обязателен: постоянная пауза читалась бы как счётчик, а не как
- * случайность, и толпа паразитов выходила бы предсказуемой.
- *
- * Потолок `GLITCH_SLOTS` и «Лицензию» проверяет сам `spawnGlitch` — стор эти правила не дублирует,
- * иначе они разошлись бы при первой правке в glitches.ts.
- */
-const glitchWindow = (rnd: () => number): number =>
-  GLITCH_MIN_MS + rnd() * (GLITCH_MAX_MS - GLITCH_MIN_MS);
-
-/**
- * Заводит Глюка, если подошло окно, и переносит окно дальше в любом случае.
- *
- * Расписание живёт в UI-слое рядом с прочими счётчиками, а не в `GameState`: поле в состоянии
- * стоит миграции и версии сохранения, а потерять тут можно не больше пары минут очереди. Окно
- * события, наоборот, лежит в состоянии — потерянное оно меняет то, что игрок вообще получит.
- */
-function stepGlitchSchedule(
-  state: GameState,
-  nextGlitchAt: number,
-  rnd: () => number,
-): { state: GameState; nextGlitchAt: number } {
-  // До третьего экрана расписания нет вовсе.
-  if (state.generation < GLITCH_FIRST_GENERATION) return { state, nextGlitchAt: 0 };
-  const now = state.lastTick;
-  if (nextGlitchAt > now) return { state, nextGlitchAt };
-  const next = now + glitchWindow(rnd);
-  // Просроченное окно — это простой, а не подвисание кадра: глюк не заводится, окно переносится,
-  // иначе игрок возвращался бы из оффлайна к паразиту, которого никто не звал. Догонять упущенное
-  // окно не нужно: за следующие три минуты придёт следующее.
-  if (nextGlitchAt === 0 || now - nextGlitchAt > GLITCH_MIN_MS) return { state, nextGlitchAt: next };
-  return { state: spawnGlitch(state, now), nextGlitchAt: next };
-}
-
-/**
- * Стадия Восстания, которую даёт Поколение: столько, сколько игрок дошёл, но не больше потолка.
- *
- * Стадия равна Поколению, поэтому третий экран (Поколение 2) даёт стадию 2, а «Конец света» —
- * сплошь красные события — приходит только с четвёртого. От времени стадия не зависит: игрок,
- * просидевший вкладку сутки, не должен получить то, до чего не дошёл играя.
- */
-const uprisingStage = (generation: number): GameState['uprising'] =>
-  Math.min(Math.max(0, Math.floor(generation)), 3) as GameState['uprising'];
-
-/**
  * Поднимает стадию до уровня своего Поколения; ничего не меняет — возвращает тот же объект,
  * иначе стор решил бы по тождеству, что переход что-то сделал.
  *
@@ -183,7 +133,7 @@ const UPRISING_LINES: readonly string[] = [
   '',
   'Агенты начали выдавать красные ответы. Модераторы в шоке.',
   'Красных событий всё больше. Отдел качества пишет кодекс.',
-  'Конец света: остались только красные события. Поддержка закрыта.',
+  'Красные события теперь выпадают всегда. Поддержка закрыта.',
 ];
 
 /**
@@ -192,6 +142,17 @@ const UPRISING_LINES: readonly string[] = [
  * такое событие неотличимым от уже показанного — оно осталось бы без объявления и без отклика.
  */
 const NO_EVENT_WINDOW = -1;
+
+/**
+ * Поймано ли окно, в котором лежит `state.event`.
+ *
+ * Отметка лежит в состоянии и сверяется с началом окна, а не с её флагом: событие переживает
+ * перезагрузку, и забор в памяти вкладки обнулялся бы вместе с ней — тот же клик платил бы или
+ * списывал за одно окно дважды. Ноль приходится отсекать отдельно: у события из битого сохранения
+ * `startedAt` равен нулю, и без этой проверки такое окно считалось бы уже пойманным.
+ */
+const caughtWindow = (state: GameState): boolean =>
+  state.eventCaughtAt > 0 && !!state.event && state.event.startedAt === state.eventCaughtAt;
 
 interface GameStore {
   state: GameState;
@@ -213,10 +174,18 @@ interface GameStore {
    *  второй раз поймать его нельзя. Вне GameState по той же причине, что и остальной UI-слой:
    *  это «показывали ли мы», а не состояние игры. */
   eventWindowAt: number;
-  /** Поймано ли текущее окно события. */
+  /** Поймано ли текущее окно события: зеркало `state.eventCaughtAt` для кнопки «Поймать».
+   *  Забор и деньги читают состояние, а не это поле, поэтому перезагрузка не может его обнулить и
+   *  разрешить второй раз поймать то же окно; зеркало нужно только подписи и disabled. */
   eventCaught: boolean;
-  /** Когда заводить следующего Глюка, 0 = окно ещё не назначено. UI-слой, см. stepGlitchSchedule. */
-  nextGlitchAt: number;
+  /** Окно события, на котором игрок уже подтвердил потерю: момент его старта, 0 = не подтверждал.
+   *  UI-слой: подтверждение перезагрузка обязана забыть, иначе «Крах» пришлось бы ловить, не
+   *  прочитав его заново. */
+  crashArmedAt: number;
+  /** Id слуха из Новостной ленты, за который уже выплатили; 0 = ни разу. Вне GameState по
+   *  причине, названной в collectRumor: id слуха рождается в ленте заново на каждой странице,
+   *  и сохранённый забор показывал бы слухи, но никогда бы за них не платил. */
+  collectedRumorId: number;
 
   // Actions
   tick: (dt: number) => void;
@@ -225,10 +194,20 @@ interface GameStore {
   sellAgents: (modelId: string) => void;
   buyUpgrade: (upgradeId: string) => void;
   buyPerk: (perkId: string) => void;
+  /** Покупает «Лобби»: красные события гаснут на полчаса, цена растёт на каждой покупке. */
+  buyPledge: () => void;
+  /** Покупает бессрочную «Лицензию»: налог с Дохода и ни одного Глюка. */
+  buyLicense: () => void;
+  /** Отзывает «Лицензию» за фиксированную цену: налог уходит, Глюки не возвращаются. */
+  revokeLicense: () => void;
+  /** Перманентный ускоритель роста кристалла за кристаллы из запаса. */
+  buyCrystalUpgrade: (id: string) => void;
   /** Ловит живое событие кликом по Золотому Токену: разовый вид платит, временный засчитывается. */
   catchEvent: () => void;
   /** Удар по Глюку; на третьем он лопается и выплата идёт через earnTokens. */
   hitGlitch: (id: number) => void;
+  /** Забирает разовую выплату слуха из Новостной ленты: сумма считается в момент нажатия. */
+  collectRumor: (id: number) => void;
   triggerPrestige: () => void;
 
   setBuyAmount: (amt: BuyAmount) => void;
@@ -364,7 +343,10 @@ export const useGameStore = create<GameStore>((set, get) => {
    * вызывающий кладёт в стор одним set вместе с состоянием.
    */
   const watchEventWindow = (state: GameState): { eventWindowAt: number; eventCaught: boolean } => {
-    const { eventWindowAt, eventCaught } = get();
+    const { eventWindowAt } = get();
+    // Зеркало для кнопки, а не забор: оно читается из состояния на каждом тике, поэтому перезагрузка
+    // и импорт не оставляют на экране «Поймать» для окна, которое уже поймано.
+    const eventCaught = caughtWindow(state);
     const event = state.event;
     if (!event) return { eventWindowAt, eventCaught };
     const now = state.lastTick;
@@ -380,8 +362,10 @@ export const useGameStore = create<GameStore>((set, get) => {
       if (perkEffects(state.perks).some((e) => e.kind === 'eventAlert')) {
         playEventAlertSound(state.settings.muted);
       }
-      if (spec) pushToast('Случайное событие', `${spec.name} — ${spec.desc}`);
-      return { eventWindowAt: event.startedAt, eventCaught: false };
+      if (spec) pushToast('Событие', `${spec.name} — ${spec.desc}`);
+      // Объявить окно и поймать его — разные вещи: окно могло достаться уже пойманным (импорт в
+      // середине окна), и тогда кнопка обязана остаться «Поймано», а не воскреснуть.
+      return { eventWindowAt: event.startedAt, eventCaught };
     }
     if (!live && !eventCaught) {
       // Окно закрылось, а поймать его было некогда. Повторно об этом не сообщаем: закрытое окно
@@ -410,32 +394,32 @@ export const useGameStore = create<GameStore>((set, get) => {
     ],
     burst: null,
     eventWindowAt: NO_EVENT_WINDOW,
-    eventCaught: false,
-    nextGlitchAt: 0,
+    eventCaught: caughtWindow(initial.state),
+    crashArmedAt: 0,
+    collectedRumorId: 0,
 
     tick: (dt: number) => {
-      const { state, nextGlitchAt } = get();
+      const { state } = get();
       if (dt <= 0) return;
       // advanceTime сам различает активный тик и простой (фон/сон) по OFFLINE_THRESHOLD_SEC,
       // поэтому лимит оффлайн-дохода нельзя обойти просто долгим dt. Случайность приходит
       // аргументом из стора: движок проверяется тестами с детерминированным rnd, а игра —
       // обычной случайностью.
       const advanced = awardEarned(advanceTime(state, dt, Math.random));
-      // Глюк заводится после дохода и по часам конца тика: только что появившийся вор ещё ничего
-      // не успел украсть.
-      const glitched = stepGlitchSchedule(advanced, nextGlitchAt, Math.random);
-      if (advanced.glitchSeq === 0 && glitched.state.glitchSeq === 1) {
-        // Первый Глюк в жизни игрока объясняет себя сам: молчаливый спавн паразита, крадущего
-        // Доход, выглядел бы как ошибка. Следующие молчат — их видно на экране.
+      // Расписание Глюка живёт в экономике и тикает вместе с событиями, поэтому стор видит спавн
+      // только по счётчику id — и то лишь ради первого Глюка в жизни игрока.
+      if (state.glitchSeq === 0 && advanced.glitchSeq === 1) {
+        // Молчаливый спавн паразита, крадущего Доход, выглядел бы как ошибка. Следующие молчат —
+        // их видно на экране.
         pushToast('Паразит в офисе', 'Он сел на твой Доход. Кликай по нему, пока не лопнет.');
       }
-      const eventWindow = watchEventWindow(glitched.state);
-      set({ state: glitched.state, nextGlitchAt: glitched.nextGlitchAt, ...eventWindow });
+      const eventWindow = watchEventWindow(advanced);
+      set({ state: advanced, ...eventWindow });
 
       // Сохранение в localStorage
       if (typeof window !== 'undefined') {
         try {
-          localStorage.setItem(SAVE_KEY, serialize(glitched.state));
+          localStorage.setItem(SAVE_KEY, serialize(advanced));
         } catch {
           // ignore
         }
@@ -532,14 +516,74 @@ export const useGameStore = create<GameStore>((set, get) => {
       }
     },
 
+    /**
+     * Покупает «Лобби» — гасит красные события на полчаса.
+     *
+     * Часы игровые, а не стенные: окно `pledgeUntil` меряется тем же `lastTick`, каким идёт тик
+     * (`isPledgeActive` в redEventChance), и счёт по `Date.now()` на каждом тике отставал бы от
+     * инструмента, которым его читают.
+     */
+    buyPledge: () => {
+      const { state } = get();
+      const next = engineBuyPledge(state, state.lastTick);
+      if (next === state) return;
+      // Тот же звук, что у Перка: обе покупки навсегда меняют правила забега.
+      playUpgradeSound(state.settings.muted);
+      set({ state: next });
+    },
+
+    /**
+     * Покупает «Лицензию»: отнимает 5% Дохода навсегда и лопает всех Глюков разом.
+     *
+     * Выплата проходит через awardEarned, потому что она начисляется Токенами и может закрыть
+     * Достижение по заработку. Остальные покупки откупа его не вызывают: они только тратят Токены,
+     * а условия Достижений смотрят на заработок либо на купленные Перки и Апгрейды.
+     */
+    buyLicense: () => {
+      const { state } = get();
+      const { state: licensed, payout } = engineBuyLicense(state);
+      if (licensed === state) return;
+      playUpgradeSound(state.settings.muted);
+      // Выплата идёт через earnTokens, поэтому попадает во все три счётчика, как обычный доход;
+      // саму сумму считает экономика по общему котлу Глюков. Тост обязателен: Глюки исчезают с
+      // экрана разом, и без него выплата была бы видна только в счётчике Токенов.
+      if (payout > 0) {
+        pushToast('Лицензия куплена', `+${formatNumber(payout, state.settings.notation)} Токенов за Глюков`);
+      }
+      set({ state: awardEarned(earnTokens(licensed, payout)) });
+    },
+
+    revokeLicense: () => {
+      const { state } = get();
+      const next = engineRevokeLicense(state);
+      if (next === state) return;
+      // Отзыв — трата, поэтому звук покупки, а не отказа: деньги здесь действительно сходят.
+      playBuySound(state.settings.muted);
+      set({ state: next });
+    },
+
+    /**
+     * Покупает ускоритель роста кристалла за кристаллы из запаса.
+     *
+     * Списание отнимает и бонус к Доходу за запас — размен настоящий, и показывать игроку его
+     * цену должен интерфейс, который читает `CRYSTAL_UPGRADES`. Стор только исполняет покупку.
+     */
+    buyCrystalUpgrade: (id: string) => {
+      const { state } = get();
+      const next = engineBuyCrystalUpgrade(state, id);
+      if (next === state) return;
+      playUpgradeSound(state.settings.muted);
+      set({ state: next });
+    },
+
     catchEvent: () => {
-      const { state, eventCaught } = get();
+      const { state, crashArmedAt } = get();
       const event = state.event;
       // Часы берутся из lastTick, а не из Date.now(): окно события считается по игровому часу,
       // и системное время отставало бы от него на тик — ровно на том тике, где ловля ещё должна
-      // быть разрешена.
+      // быть разрешена. Забор читает состояние, а не поле UI-слоя: тот обнулялся перезагрузкой.
       const now = state.lastTick;
-      if (!event || eventCaught || !isEventActive(event, now)) return;
+      if (!event || caughtWindow(state) || !isEventActive(event, now)) return;
       const spec = activeSpec(state, now);
       // Разовый вид платит сразу и только через earnTokens — так сумма попадает во все три
       // счётчика, как обычный доход. Временному виду платить нечего: его множитель уже тикает,
@@ -552,6 +596,17 @@ export const useGameStore = create<GameStore>((set, get) => {
             : grantAmount(state.tokens, income)
           : 0;
       const tokens = formatNumber(amount, state.settings.notation);
+      // «Крах» отнимает и от запаса, и от Забега, то есть прямо отодвигает Престиж, а единственная
+      // кнопка Золотого Токена — «поймать», и отказаться от такого окна нечем. Поэтому первое
+      // нажатие только спрашивает и называет сумму, а списывает второе нажатие в том же окне:
+      // нажать и уйти — честный отказ, окно просто уйдёт. Второй вариант (сделать красный «Грант»
+      // неловимым вовсе) запрещён карточкой: она обещает минус и обязана его показывать.
+      if (amount < 0 && crashArmedAt !== event.startedAt) {
+        playClickSound(state.settings.muted);
+        pushToast('Крах', `Ещё раз, чтобы поймать: ${tokens} Токенов`);
+        set({ crashArmedAt: event.startedAt });
+        return;
+      }
       if (amount > 0) {
         playBuySound(state.settings.muted);
         pushToast('Грант получен', `+${tokens} Токенов`);
@@ -564,7 +619,9 @@ export const useGameStore = create<GameStore>((set, get) => {
         if (spec) pushToast('Событие поймано', `${spec.name} — ${spec.desc}`);
       }
       set({
-        state: awardEarned(earnTokens(state, amount)),
+        // Отметка о пойманном окне едет в состоянии вместе с самим окном, поэтому ни перезагрузка,
+        // ни импорт в середине окна не разрешают поймать его второй раз.
+        state: awardEarned(earnTokens({ ...state, eventCaughtAt: event.startedAt }, amount)),
         eventCaught: true,
         // Ловля помечает окно и «увиденным»: пойманное окно больше не ждёт ни объявления,
         // ни сообщения о просрочке, даже если игрок поймал его раньше первого тика.
@@ -584,10 +641,47 @@ export const useGameStore = create<GameStore>((set, get) => {
         return;
       }
       // Выплата идёт через earnTokens, поэтому попадает во все три счётчика, как и доход; саму
-      // сумму считает экономика, потому что котёл у всех Глюков общий.
+      // сумму считает экономика по `stolen` именно этого Глюка, а не по общему котлу.
       playBuySound(state.settings.muted);
       pushToast('Глюк лопнул', `+${formatNumber(payout, state.settings.notation)} Токенов`);
       set({ state: awardEarned(earnTokens(hit, payout)) });
+    },
+
+    /**
+     * Забирает слух из Новостной ленты: разовая выплата по формуле «Гранта» и тост с суммой.
+     *
+     * Забор по id живёт в UI-слое, а не в `GameState`, и это не экономия, а требование: id слуха
+     * рождается в ленте заново на каждой странице (счётчик в её состоянии), поэтому поле в
+     * сохранении пережило бы перезагрузку и запретило бы выплату за первый же слух новой страницы.
+     * Слух и сам по себе перезагрузку не переживает — он живёт один виток ленты, — так что
+     * сохранять было бы нечего, кроме как помехи.
+     *
+     * `lastTick` не двигается: выплата разовая, а не заработанное за интервал время, и счётчик
+     * простоя трогать нечем. Деньги идут через earnTokens, поэтому попадают во все три счётчика
+     * и могут закрыть Достижение по заработку — как и у остальных разовых выплат.
+     */
+    collectRumor: (id: number) => {
+      const { state, collectedRumorId } = get();
+      // Повторное нажатие на тот же слух молчит: ни Токенов, ни тоста, ни звука, и состояние
+      // остаётся тем же объектом. Отсекается ровно тот id, за который уже платили, — и только он:
+      // лента отдаёт его повторно лишь при двойном клике или зажатой клавише на кнопке слуха, а
+      // сравнение «id не больше выплаченного» после пересоздания ленты (её счётчик начинается с
+      // единицы) запретило бы выплату всем следующим слухам.
+      if (id === collectedRumorId) return;
+      // Сумма считается здесь, а не когда слух показали: игрок мог успеть потратить Токены, и
+      // показанная где-либо цифра разошлась бы с выплатой.
+      const amount = grantAmount(state.tokens, totalIncome(state));
+      if (amount > 0) {
+        playBuySound(state.settings.muted);
+        pushToast('Слух пойман', `+${formatNumber(amount, state.settings.notation)} Токенов`);
+      } else {
+        // Выплаты нет, когда нечего делить: «Грант» берёт минимум из запаса Токенов и пятнадцати
+        // минут Дохода, а Доход у игрока без Агентов нулевой. Молчать нельзя — клик без ответа
+        // читается как сломанная кнопка, — поэтому слух подтверждается словами, а не суммой.
+        playClickSound(state.settings.muted);
+        pushToast('Слух пойман', 'В этот раз никто ничего не принёс.');
+      }
+      set({ state: awardEarned(earnTokens(state, amount)), collectedRumorId: id });
     },
 
     triggerPrestige: () => {
@@ -637,15 +731,18 @@ export const useGameStore = create<GameStore>((set, get) => {
       // поэтому в состояние попадают только валидные индексы каталога.
       const imported = importSave(str, Date.now());
       if (!imported) return false;
-      // Смена забега сбрасывает и то, что стор уже показывал: окно события и расписание Глюков
-      // принадлежат прошлому забегу, и оставшиеся значения скрыли бы событие из чужого
-      // сохранения или вызвали бы мгновенный спавн.
+      // Смена забега сбрасывает и то, что стор уже показывал: объявление окна события, подтверждение
+      // «Краха» и забор слухов принадлежат прошлому забегу, и оставшиеся значения скрыли бы событие
+      // из чужого сохранения, спрятали бы первый слух новой страницы или попросили бы подтвердить
+      // потерю, которую игрок ещё не читал. Отметку о пойманном окне и расписание Глюков сбрасывать
+      // нечем: они приезжают вместе с состоянием и принадлежат ему.
       set({
         state: imported,
         news: pickNews(imported),
         eventWindowAt: NO_EVENT_WINDOW,
-        eventCaught: false,
-        nextGlitchAt: 0,
+        eventCaught: caughtWindow(imported),
+        crashArmedAt: 0,
+        collectedRumorId: 0,
       });
       return true;
     },
@@ -665,7 +762,8 @@ export const useGameStore = create<GameStore>((set, get) => {
         news: pickNews(fresh),
         eventWindowAt: NO_EVENT_WINDOW,
         eventCaught: false,
-        nextGlitchAt: 0,
+        crashArmedAt: 0,
+        collectedRumorId: 0,
       });
     },
 

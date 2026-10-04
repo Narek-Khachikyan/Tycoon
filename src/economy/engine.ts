@@ -1,4 +1,4 @@
-import { CATALOG, LAST_GENERATION, MODEL_BY_ID, PRESTIGE_DIVISOR_UNITS, type Model } from './catalog';
+import { CATALOG, computeGain, LAST_GENERATION, MODEL_BY_ID, prestigeDivisor, type Model } from './catalog';
 import type { LabId } from '../data/labs';
 import { collectCrystals, crystalIncomeMult } from './crystal';
 import { perkEffects, PERK_BY_ID, START_TOKENS_UNITS } from './perks';
@@ -9,13 +9,21 @@ import {
   clickMultiplierFor,
   downtimeIncomeMult,
   eventMultiplierFor,
+  isDowntime,
   isEventActive,
   pickEventWindow,
   pickSurgeModel,
   rollEventKind,
   surgeMultFor,
 } from './events';
-import { covenantIncomeMult, glitchDrainMult, isPledgeActive, redEventChance, stepGlitches } from './glitches';
+import {
+  advanceGlitches,
+  covenantIncomeMult,
+  glitchDrainMult,
+  isPledgeActive,
+  redEventChance,
+  stepGlitches,
+} from './glitches';
 import {
   ASSIST2_MULT,
   ASSIST_PER_AGENT,
@@ -27,6 +35,7 @@ import {
   DATASET_THRESHOLDS,
   datasetUpgradeId,
   flagshipUpgradeId,
+  FLAGSHIP_MULT_CAP,
   FLAGSHIP_PER_JUNIOR,
   isUpgradeUnlocked,
   juniorAgents,
@@ -120,7 +129,7 @@ export function flagshipMult(state: GameState, model: Model): number {
   const flag = labFlagship(gen, model.lab);
   if (!flag || flag.id !== model.id) return 1;
   if (!state.upgrades.includes(flagshipUpgradeId(state.generation, model.lab))) return 1;
-  return 1 + FLAGSHIP_PER_JUNIOR * juniorAgents(state, model.lab);
+  return Math.min(1 + FLAGSHIP_PER_JUNIOR * juniorAgents(state, model.lab), FLAGSHIP_MULT_CAP);
 }
 
 /** Базовый Датасет: 0.05 за каждое НЕтеневое Достижение; переживает Престиж вместе с achievements. */
@@ -281,13 +290,21 @@ export function clickValue(state: GameState, income = totalIncome(state), now: n
   for (const e of perkEffects(state.perks)) if (e.kind === 'clickMult') flat *= e.mult;
   // Датасет множит только flat-часть: pct-часть уже содержит его через income.
   flat *= datasetMult(state);
-  // Возврат за Клик («Ночной кодинг») считается от скорости ДО глушения окна: глушение и есть
-  // то, что Клик возвращает, поэтому из заглушенной скорости он вышел бы нулём. Лишний проход по
-  // Моделям делаем только пока событие живо, а не на каждом Клике.
-  const catchUp = isEventActive(state.event, now)
-    ? catchUpClick(state, baseIncome(state) * eventMultiplierFor(state, now), now)
-    : 0;
-  return clickMultiplierFor(state, now) * (flat * globalMult(state) + income * pct + catchUp);
+  return clickMultiplierFor(state, now) * (flat * globalMult(state) + income * pct + clickCatchUp(state, now));
+}
+
+/**
+ * Сколько Токенов вернёт ОДИН Клик за окно «Ночного кодинга», 0 когда окна нет.
+ *
+ * Возврат считается от скорости ДО глушения окна: глушение и есть то, что Клик возвращает, поэтому
+ * из заглушенной скорости он вышел бы нулём. Скорость приходит от того же `baseIncome`, из
+ * которого платится оффлайн-доход, а множитель события — из его же таблицы.
+ *
+ * Проверка окна стоит перед счётом скорости, а не после: вне окна возврат нулевой, и лишний проход
+ * по Моделям на каждом Клике и на каждом тике с автокликом не нужен.
+ */
+function clickCatchUp(state: GameState, now: number): number {
+  return isDowntime(state, now) ? catchUpClick(state, baseIncome(state) * eventMultiplierFor(state, now), now) : 0;
 }
 
 export function autoclicksPerSecond(state: GameState): number {
@@ -314,8 +331,11 @@ export function earnTokens(state: GameState, amount: number): GameState {
 }
 
 export function click(state: GameState): GameState {
+  const catchUp = clickCatchUp(state, state.lastTick);
   const s = earnTokens(state, clickValue(state));
-  return { ...s, clicks: s.clicks + 1, runClicks: s.runClicks + 1 };
+  // Котёл возврата уменьшается вместе с выплатой: за окно возвращается его объём один раз, и
+  // второй Клик того же окна возвращает уже ноль.
+  return { ...s, clicks: s.clicks + 1, runClicks: s.runClicks + 1, catchUpPaid: state.catchUpPaid + catchUp };
 }
 
 export function buyAgents(state: GameState, modelId: string, n: number | 'max'): GameState {
@@ -375,8 +395,11 @@ export function advance(state: GameState, dt: number): GameState {
   const glitch = glitchDrainMult(state);
   const autoClicks = autoclicksPerSecond(state) * dt;
   // Клик автокликера считается от той же скорости, что и тик, и возвращает «Ночной кодинг» ровно
-  // так же, как клик игрока.
-  const auto = autoClicks > 0 ? autoClicks * clickValue(state, rate * glitch, now) : 0;
+  // так же, как клик игрока, но объём окна достаётся первому из них: за тик автокликов может быть
+  // много, а окно стоит одних 10 с Дохода. Дробный автоклик возвращает долю объёма.
+  const catchUp = clickCatchUp(state, now);
+  const autoRefund = Math.min(autoClicks, 1) * catchUp;
+  const auto = autoClicks > 0 ? autoClicks * (clickValue(state, rate * glitch, now) - catchUp) + autoRefund : 0;
   // Глюки крадут из скорости без их множителя, поэтому десять штук отнимают ровно половину.
   const stepped = stepGlitches(state, rate, dt);
   const s = earnTokens(stepped, rate * glitch * dt + auto);
@@ -385,6 +408,7 @@ export function advance(state: GameState, dt: number): GameState {
     // Автоклики — обычные клики: они тоже должны попадать в статистику и Достижения.
     clicks: s.clicks + autoClicks,
     runClicks: s.runClicks + autoClicks,
+    catchUpPaid: state.catchUpPaid + autoRefund,
     // lastTick обязано двигаться вместе с доходом, иначе applyOffline
     // повторно начислит уже обработанный активный интервал.
     lastTick: now,
@@ -433,7 +457,9 @@ export function applyOffline(state: GameState, now: number): { state: GameState;
 
 /**
  * События планируются и истекают здесь же, в тике: отдельного таймера у них нет и не должно
- * быть, а окно лежит в состоянии (`nextEventAt`) и потому переживает перезагрузку.
+ * быть, а окно лежит в состоянии (`nextEventAt`) и потому переживает перезагрузку. Расписание
+ * Глюков устроено так же и зовётся рядом — это буквально одна задача, «по расписанию завести
+ * сущность», и два её слоя разошлись бы при первой правке пауз.
  *
  * Истёкшее событие остаётся в состоянии до следующего спавна: из него берётся вид, который нельзя
  * повторить подряд, и после перезагрузки этот запрет переживает вместе с записью. Само событие при
@@ -453,6 +479,11 @@ function advanceEvents(state: GameState, now: number, rnd: () => number): GameSt
     // Окно переносится на новое, а не остаётся в прошлом: иначе события сыпались бы каждый тик.
     nextEventAt: now + pickEventWindow(rnd),
     eventsSeen: state.eventsSeen + 1,
+    // Котёл возврата за Клик принадлежит окну, а не забегу: без обнуления следующее «Ночной кодинг»
+    // начал бы с урезанным объёмом и недоплатил бы игроку. Отметка о пойманном окне обнуляется здесь
+    // же по той же причине, хотя и сравнивается с началом окна, а не считывается как флаг.
+    catchUpPaid: 0,
+    eventCaughtAt: 0,
     event: {
       kind,
       startedAt: now,
@@ -493,7 +524,8 @@ export function advanceTime(state: GameState, dt: number, rnd: () => number = Ma
   if (dt <= 0) return state;
   const now = state.lastTick + dt * 1000;
   const moved = dt < OFFLINE_THRESHOLD_SEC ? advance(state, dt) : applyOffline(state, now).state;
-  return collectCrystals(advanceEvents(moved, now, rnd), now).state;
+  const scheduled = advanceEvents(moved, now, rnd);
+  return collectCrystals(advanceGlitches(scheduled, now, rnd), now).state;
 }
 
 // ---------- Престиж ----------
@@ -502,8 +534,23 @@ export function canPrestige(state: GameState): boolean {
 }
 
 export function prestigeGain(state: GameState): number {
-  const divisor = PRESTIGE_DIVISOR_UNITS * CATALOG[state.generation].scale;
-  return Math.floor(Math.cbrt(state.runTokens / divisor));
+  return computeGain(state.runTokens, state.generation);
+}
+
+/**
+ * Сколько Токенов забега не хватает до следующей единицы Compute.
+ *
+ * Порог — обратная величина к prestigeGain: та отдаёт floor(cbrt(runTokens / divisor)), поэтому
+ * минимальный `runTokens`, дающий g + 1, равен ровно (g + 1)³ × divisor. Живёт здесь, а не в
+ * интерфейсе, потому что это деньги: и делитель, и кубический корень — числа движка, и копия
+ * формулы в компоненте разошлась бы с Престижем при первой же правке баланса.
+ *
+ * Пока остаток представим, он строго положителен: прирост считается из тех же `runTokens`,
+ * поэтому до порога всегда чего-то не хватает. А дальше ~1e50 Токенов в забеге этот остаток уходит
+ * под точность double и честно читается как ноль — такой суммы игра не набирает.
+ */
+export function computeShortfall(state: GameState): number {
+  return shortfall(Math.pow(prestigeGain(state) + 1, 3) * prestigeDivisor(state.generation), state.runTokens);
 }
 
 export function isContentFinale(state: GameState): boolean {

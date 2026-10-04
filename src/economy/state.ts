@@ -1,4 +1,4 @@
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 
 export type Notation = 'short' | 'sci';
 
@@ -19,7 +19,6 @@ export interface ActiveEvent {
 export interface Glitch {
   /** Счётчик id, а не порядковый номер: пережить перезагрузку он может только вместе с ним. */
   id: number;
-  bornAt: number;
   /** Доля уже украденного: Глюк растёт тем быстрее, чем больше успело украсть. */
   stolen: number;
   /** Удары игрока по этому Глюку: на третьем он лопается. */
@@ -50,11 +49,20 @@ export interface GameState {
   crystalUpgrades: string[];
   /** Сколько событий выпадало за игру: счётчик выпадений, а не список видов. */
   eventsSeen: number;
+  /** Мс Unix начала окна, которое игрок уже поймал; 0 = текущее окно ещё не поймано. Отметка в
+   *  состоянии, а не в UI-слое: окно события переживает перезагрузку, и забор, живший только в
+   *  памяти вкладки, обнулялся бы вместе с ней — тот же клик платил бы за то же окно второй раз. */
+  eventCaughtAt: number;
+  /** Сколько Токенов уже вернули Клики за текущее окно «Ночного кодинга»: возврат ограничен всем
+   *  объёмом окна, а не числом кликов. Обнуляется вместе с новым событием. */
+  catchUpPaid: number;
   /** Мс Unix, когда ждать следующего события; 0 = событие не запланировано. */
   nextEventAt: number;
   event: ActiveEvent | null;
   /** Счётчик id Глюков, чтобы их не переименовывать после перезагрузки. */
   glitchSeq: number;
+  /** Мс Unix, когда заводить следующего Глюка; 0 = окно ещё не назначено. */
+  nextGlitchAt: number;
   glitches: Glitch[];
   /** Стадия Восстания моделей; 0 = тихо. */
   uprising: 0 | 1 | 2 | 3;
@@ -91,9 +99,12 @@ export function newGame(now: number): GameState {
     crystalPlantedAt: 0,
     crystalUpgrades: [],
     eventsSeen: 0,
+    eventCaughtAt: 0,
+    catchUpPaid: 0,
     nextEventAt: 0,
     event: null,
     glitchSeq: 0,
+    nextGlitchAt: 0,
     glitches: [],
     uprising: 0,
     pledgeUntil: 0,

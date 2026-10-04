@@ -4,8 +4,9 @@ import { ACHIEVEMENTS } from '../economy/achievements';
 import { GLOSSARY } from '../data/glossary';
 import { PERKS } from '../economy/perks';
 import { exportSave } from '../economy/save';
-import { formatDuration, formatNumber } from '../economy/format';
+import { formatCount, formatDuration, formatNumber } from '../economy/format';
 import { CATALOG } from '../economy/catalog';
+import { computeShortfall, prestigeGain } from '../economy/engine';
 import { Icon } from './Icon';
 import { Num } from './Num';
 import { useDialogFocus } from './useDialogFocus';
@@ -173,6 +174,36 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   const notation = state.settings.notation;
   const totalAgents = Object.values(state.agents).reduce((a, b) => a + b, 0);
 
+  // План Престижа вместо потери от него: сброс выглядит наказанием ровно потому, что игрок
+  // не видит, во сколько обходится единица Compute. Поэтому показываем темп.
+  const gain = prestigeGain(state);
+  const runHours = Math.max(0, runTimeSec) / 3600;
+  // Время всех завершённых забегов: Престиж ставит runStartedAt в момент перехода, поэтому
+  // разница со стартом игры — это ровно часы до текущего Забега, а compute — весь прирост,
+  // который игрок набрал за них. Историю по забегам хранить не нужно, и поле в GameState
+  // не появляется.
+  //
+  // Оба темпа считаются по стенным часам, поэтому простои, когда игра была закрыта, попадают в
+  // них целиком: активного времени в GameState нет и взять его неоткуда, поэтому строки и вывод
+  // под ними называют это «вместе с простоями». Молчаливое деление Compute на время, в которое
+  // Compute не качался, давало бы число, тем меньшее, чем дольше игрок не открывал игру, — и
+  // подпись под ним подталкивала бы к Престижу ровно за то, что он отсутствовал.
+  const pastHours = Math.max(0, (state.runStartedAt - state.startedAt) / 3600);
+  const runRate = runHours > 0 ? gain / runHours : null;
+  const pastRate = pastHours > 0 ? state.compute / pastHours : null;
+  // Порог следующей единицы считает движок: инвертировать кубический корень Престижа вручную
+  // значило бы держать в компоненте вторую копию формулы, которая разойдётся с ним при первой
+  // правке баланса.
+  const toNextUnit = computeShortfall(state);
+  // Единица измерения — кириллица, поэтому она стоит рядом с числом, а не внутри него
+  // (ADR-0003): пиксельный шрифт на строке с «ч» ушёл бы в фолбэк.
+  const perHour = (v: number | null): React.ReactNode =>
+    v === null ? '—' : (
+      <>
+        <Num>{formatNumber(v, notation)}</Num> / ч
+      </>
+    );
+
   // Значение-узел, а не строка: строка целиком из числа остаётся пиксельной (ADR-0003), а
   // строка со словом («3 ч 12 мин», «1: Рассвет») набирается Nunito.
   const statRows: [string, React.ReactNode][] = [
@@ -193,6 +224,18 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
       </>,
     ],
     ['Перков открыто', `${state.perks.length} / ${PERKS.length}`],
+    ['Compute в час: этот Забег (с простоями)', perHour(runRate)],
+    ['Compute в час: время до Забега (с простоями)', perHour(pastRate)],
+    [
+      'До +1 Compute осталось',
+      <>
+        <Num key="toNext">{formatNumber(toNextUnit, notation)}</Num>{' '}
+        {formatCount(Math.round(toNextUnit), 'Токен', 'Токена', 'Токенов')}
+      </>,
+    ],
+    ['Событий выпало', <Num key="eventsSeen">{formatNumber(state.eventsSeen, notation)}</Num>],
+    ['Глюков пришло в офис', <Num key="glitchSeq">{formatNumber(state.glitchSeq, notation)}</Num>],
+    ['Кристаллов в запасе', <Num key="crystals">{formatNumber(state.crystals, notation)}</Num>],
     ['Время в текущем Забеге', formatDuration(runTimeSec)],
     ['Время за всё время игры', formatDuration(playTimeSec)],
   ];
@@ -248,6 +291,45 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
         </div>
 
         <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          {/* План Престижа. Одно предложение вместо ещё трёх строк: строки выше дают числа,
+              а читать их вывод — работа игрока, и именно поэтому сброс выглядит наказанием.
+              Здесь вывод назван прямо, и он собран из тех же чисел, что и строки, поэтому
+              разойтись с ними он не может. Простои в знаменателе обоих темпов не вычитаются,
+              поэтому сравнение не выносит вердикта: решение принимается по выплате. */}
+          {(runRate !== null || pastRate !== null) && (
+            <div
+              style={{
+                padding: '8px 10px',
+                backgroundColor: 'var(--tint-gold)',
+                border: '1px solid var(--gold)',
+                borderRadius: '4px',
+                fontSize: '0.85rem',
+                color: 'var(--text-main)',
+              }}
+            >
+              {pastRate === null ? (
+                <>
+                  Это первый твой Забег, сравнивать не с чем. Престиж сейчас даст{' '}
+                  <Num>{formatNumber(gain, notation)}</Num> Compute — и это правильный момент:
+                  забег без первого Престижа копится впустую.
+                </>
+              ) : runRate === null ? (
+                <>
+                  Забег только начался, темпа Compute в нём пока нет. У времени до этого Забега он
+                  был <Num>{formatNumber(pastRate, notation)}</Num> в час — вместе с простоями, как
+                  и все числа здесь.
+                </>
+              ) : (
+                <>
+                  Сейчас <Num>{formatNumber(runRate, notation)}</Num> Compute в час против{' '}
+                  <Num>{formatNumber(pastRate, notation)}</Num> у времени до этого Забега. Оба
+                  числа считают и простои, поэтому ровнять на них решение нельзя — судить приходится
+                  по выплате: Престиж сейчас даст <Num>{formatNumber(gain, notation)}</Num> Compute.
+                </>
+              )}
+            </div>
+          )}
+
           {statRows.map(([label, val]) => (
             <div
               key={label}

@@ -7,15 +7,16 @@ import { labAgents, labWork, SYNERGY_PER_AGENT, synergyUpgradeId } from '../econ
 import { formatCount, formatNumber } from '../economy/format';
 import { MascotSprite } from './MascotSprite';
 import { Num } from './Num';
+import { SceneDrone, SceneGlitchBand, SceneGlitchSwarm } from './SceneEvents';
 import { OFFICE_COL_MIN } from '../layout';
 
-// Сцен четыре, по две эпохи Поколения на каждую (ADR-0002), поэтому индекс Сцены —
+// Сцен четыре, по два Поколения на каждую (ADR-0002), поэтому индекс Сцены —
 // floor(Поколение / 2). Список имён выводится из количества, а не дублируется руками:
 // иначе четвёртая Сцена и её файл разъехались бы при добавлении пятой.
 const SCENE_COUNT = 4;
 const SCENE_SRC = Array.from({ length: SCENE_COUNT }, (_, i) => `/scenes/scene-${i + 1}.png`);
 
-// Жёсткий контур вокруг счётчика Агентов на картинке. Не плашка: она закрывала бы пол Сцены
+// Жёсткий контур вокруг счётчика Агентов поверх Сцены. Не плашка: она закрывала бы пол Сцены
 // прямоугольником, а контур из четырёх смещений держит читаемость на любом фоне, не добавляя
 // подложки. Тот же приём, что у .floater.
 const BADGE_OUTLINE = '1px 0 0 #000, -1px 0 0 #000, 0 1px 0 #000, 0 -1px 0 #000, 0 2px 3px #000';
@@ -166,7 +167,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
   };
 
   // Прогрев соседних Сцен: без неё Престиж на секунду показывает пустой кадр, потому что
-  // картинка начинает грузиться только когда src уже назначен. Вперёд — для следующего
+  // кадр начинает грузиться только когда src уже назначен. Вперёд — для следующего
   // Престижа, назад — для возврата взглядом: раньше обратного прелоада не было (аудит).
   // Края массива отсекаются по SCENE_COUNT, чтобы не зациклиться.
   useEffect(() => {
@@ -329,7 +330,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
       >
         {/* Кроссфейд: предыдущий кадр лежит нижним слоем, новый проявляется поверх
             (класс scene-crossfade--in, только opacity). Предыдущий убирается по концу
-            входящей анимации — таймеров нет, текст и HUD-полосы вне картинки (ADR-0002). */}
+            входящей анимации — таймеров нет, текст и HUD-полосы вне Сцены (ADR-0002). */}
         {sceneShown.prev >= 0 && sceneShown.prev !== sceneShown.curr ? (
           <>
             <img
@@ -396,33 +397,44 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
           />
         )}
 
-        {/* HUD-полоса: собственный скрим, поэтому читаемость подписи не зависит от того,
-            что нарисовала машина (ADR-0002). */}
+        {/* Полосы прижаты к верхнему краю Сцены общей обёрткой: HUD и полоса Глюков
+            стоят одна под другой, а высоты HUD никто не знает наперёд, поэтому её измерять
+            и подставлять в позицию полосы Глюков незачем — достаточно потока внутри
+            обёртки. Обе несут собственный скрим, поэтому читаемость подписей не зависит от
+            того, что нарисовала машина (ADR-0002). */}
         <div
-          className="scene__hud"
           style={{
             position: 'absolute',
             top: 0,
             left: 0,
             right: 0,
             zIndex: 2,
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'baseline',
-            gap: '8px',
-            padding: '9px 12px',
-            background: 'linear-gradient(to bottom, var(--bg-scrim) 0%, var(--bg-scrim) 55%, transparent 100%)',
           }}
         >
-          <span style={{ fontSize: '1rem', color: 'var(--text-main)' }}>ОФИС АГЕНТОВ</span>
-          <span style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>
-            <Num>{formatNumber(totalAgents, notation)}</Num>{' '}
-            {formatCount(totalAgents, 'Агент', 'Агента', 'Агентов')}
-          </span>
+          <div
+            className="scene__hud"
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'baseline',
+              gap: '8px',
+              padding: '9px 12px',
+              background: 'linear-gradient(to bottom, var(--bg-scrim) 0%, var(--bg-scrim) 55%, transparent 100%)',
+            }}
+          >
+            <span style={{ fontSize: '1rem', color: 'var(--text-main)' }}>ОФИС АГЕНТОВ</span>
+            <span style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>
+              <Num>{formatNumber(totalAgents, notation)}</Num>{' '}
+              {formatCount(totalAgents, 'Агент', 'Агента', 'Агентов')}
+            </span>
+          </div>
+          {/* Полоса кражи Дохода появляется вместе с первым Глюком и держит обратную связь
+              на самой Сцене: без неё игрок узнавал бы об утечке только из модалки. */}
+          <SceneGlitchBand />
         </div>
 
         {/* Маскоты стоят на общей линии у нижнего края Сцены, а подписи Лабораторий живут
-            в ростере под ней — на ровной поверхности, где контраст не зависит от картинки. */}
+            в ростере под ней — на ровной поверхности, где контраст не зависит от Сцены. */}
         <div
           className="scene__mascots"
           style={{
@@ -498,7 +510,11 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
           ))}
         </div>
 
-        {/* Пыль в воздухе Сцены: часть картинки, а не слой поверх неё, поэтому гаснет вместе
+        {/* Глюки сидят на Сцене: каждый показывает, сколько кликов до разрыва, и лопается
+            от третьего. Полоса с долей кражи — выше, в обёртке HUD. */}
+        <SceneGlitchSwarm />
+
+        {/* Пыль в воздухе Сцены: часть Сцены, а не слой поверх неё, поэтому гаснет вместе
             с полом, а не светится поверх затемнения. Держит порядок разметка: у пыли и у
             скрима одинаковый z-index 1, а при равном z-index рисуется тот, кто позже в DOM. */}
         <div className="scene__motes">
@@ -552,6 +568,10 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
             </div>
           </div>
         )}
+
+        {/* Дрон летит последним слоем: он пересекает и пол, и ленту Маскотов, поэтому должен
+            рисоваться поверх обоих. Слой не перехватывает указатель — см. .scene__drone. */}
+        <SceneDrone />
       </div>
 
       {/* Ростер: имена Лабораторий, их Маскоты, счётчики Агентов и Синергия — на ровной

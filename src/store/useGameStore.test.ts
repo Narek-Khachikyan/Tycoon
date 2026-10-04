@@ -1,13 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useGameStore } from './useGameStore';
 import { CATALOG } from '../economy/catalog';
-import { CRYSTAL_CYCLE_MS } from '../economy/crystal';
-import { totalIncome } from '../economy/engine';
+import { CRYSTAL_CYCLE_MS, CRYSTAL_PER_STOCK_BONUS, CRYSTAL_UPGRADES, crystalCycleMs, crystalIncomeMult } from '../economy/crystal';
+import { clickValue, computeShortfall, prestigeGain, totalIncome } from '../economy/engine';
 import { EVENT_TABLES, grantAmount } from '../economy/events';
-import { GLITCH_CLICKS } from '../economy/glitches';
-import { serialize } from '../economy/save';
+import { RED_TABLES } from '../economy/glitches';
+import { formatNumber } from '../economy/format';
+import {
+  GLITCH_CLICKS,
+  glitchPayout,
+  LICENSE_INCOME_TAX,
+  licenseCost,
+  PLEDGE_GROWTH,
+  PLEDGE_MAX,
+  PLEDGE_MS,
+  pledgeCost,
+  revokeCost,
+} from '../economy/glitches';
+import { exportSave, serialize } from '../economy/save';
 import { newGame, type GameState } from '../economy/state';
-import { playEventAlertSound } from '../audio/sound';
+import { playBuySound, playClickSound, playEventAlertSound, playUpgradeSound } from '../audio/sound';
 
 vi.mock('../audio/sound', () => ({
   playAchievementSound: vi.fn(),
@@ -79,37 +91,51 @@ describe('glitch schedule', () => {
     // Первое окно планируется, а не открывается сразу: спавн на первом тике читался бы как ошибка.
     tick();
     expect(state().glitches).toEqual([]);
-    expect(store().nextGlitchAt).toBeGreaterThan(state().lastTick);
+    expect(state().nextGlitchAt).toBeGreaterThan(state().lastTick);
   });
 
   it('spawns one glitch when the window comes, and moves the window into the future', () => {
     reachedGeneration(2);
+    hire(CATALOG[2].models[0].id);
     tick();
-    useGameStore.setState({ nextGlitchAt: state().lastTick });
+    useGameStore.setState({ state: { ...state(), nextGlitchAt: state().lastTick } });
     tick();
     expect(state().glitches).toHaveLength(1);
-    expect(store().nextGlitchAt).toBeGreaterThan(state().lastTick);
+    expect(state().nextGlitchAt).toBeGreaterThan(state().lastTick);
     // Окно сдвинуто, а не осталось в прошлом: иначе глюки сыпались бы каждый тик.
     for (let i = 0; i < 20; i++) tick();
     expect(state().glitches).toHaveLength(1);
   });
 
+  it('says who arrived, but only for the first glitch of the run', () => {
+    reachedGeneration(2);
+    hire(CATALOG[2].models[0].id);
+    tick();
+    useGameStore.setState({ state: { ...state(), nextGlitchAt: state().lastTick } });
+    tick();
+    expect(store().toasts.map((t) => t.title)).toContain('Паразит в офисе');
+    // Молчаливый спавн паразита читался бы как ошибка, но объяснять каждый — как извинение.
+    useGameStore.setState({ state: { ...state(), nextGlitchAt: state().lastTick } });
+    useGameStore.setState({ toasts: [] });
+    tick();
+    expect(store().toasts).toEqual([]);
+  });
+
   it('skips a window missed during an absence instead of greeting the player with a glitch', () => {
     reachedGeneration(2);
+    hire(CATALOG[2].models[0].id);
     tick();
-    useGameStore.setState({ nextGlitchAt: state().lastTick - 10 * 60_000 });
+    useGameStore.setState({ state: { ...state(), nextGlitchAt: state().lastTick - 10 * 60_000 } });
     tick();
     expect(state().glitches).toEqual([]);
-    expect(store().nextGlitchAt).toBeGreaterThan(state().lastTick);
+    expect(state().nextGlitchAt).toBeGreaterThan(state().lastTick);
   });
 
   it('keeps quiet under a license, because spawnGlitch refuses it', () => {
     reachedGeneration(2);
+    hire(CATALOG[2].models[0].id);
     tick();
-    useGameStore.setState({
-      state: { ...state(), covenant: true },
-      nextGlitchAt: state().lastTick,
-    });
+    useGameStore.setState({ state: { ...state(), covenant: true, nextGlitchAt: state().lastTick } });
     tick();
     expect(state().glitches).toEqual([]);
   });
@@ -117,14 +143,14 @@ describe('glitch schedule', () => {
   it('has no schedule at all on the first screen', () => {
     for (let i = 0; i < 50; i++) tick();
     expect(state().glitches).toEqual([]);
-    expect(store().nextGlitchAt).toBe(0);
+    expect(state().nextGlitchAt).toBe(0);
   });
 });
 
 describe('uprising', () => {
   it('stays quiet on the first screen and rises with the flagship of the next one', () => {
     freshStore();
-    // Флагман Поколения 0 — первый экран: стадия 0, и «Конец света» на нём не выдаётся.
+    // Флагман Поколения 0 — первый экран: стадия 0, и сплошь красные события на нём не выдаются.
     hire(CATALOG[0].flagship.id, 1);
     expect(state().uprising).toBe(0);
     expect(store().toasts.filter((t) => t.title === 'Восстание моделей')).toEqual([]);
@@ -193,16 +219,78 @@ describe('catching an event', () => {
     expect(store().eventCaught).toBe(true);
   });
 
-  it('charges a crash, because a red grant is the same one-off kind with a negative amount', () => {
+  it('charges a crash only on the second press, and lets the player walk away from the window', () => {
     freshStore();
     hire(first.id, 1);
     withVisibleWallet();
     useGameStore.setState({ state: withEvent('grant', true) });
     const before = state();
     store().catchEvent();
-    expect(state().tokens).toBeLessThan(before.tokens);
-    expect(state().runTokens).toBeLessThan(before.runTokens);
-    expect(state().totalTokens).toBeLessThan(before.totalTokens);
+    // Первое нажатие только спрашивает: «Крах» отнимает и от запаса, и столько же от Забега, то есть
+    // прямо отодвигает Престиж, а второй кнопки у Золотого Токена нет — отказаться было нечем.
+    expect(state().tokens).toBe(before.tokens);
+    expect(state().eventCaughtAt).toBe(0);
+    expect(store().crashArmedAt).toBe(before.event!.startedAt);
+    // Сумма названа: игрок должен знать, во что он соглашается, до того как согласится.
+    expect(store().toasts.map((t) => t.title)).toContain('Крах');
+    // Ушёл — окно ушло, кошелёк цел: единственная кнопка так и не стала списанием. Доход за время
+    // ожидания честно капает в плюс, поэтому сравнение идёт с ним, а не с нулём.
+    tick(RED_TABLES.grant.durationMs / 1000 + 1);
+    expect(state().tokens).toBeGreaterThan(before.tokens);
+    expect(state().eventCaughtAt).toBe(0);
+
+    // Следующее окно «Краха»: без нового подтверждения первое нажатие снова ничего не отнимает,
+    // а второе — отнимает, и уже вместе с Забегом.
+    useGameStore.setState({ state: withEvent('grant', true), crashArmedAt: 0, toasts: [] });
+    const window2 = state();
+    store().catchEvent();
+    expect(state().tokens).toBe(window2.tokens);
+    store().catchEvent();
+    expect(state().tokens).toBeLessThan(window2.tokens);
+    expect(state().runTokens).toBeLessThan(window2.runTokens);
+    expect(state().totalTokens).toBeLessThan(window2.totalTokens);
+    expect(state().eventCaughtAt).toBe(window2.event!.startedAt);
+    // Окно поймано: третье нажатие не отнимает ничего.
+    const charged = state().tokens;
+    store().catchEvent();
+    expect(state().tokens).toBe(charged);
+  });
+
+  it('keeps the catch fence through a reload, so one window can never pay twice', () => {
+    freshStore();
+    hire(first.id, 1);
+    withVisibleWallet();
+    useGameStore.setState({ state: withEvent('grant') });
+    const before = state();
+    store().catchEvent();
+    const paid = state().tokens - before.tokens;
+    expect(paid).toBeGreaterThan(0);
+    // Импорт в середине окна привозит с собой отметку: тот же клик не платит второй раз.
+    expect(store().importSaveData(exportSave(state()))).toBe(true);
+    const imported = state();
+    expect(imported.eventCaughtAt).toBe(imported.event!.startedAt);
+    expect(store().eventCaught).toBe(true);
+    store().catchEvent();
+    expect(state().tokens).toBe(imported.tokens);
+    // Объявление окна на первом тике после импорта не воскрешает кнопку: пойманное окно поймано.
+    tick();
+    expect(store().eventWindowAt).toBe(imported.event!.startedAt);
+    expect(store().eventCaught).toBe(true);
+    // За тик пришёл только Доход: выплаты за уже пойманное окно не было.
+    expect(state().tokens - imported.tokens).toBeCloseTo(totalIncome(imported) * 0.05, 6);
+  });
+
+  it('returns the downtime window once for a burst of clicks, never once per click', () => {
+    freshStore();
+    hire(first.id, 10);
+    const rate = totalIncome({ ...state(), event: null });
+    const room = rate * RED_TABLES.clickRush.catchUpSec;
+    useGameStore.setState({ state: { ...state(), event: { kind: 'clickRush', startedAt: state().lastTick, red: true } } });
+    const before = state().tokens;
+    for (let i = 0; i < 10; i++) store().clickPrompt(10, 10);
+    // Десять Кликов плюс объём окна один раз: возврат за каждый Клик давал бы десять окон.
+    expect(state().tokens - before).toBeLessThanOrEqual(10 * clickValue({ ...state(), event: null }) + room);
+    expect(state().catchUpPaid).toBeCloseTo(room);
   });
 
   it('counts a temporary event without paying it, because its multiplier is already ticking', () => {
@@ -238,11 +326,11 @@ describe('catching an event', () => {
 });
 
 describe('hitting a glitch', () => {
-  it('pops on the third hit and pays the shared pot into all three counters', () => {
+  it('pops on the third hit and pays what that one glitch stole into all three counters', () => {
     reachedGeneration(2);
     hire(CATALOG[2].models[0].id);
     withVisibleWallet();
-    useGameStore.setState({ nextGlitchAt: state().lastTick });
+    useGameStore.setState({ state: { ...state(), nextGlitchAt: state().lastTick } });
     tick();
     const id = state().glitches[0].id;
     for (let i = 1; i < GLITCH_CLICKS; i++) {
@@ -269,6 +357,286 @@ describe('hitting a glitch', () => {
   });
 });
 
+describe('collecting a rumor', () => {
+  /**
+   * Игрок, у которого выплата слуха считается от запаса Токенов.
+   *
+   * Агентов много, а кошелёк скромный: «Грант» берёт минимум из запаса Токенов и пятнадцати минут
+   * Дохода, и при такой расстановке решает именно процент от запаса. Тогда уменьшение кошелька
+   * видно в выплате, а не тонет под потолком Дохода, — иначе проверка «сумма считается в момент
+   * нажатия» ничего бы не различала.
+   */
+  const rumorPlayer = (tokens: number): void => {
+    freshStore();
+    hire(first.id, 100);
+    withTokens(tokens);
+  };
+
+  it('credits the payout into all three counters, says the sum, and pays a repeated id nothing', () => {
+    rumorPlayer(1e4);
+    const before = state();
+    const wanted = grantAmount(before.tokens, totalIncome(before));
+    expect(wanted).toBeGreaterThan(0);
+    vi.mocked(playBuySound).mockClear();
+    store().collectRumor(7);
+    // Разности, а не тождества: прибавление выплаты к кошельку порядка 1e4 теряет единицы на
+    // конце мантиссы, и точное сравнение ловило бы округление, а не деньги.
+    expect(state().tokens - before.tokens).toBeCloseTo(wanted, 6);
+    expect(state().runTokens - before.runTokens).toBeCloseTo(wanted, 6);
+    expect(state().totalTokens - before.totalTokens).toBeCloseTo(wanted, 6);
+    // Выплата обязана быть названа: лента обещает разовые Токены, и одной прибавки мало.
+    expect(store().toasts.find((t) => t.title === 'Слух пойман')?.desc).toBe(
+      `+${formatNumber(wanted, state().settings.notation)} Токенов`,
+    );
+    expect(vi.mocked(playBuySound)).toHaveBeenCalledTimes(1);
+    // Тот же слух второй раз: ни Токенов, ни тоста, ни звука, и состояние остаётся тем же объектом.
+    const paid = state();
+    const toasts = store().toasts.length;
+    vi.mocked(playBuySound).mockClear();
+    store().collectRumor(7);
+    expect(state()).toBe(paid);
+    expect(store().toasts).toHaveLength(toasts);
+    expect(vi.mocked(playBuySound)).not.toHaveBeenCalled();
+    // Забор помечает конкретный слух, а не забег: пересозданная лента начинает свой счётчик с
+    // единицы, и такой слух снова должен платить.
+    store().collectRumor(1);
+    expect(state().tokens).toBeGreaterThan(paid.tokens);
+  });
+
+  it('counts the amount at the click, so a wallet spent in between moves the payout with it', () => {
+    rumorPlayer(1e4);
+    const full = state();
+    store().collectRumor(1);
+    const firstPayout = state().tokens - full.tokens;
+    expect(firstPayout).toBeCloseTo(grantAmount(full.tokens, totalIncome(full)), 6);
+    // Игрок успел потратить Токены: следующий слух уже не может заплатить прежнее, иначе цифра,
+    // которую видит игрок, разошлась бы с выплатой.
+    withTokens(2e3);
+    const spent = state();
+    store().collectRumor(2);
+    const secondPayout = state().tokens - spent.tokens;
+    expect(secondPayout / firstPayout).toBeCloseTo(0.2, 6);
+    expect(secondPayout).toBeCloseTo(grantAmount(spent.tokens, totalIncome(spent)), 6);
+  });
+
+  it('says that nothing came when there is nothing to share, and still marks the rumor taken', () => {
+    freshStore();
+    // Токены есть, а Дохода нет: без Агентов второй член минимума нулевой, и делиться нечем.
+    withTokens(1e6);
+    const before = state();
+    expect(grantAmount(before.tokens, totalIncome(before))).toBe(0);
+    vi.mocked(playBuySound).mockClear();
+    store().collectRumor(1);
+    expect(state().tokens).toBe(before.tokens);
+    // Звука покупки на пустой выплате нет, но клик обязан быть услышан: молчание читается как
+    // сломанная кнопка.
+    expect(vi.mocked(playBuySound)).not.toHaveBeenCalled();
+    expect(vi.mocked(playClickSound)).toHaveBeenCalledTimes(1);
+    expect(store().toasts.find((t) => t.title === 'Слух пойман')?.desc).toBe(
+      'В этот раз никто ничего не принёс.',
+    );
+    // Забор ставится и на пустой выплате: тот же слух второй раз всё равно молчит.
+    expect(store().collectedRumorId).toBe(1);
+  });
+});
+
+describe('compute threshold', () => {
+  /** Забег на указанном числе Токенов: ничего не покупаем, меняется только счётчик забега. */
+  const run = (runTokens: number): GameState => ({ ...state(), runTokens });
+
+  it('is exactly the number of tokens missing to the next unit, checked against the gain itself', () => {
+    freshStore();
+    for (const runTokens of [0, 1e5, 1e12]) {
+      const s = run(runTokens);
+      const missing = computeShortfall(s);
+      expect(missing).toBeGreaterThan(0);
+      // Порог проверяется не формулой, а самим движком: ровно на этом числе забега прирост
+      // Compute растёт на единицу, а на единицу меньше — ещё нет.
+      const threshold = runTokens + missing;
+      expect(prestigeGain(run(threshold))).toBe(prestigeGain(s) + 1);
+      expect(prestigeGain(run(threshold - 1))).toBe(prestigeGain(s));
+    }
+  });
+
+  it('stays a positive finite number on the numbers the game reaches', () => {
+    freshStore();
+    // Порядки от первых забегов до конца игры: это деньги, и ноль или бесконечность в строке
+    // окна статистики читались бы как сломанная строка. Дальше ~1e50 разрыв до следующей единицы
+    // уходит под точность double, и там нули — единственное представимое значение; за такой
+    // суммой игра не доходит.
+    for (const runTokens of [1e12, 1e27, 1e30, 1e50]) {
+      const missing = computeShortfall(run(runTokens));
+      expect(missing).toBeGreaterThan(0);
+      expect(Number.isFinite(missing)).toBe(true);
+    }
+  });
+
+  it('rises with the generation, because the divisor it comes from does', () => {
+    freshStore();
+    const gen0Missing = computeShortfall(run(0));
+    reachedGeneration(1);
+    expect(computeShortfall(run(0)) / gen0Missing).toBeCloseTo(CATALOG[1].scale, 6);
+  });
+});
+
+/**
+ * Игрок, дошедший до откупа.
+ *
+ * Третий экран, а не второй: Глюки заводятся не с первого, и раньше лицензии нечего было бы
+ * лопнуть — выплата была бы нулём. Агенты нужны и для налога, и для кражи: без них Доход нулевой
+ * и обе величины схлопываются в ноль. Событие на время проверки выключено — иначе «Волна хайпа»
+ * умножила бы Доход, и налог измерялся бы вместе с множителем события, а не сам по себе.
+ */
+const risenPlayer = (): void => {
+  reachedGeneration(2);
+  hire(CATALOG[2].models[0].id);
+  useGameStore.setState({ state: { ...state(), event: null, nextEventAt: state().lastTick + HOUR } });
+};
+
+describe('pledge and license', () => {
+  it('prices every next lobby higher, extends the window and stops at the cap', () => {
+    risenPlayer();
+    // Кошелёк покрывает всю лестницу с запасом: проверяется цена, а не отказ по нехватке.
+    withTokens(pledgeCost(state()) * PLEDGE_GROWTH ** PLEDGE_MAX);
+    // Покупки Агентов и Престиж выше уже звучали, а считать здесь нужно покупки откупа.
+    vi.mocked(playUpgradeSound).mockClear();
+    const at = state().lastTick;
+    let ladder = pledgeCost(state());
+    for (let i = 0; i < PLEDGE_MAX; i++) {
+      const before = state();
+      expect(pledgeCost(before)).toBeCloseTo(ladder, 6);
+      store().buyPledge();
+      expect(state().tokens).toBeCloseTo(before.tokens - ladder, 6);
+      expect(state().pledgeBought).toBe(i + 1);
+      // Продление, а не замена: купленное время не сгорает при перекупке, и окно считается по
+      // игровым часам — тем же lastTick, по которому его меряет isPledgeActive.
+      expect(state().pledgeUntil).toBe(at + (i + 1) * PLEDGE_MS);
+      ladder *= PLEDGE_GROWTH;
+    }
+    // Потолок исчерпан: ещё одно «Лобби» молча и не проходит.
+    const atCap = state();
+    store().buyPledge();
+    expect(state()).toBe(atCap);
+    // Звук покупки тот же, что у Перка, и ровно по одному разу на покупку.
+    expect(vi.mocked(playUpgradeSound)).toHaveBeenCalledTimes(PLEDGE_MAX);
+  });
+
+  it('takes exactly 5% of the income and pops every glitch at once, paid into all three counters', () => {
+    risenPlayer();
+    const income = totalIncome(state());
+    useGameStore.setState({ state: { ...state(), nextGlitchAt: state().lastTick } });
+    tick();
+    for (let i = 0; i < 200; i++) tick();
+    expect(state().glitches).toHaveLength(1);
+    // Кошелёк ровно в цену: после покупки на балансе остаётся одна выплата, и её не съедает
+    // мантисса числа порядка 1e15. Снимок состояния снимается уже после кошелька, иначе выплата
+    // считалась бы в чужой копилке.
+    const cost = licenseCost(state());
+    withTokens(cost);
+    const before = state();
+    store().buyLicense();
+    expect(state().covenant).toBe(true);
+    expect(state().glitches).toEqual([]);
+    const payout = glitchPayout(before);
+    expect(payout).toBeGreaterThan(0);
+    // Доли, а не разности: выплата тут порядка 1e20, и её прибавление к копилке за заработок
+    // съедается мантиссой задолго до шестой значащей цифры.
+    expect(state().tokens / payout).toBeCloseTo(1, 6);
+    expect((state().runTokens - before.runTokens) / payout).toBeCloseTo(1, 6);
+    expect((state().totalTokens - before.totalTokens) / payout).toBeCloseTo(1, 6);
+    // Глюки, снимавшие долю Дохода, исчезли, и остаётся ровно налог за «Лицензию».
+    expect(totalIncome(state()) / income).toBeCloseTo(1 - LICENSE_INCOME_TAX, 6);
+    // Выплата обязана быть сказана: Глюков на экране больше нет, иначе она видна только в счётчике.
+    expect(store().toasts.map((t) => t.title)).toContain('Лицензия куплена');
+  });
+
+  it('charges for the revoke and gives the taxed income back', () => {
+    risenPlayer();
+    const income = totalIncome(state());
+    // Оба платежа в кошельке сразу: отзыв дороже покупки на два порядка, и кошелёк ниже цены
+    // отзыва означал бы, что проверяется отказ, а не возврат Дохода.
+    withTokens(licenseCost(state()) + revokeCost(state()));
+    store().buyLicense();
+    expect(totalIncome(state()) / income).toBeCloseTo(1 - LICENSE_INCOME_TAX, 6);
+    const before = state();
+    store().revokeLicense();
+    expect(state().covenant).toBe(false);
+    expect(state().tokens).toBeCloseTo(before.tokens - revokeCost(before), 6);
+    expect(totalIncome(state()) / income).toBeCloseTo(1, 6);
+  });
+
+  it('changes nothing when the wallet cannot pay, and stays silent', () => {
+    // Откуп не продаётся, пока не идёт Восстание: глушить нечего, и обе цены недоступны.
+    freshStore();
+    hire(first.id, 1);
+    withTokens(1e12);
+    let before = state();
+    store().buyPledge();
+    store().buyLicense();
+    expect(state()).toBe(before);
+
+    risenPlayer();
+    vi.mocked(playBuySound).mockClear();
+    vi.mocked(playUpgradeSound).mockClear();
+    // Под каждую покупку свой кошелёк, и он ниже цены. Доля, а не «минус один»: цена «Лицензии»
+    // считается от Флагмана и в Поколении 2 переваливает за 1e19, где шаг double — тысячи Токенов,
+    // и цена минус один равна цене.
+    withTokens(pledgeCost(state()) - 1);
+    before = state();
+    store().buyPledge();
+    expect(state()).toBe(before);
+
+    withTokens(licenseCost(state()) / 2);
+    before = state();
+    store().buyLicense();
+    expect(state()).toBe(before);
+
+    // Отзыв без денег не отзывается, и налог остаётся.
+    useGameStore.setState({ state: { ...state(), covenant: true } });
+    withTokens(0);
+    before = state();
+    store().revokeLicense();
+    expect(state()).toBe(before);
+    expect(state().covenant).toBe(true);
+
+    // Молчание обязательно: звук покупки на отказе читался бы как «можно купить».
+    expect(vi.mocked(playUpgradeSound)).not.toHaveBeenCalled();
+    expect(vi.mocked(playBuySound)).not.toHaveBeenCalled();
+  });
+});
+
+describe('crystal speeder', () => {
+  it('spends the stock, shortens the cycle and is not bought twice', () => {
+    freshStore();
+    hire(first.id, 100);
+    const stock = 40;
+    const speeder = CRYSTAL_UPGRADES[0];
+    useGameStore.setState({ state: { ...state(), crystals: stock } });
+    expect(crystalCycleMs(state())).toBe(CRYSTAL_CYCLE_MS);
+    const before = state();
+    store().buyCrystalUpgrade(speeder.id);
+    expect(state().crystals).toBe(stock - speeder.cost);
+    expect(state().crystalUpgrades).toEqual([speeder.id]);
+    expect(crystalCycleMs(state())).toBe(speeder.cycleMs);
+    // Размен настоящий: потраченные кристаллы больше не дают +1% к Доходу, и это видно и в запасе,
+    // и в самом Доходе.
+    expect(crystalIncomeMult(state())).toBeCloseTo(1 + (stock - speeder.cost) * CRYSTAL_PER_STOCK_BONUS, 10);
+    expect(totalIncome(state())).toBeLessThan(totalIncome(before));
+    // Повторная покупка уже купленного ускорителя не проходит.
+    const bought = state();
+    store().buyCrystalUpgrade(speeder.id);
+    expect(state()).toBe(bought);
+  });
+
+  it('refuses a speeder the stock cannot pay for', () => {
+    const speeder = CRYSTAL_UPGRADES[0];
+    useGameStore.setState({ state: { ...state(), crystals: speeder.cost - 1 } });
+    const before = state();
+    store().buyCrystalUpgrade(speeder.id);
+    expect(state()).toBe(before);
+  });
+});
+
 describe('event window', () => {
   const liveEvent = (kind: 'grant' | 'hype' = 'grant', startedAt = state().lastTick): GameState => ({
     ...state(),
@@ -280,7 +648,7 @@ describe('event window', () => {
     useGameStore.setState({ state: liveEvent(), toasts: [] });
     tick();
     expect(store().eventWindowAt).toBe(state().event?.startedAt);
-    expect(store().toasts.map((t) => t.title)).toContain('Случайное событие');
+    expect(store().toasts.map((t) => t.title)).toContain('Событие');
     useGameStore.setState({ toasts: [] });
     tick();
     expect(store().toasts).toEqual([]);
@@ -304,7 +672,7 @@ describe('event window', () => {
     reachedGeneration(2);
     useGameStore.setState({ state: liveEvent(), toasts: [] });
     tick();
-    expect(store().toasts.map((t) => t.title)).toContain('Случайное событие');
+    expect(store().toasts.map((t) => t.title)).toContain('Событие');
     expect(vi.mocked(playEventAlertSound)).not.toHaveBeenCalled();
 
     // Следующее окно: стор о нём ещё не говорил, а Перк уже куплен — сигнал обязан прозвучать.

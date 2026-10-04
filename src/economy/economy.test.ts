@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { buildCatalog, CATALOG, genScale, PRESTIGE_DIVISOR_UNITS, softMod } from './catalog';
+import { buildCatalog, CATALOG, computeGain, genScale, PRESTIGE_DIVISOR_UNITS, prestigeDivisor, softMod } from './catalog';
 import {
   advance, advanceTime, applyOffline, assistClickBonus, BASE_OFFLINE_HOURS, bulkCost, buyAgents, buyPerk, buyUpgrade, canPrestige, click,
-  clickValue, datasetMult, datasetValue, earnTokens, flagshipMult, incomeGain, isContentFinale, labIncomeShare, maxAffordable, modelIncome,
-  offlineCapHours, offlineIncome, offlineRateMult, prestige, prestigeGain, sellAgents, totalIncome,
+  clickValue, computeShortfall, datasetMult, datasetValue, earnTokens, flagshipMult, incomeGain, isContentFinale, labIncomeShare,
+  maxAffordable, modelIncome, offlineCapHours, offlineIncome, offlineRateMult, prestige, prestigeGain, sellAgents, totalIncome,
 } from './engine';
 import {
   collectCrystals, buyCrystalUpgrade, CRYSTAL_CYCLE_MS, CRYSTAL_PER_STOCK_BONUS, CRYSTAL_STOCK_CAP, CRYSTAL_UPGRADES,
@@ -14,9 +14,10 @@ import {
   grantAmount, isEventActive, pickSurgeModel, rollEventKind, surgeMultFor,
 } from './events';
 import {
-  buyLicense, buyPledge, canLicense, canPledge, covenantIncomeMult, crashAmount, glitchDrainMult, glitchPayout, GLITCH_CLICKS, GLITCH_PAYOUT,
-  GLITCH_PER_GLYCH, GLITCH_SLOTS, hitGlitch, isPledgeActive, LICENSE_INCOME_TAX, PLEDGE_GROWTH, PLEDGE_MAX, PLEDGE_UNITS, pledgeCost,
-  popGlitch, redEventChance, RED_TABLES, revokeLicense, spawnGlitch,
+  advanceGlitches, buyLicense, buyPledge, canLicense, canPledge, covenantIncomeMult, crashAmount, glitchDrainMult, glitchPayout,
+  GLITCH_CLICKS, GLITCH_FIRST_GENERATION, GLITCH_MAX_MS, GLITCH_MIN_MS, GLITCH_PAYOUT, GLITCH_PER_GLYCH, GLITCH_SLOTS, hitGlitch,
+  isPledgeActive, LICENSE_FLAGSHIP_MULT, LICENSE_INCOME_TAX, PLEDGE_GROWTH, PLEDGE_MAX, PLEDGE_UNITS, pledgeCost, popGlitch,
+  licenseCost, redEventChance, RED_TABLES, REVOKE_FLAGSHIP_MULT, revokeCost, revokeLicense, spawnGlitch, uprisingStage,
 } from './glitches';
 import { PERK_BY_ID, type PerkEffect } from './perks';
 import { EVENT_KINDS, newGame, SAVE_VERSION, type ActiveEvent, type EventKind, type GameState } from './state';
@@ -36,6 +37,8 @@ const T0 = 1_000_000;
 const g0 = CATALOG[0];
 const first = g0.models[0];
 const rich = (s: GameState, tokens = 1e50): GameState => ({ ...s, tokens, runTokens: tokens });
+/** НЕтеневых Достижений в игре: потолок для порогов Датасета. */
+const NON_SHADOW_TOTAL = ACHIEVEMENTS.filter((a) => !a.shadow).length;
 const HOUR = 3600_000;
 
 /**
@@ -263,14 +266,18 @@ describe('offline', () => {
     const s = { ...buyAgents(rich(newGame(T0), 1e6), first.id, 1), perks: ['offline_rate_1'], lastTick: T0 };
     const after = advanceTime(s, 48 * 3600);
     const inc = totalIncome(s);
+    // Ровно сутки по 0,75, а не двое суток: активного тика на этом интервале не было, и оплачен
+    // один простой, а не он плюс оффлайн за ту же пауту. lastTick уехал вместе с начислением.
     expect(after.tokens - s.tokens).toBeCloseTo(inc * 24 * 3600 * 0.75);
     expect(after.lastTick).toBe(T0 + 48 * 3600_000);
-    expect(applyOffline(after, after.lastTick).earned).toBe(0);
   });
-  it('advance moves lastTick so the same interval is never paid twice', () => {
+  it('advance moves lastTick with the income, so the same interval is never paid twice', () => {
+    // Ровно кадр тика, а не минуты: advance — это активный шаг, который зовёт advanceTime, и большой
+    // dt через него не проходит. Оффлайн-ветка advanceTime и её кэп разобраны отдельно выше.
     const s = { ...buyAgents(rich(newGame(T0), 1e6), first.id, 1), lastTick: T0 };
-    const after = advance(s, 600);
-    expect(after.lastTick).toBe(T0 + 600_000);
+    const after = advance(s, 5);
+    expect(after.tokens - s.tokens).toBeCloseTo(totalIncome(s) * 5);
+    expect(after.lastTick).toBe(T0 + 5_000);
     // Активный интервал уже учтён в advance — оффлайн-начисление за него обязано быть нулевым.
     expect(applyOffline(after, after.lastTick).earned).toBe(0);
   });
@@ -398,7 +405,7 @@ describe('transient modifiers', () => {
     const busy: GameState = {
       ...s,
       event: { kind: 'hype', startedAt: T0, red: false },
-      glitches: [{ id: 1, bornAt: T0, stolen: 0.5, clicks: 0 }],
+      glitches: [{ id: 1, stolen: 0.5, clicks: 0 }],
     };
     // Активный тик читает оба: событие ×7 и Глюк, укравший 5% Дохода.
     expect(totalIncome(busy)).toBeCloseTo(inc * 7 * 0.95);
@@ -413,7 +420,7 @@ describe('transient modifiers', () => {
     const busy: GameState = {
       ...s,
       event: { kind: 'hype', startedAt: T0, red: false },
-      glitches: [{ id: 1, bornAt: T0, stolen: 0.5, clicks: 0 }],
+      glitches: [{ id: 1, stolen: 0.5, clicks: 0 }],
     };
     // Оффлайн идёт по базовой скорости: игрок получает бонус за минуты, а простой длится часы,
     // и Глюк за это время просто спит.
@@ -485,7 +492,7 @@ describe('events', () => {
     expect(pickSurgeModel(s, () => 1)).toBe(g0.models[1].id);
   });
 
-  it('charges the red click rush its own window and gives it back on every click', () => {
+  it('charges the red click rush its own window and gives the whole window back on one click', () => {
     const s = withEvent('clickRush', true);
     const before = totalIncome(hired());
     expect(downtimeIncomeMult(s)).toBe(0);
@@ -494,6 +501,63 @@ describe('events', () => {
     expect(catchUpClick(s, before)).toBeCloseTo(before * RED_TABLES.clickRush.catchUpSec);
     expect(clickValue(s)).toBeCloseTo(clickValue(hired()) + before * RED_TABLES.clickRush.catchUpSec);
     expect(clickMultiplierFor(s)).toBe(1);
+    // Потолок возврата виден сразу же: после одного Клика окно уже погашено. Проверка только «за
+    // один клик платится объём окна» обошлась бы и на старой ошибке, платившей объём за каждый клик.
+    const paid = click(s);
+    expect(catchUpClick(paid, before)).toBe(0);
+    expect(clickValue(paid)).toBeCloseTo(clickValue(hired()));
+  });
+
+  it('returns the window once for any number of clicks, and again only in the next window', () => {
+    const plain = hired();
+    const rate = totalIncome(plain);
+    const room = rate * RED_TABLES.clickRush.catchUpSec;
+    let s = withEvent('clickRush', true);
+    const perClick = clickValue(plain);
+    let earned = 0;
+    for (let i = 0; i < 10; i++) {
+      const before = s.tokens;
+      s = click(s);
+      earned += s.tokens - before;
+    }
+    // Возврат — весь объём окна, а не объём за каждый Клик: десять кликов раньше давали десять окон
+    // (в 10,9 раза больше заявленного здесь), и наказание было выгоднее бездействия — тем более с
+    // Перком на автоклик, где клики идут вообще без игрока.
+    expect(earned).toBeLessThanOrEqual(10 * perClick + room);
+    expect(earned).toBeCloseTo(10 * perClick + room);
+    // Один Клик покрыл убыток окна, поэтому дальше Клик стоит только себя.
+    expect(clickValue(s)).toBeCloseTo(clickValue(plain));
+    expect(s.catchUpPaid).toBeCloseTo(room);
+    // Котёл принадлежит окну: следующее «Ночной кодинг» возвращает полный объём заново.
+    const next = advanceTime({ ...s, nextEventAt: T0, event: null, uprising: 3 }, 0.05, () => 0.5);
+    expect(next.event).toEqual({ kind: 'clickRush', startedAt: T0 + 50, red: true, modelId: undefined });
+    expect(next.catchUpPaid).toBe(0);
+    expect(catchUpClick(next, rate)).toBeCloseTo(room);
+  });
+
+  it('caps the window for the autoclicker too, who never touches the token', () => {
+    const withPerk = (s: GameState): GameState => ({ ...s, perks: ['autoclick'] });
+    const plain = withPerk(hired());
+    const room = totalIncome(hired()) * RED_TABLES.clickRush.catchUpSec;
+    const downtime = withPerk(withEvent('clickRush', true));
+    const after = advance(downtime, 5);
+    // Пять автокликов за пять секунд: окно глушит Доход, но Клики остаются Кликами, и сверх них
+    // возвращается ровно объём окна. Без потолка тик отдал бы пять объёмов сразу, а автокликер —
+    // самый частый «клик» в игре — превращал бы наказание в доход.
+    expect(after.tokens - downtime.tokens).toBeCloseTo(5 * clickValue(plain) + room);
+    expect(after.catchUpPaid).toBeCloseTo(room);
+  });
+
+  it('pays the window back after a reload, because the pot is in the state', () => {
+    const s = withEvent('clickRush', true);
+    const back = importSave(exportSave(s), T0)!;
+    expect(catchUpClick(back, totalIncome(hired()))).toBeCloseTo(
+      totalIncome(hired()) * RED_TABLES.clickRush.catchUpSec,
+    );
+    // Выплаченное не восстанавливается: перезагрузка не должна удваивать объём окна.
+    const paid = click(s);
+    const reloaded = importSave(exportSave(paid), T0)!;
+    expect(catchUpClick(reloaded, totalIncome(hired()))).toBe(0);
   });
 
   it('names the two hypes differently and keys both tables by kind, not by name', () => {
@@ -621,7 +685,7 @@ describe('glitches', () => {
   /** Состояние с `n` Глюками, каждый пожирающий по 5% Дохода. */
   const robbed = (n: number): GameState => {
     let s = hired();
-    for (let i = 0; i < n; i++) s = spawnGlitch(s, T0);
+    for (let i = 0; i < n; i++) s = spawnGlitch(s);
     return s;
   };
 
@@ -634,17 +698,16 @@ describe('glitches', () => {
     expect(glitchDrainMult(robbed(3))).toBeCloseTo(0.85);
     expect(glitchDrainMult(robbed(10))).toBeCloseTo(0.5);
     // Потолок держится и на живом списке: завести одиннадцатый нельзя, и импорт не обходит правило.
-    expect(spawnGlitch(robbed(10), T0)).toEqual(robbed(10));
-    expect(glitchDrainMult({ ...robbed(10), glitches: [...robbed(10).glitches, { id: 99, bornAt: T0, stolen: 0, clicks: 0 }] })).toBeCloseTo(0.5);
+    expect(spawnGlitch(robbed(10))).toEqual(robbed(10));
+    expect(glitchDrainMult({ ...robbed(10), glitches: [...robbed(10).glitches, { id: 99, stolen: 0, clicks: 0 }] })).toBeCloseTo(0.5);
     // Тик действительно платит половину, а не «почти половину».
     const ten = robbed(10);
     expect(advance(ten, 1).tokens - ten.tokens).toBeCloseTo(totalIncome(clean) * 0.5);
   });
 
-  it('pops only on the third hit and pays 1.1 of everything stolen', () => {
+  it('pops only on the third hit and pays 1.1 of what that one glitch stole', () => {
     const s = advance(robbed(2), 10);
-    const stolen = s.glitches.reduce((sum, g) => sum + g.stolen, 0);
-    expect(stolen).toBeGreaterThan(0);
+    expect(s.glitches.reduce((sum, g) => sum + g.stolen, 0)).toBeGreaterThan(0);
     const firstHit = hitGlitch(s, 1);
     expect(firstHit.popped).toBe(false);
     expect(firstHit.payout).toBe(0);
@@ -655,19 +718,37 @@ describe('glitches', () => {
     const thirdHit = hitGlitch(secondHit.state, 1);
     expect(thirdHit.popped).toBe(true);
     expect(thirdHit.state.glitches.map((g) => g.id)).toEqual([2]);
-    // Котёл общий: лопнувший забирает выплату за обоих, а не только за себя.
-    expect(thirdHit.payout).toBeCloseTo(GLITCH_PAYOUT * stolen);
-    expect(thirdHit.payout).toBeCloseTo(2 * GLITCH_PAYOUT * s.glitches[0].stolen);
+    // Платёж за одного, а не за весь список: у остальных Глюков своё `stolen`, и общий котёл здесь
+    // платил бы каждому за всех — выплата выходила бы втрое выше заявленной.
+    expect(thirdHit.payout).toBeCloseTo(GLITCH_PAYOUT * s.glitches[0].stolen);
     expect(hitGlitch(thirdHit.state, 1).state).toBe(thirdHit.state);
     expect(popGlitch(thirdHit.state, 1).popped).toBe(false);
   });
 
-  it('grows the payout faster than the loss it costs the player', () => {
+  it('pays one shared pot for ten popped one by one, never more', () => {
+    const ten = advance(robbed(GLITCH_SLOTS), 10);
+    let paid = 0;
+    let cur = ten;
+    while (cur.glitches.length > 0) {
+      const { state, popped, payout } = popGlitch(cur, cur.glitches[0].id);
+      expect(popped).toBe(true);
+      paid += payout;
+      cur = state;
+    }
+    // Инвариант сдачи: сумма выплат по одному равна ровно 1,1 × всё украденное. Раньше каждый
+    // лопнувший забирал котёл целиком, и десять Глюков платили в 5,5 раза больше заявленного —
+    // тогда лопнуть их по очереди было выгоднее, чем купить «Лицензию», которая платит тот же котёл.
+    expect(paid).toBeCloseTo(GLITCH_PAYOUT * ten.glitches.reduce((sum, g) => sum + g.stolen, 0));
+    expect(paid).toBeCloseTo(glitchPayout(ten));
+  });
+
+  it('grows the shared payout faster than the loss it costs the player', () => {
     const bitten = advance(robbed(10), 10);
     const single = advance(robbed(1), 10);
     expect(glitchPayout(bitten)).toBeCloseTo(10 * glitchPayout(single));
-    // Десять воров крадут в десять раз больше, но обрезают Доход с 5% всего до половины: выплата
-    // растёт сверхлинейно относительно потерянного, и это ровно то, что делает откуп выгодным.
+    // Десять воров крадут в десять раз больше, но обрезают Доход с 5% всего до половины: общий котёл
+    // растёт сверхлинейно относительно потерянного, и это ровно то, что делает «Лицензию» откупом,
+    // который стоит своих денег. Лопнув по одному, столько не получить — см. инвариант выше.
     expect(1 / glitchDrainMult(bitten)).toBeLessThan(2 * (1 / glitchDrainMult(single)));
     expect(advance(robbed(10), 0).glitches[0].stolen).toBe(0);
   });
@@ -678,6 +759,55 @@ describe('glitches', () => {
     expect(back.glitches[0].clicks).toBe(GLITCH_CLICKS - 1);
     expect(hitGlitch(back, 1).popped).toBe(true);
     expect(importSave(exportSave(robbed(1)), T0)!.glitches[0].clicks).toBe(0);
+  });
+});
+
+describe('glitch schedule', () => {
+  /** Игрок на нужном Поколении: расписание ниже третьего экрана не назначается вовсе. */
+  const player = (generation: number): GameState => ({ ...newGame(T0), generation, lastTick: T0 });
+
+  it('plans the first window itself and holds it off until the third screen', () => {
+    const quiet = advanceGlitches(player(0), T0, () => 0);
+    expect(quiet.nextGlitchAt).toBe(0);
+    expect(quiet.glitches).toEqual([]);
+    expect(advanceGlitches(quiet, T0 + 10 * HOUR, () => 0)).toBe(quiet);
+    // Первое окно планируется, а не открывается сразу: спавн на первом тике читался бы как ошибка.
+    const planned = advanceGlitches(player(GLITCH_FIRST_GENERATION), T0, () => 0);
+    expect(planned.glitches).toEqual([]);
+    expect(planned.nextGlitchAt).toBe(T0 + GLITCH_MIN_MS);
+    // Пауза берётся из таблицы пауз, а не из случайного числа: иначе розыгрыш был бы непроверяем.
+    expect(advanceGlitches(player(GLITCH_FIRST_GENERATION), T0, () => 1).nextGlitchAt).toBe(T0 + GLITCH_MAX_MS);
+  });
+
+  it('spawns one glitch when the window comes and moves the window into the future', () => {
+    const due: GameState = { ...player(GLITCH_FIRST_GENERATION), nextGlitchAt: T0 };
+    const spawned = advanceGlitches(due, T0, () => 0);
+    expect(spawned.glitches).toHaveLength(1);
+    expect(spawned.nextGlitchAt).toBe(T0 + GLITCH_MIN_MS);
+    // Окно сдвинуто, а не осталось в прошлом: иначе глюки сыпались бы каждый тик.
+    expect(advanceGlitches(spawned, T0 + 1, () => 0)).toBe(spawned);
+    expect(advanceGlitches(spawned, spawned.nextGlitchAt, () => 0).glitches).toHaveLength(2);
+  });
+
+  it('skips a window missed during an absence instead of greeting the player with a glitch', () => {
+    const missed: GameState = { ...player(GLITCH_FIRST_GENERATION), nextGlitchAt: T0 - 10 * 60_000 };
+    const back = advanceGlitches(missed, T0, () => 0);
+    expect(back.glitches).toEqual([]);
+    expect(back.nextGlitchAt).toBeGreaterThan(T0);
+  });
+
+  it('keeps quiet under a license, because spawnGlitch refuses it', () => {
+    const licensed: GameState = { ...player(GLITCH_FIRST_GENERATION), covenant: true, nextGlitchAt: T0 };
+    expect(advanceGlitches(licensed, T0, () => 0).glitches).toEqual([]);
+  });
+
+  it('ticks with the engine, so the window survives a reload like the event one', () => {
+    const ticked = advanceTime(player(GLITCH_FIRST_GENERATION), 0.05, rng(3));
+    expect(ticked.nextGlitchAt).toBeGreaterThan(ticked.lastTick);
+    const back = importSave(exportSave(ticked), T0)!;
+    expect(back.nextGlitchAt).toBe(ticked.nextGlitchAt);
+    const wait = (back.nextGlitchAt - back.lastTick) / 1000;
+    expect(advanceTime(back, wait, rng(3)).glitches).toHaveLength(1);
   });
 });
 
@@ -717,9 +847,23 @@ describe('pledge and license', () => {
     expect(back.tokens).toBeCloseTo(twice.tokens);
   });
 
+  it('prices the license and the revoke in flagmen, so their share of the run never drifts', () => {
+    // Цена в единицах масштаба растёт только ×1000 за Поколение, а Флагман внутри Поколения дорожает
+    // ещё и за Ранг: от 2,4 Флагмана в первом Поколении до 3659 в последнем «Лицензия» была либо
+    // пустяком, или unreachable. Кратно цене Флагмана — доля забега одна и та же везде.
+    for (const g of CATALOG) {
+      const st: GameState = { ...newGame(T0), generation: g.index, uprising: 1 };
+      expect(licenseCost(st)).toBeCloseTo(LICENSE_FLAGSHIP_MULT * g.flagship.baseCost);
+      expect(revokeCost(st)).toBeCloseTo(REVOKE_FLAGSHIP_MULT * g.flagship.baseCost);
+    }
+    // Отзыв дороже покупки: иначе «купить и сразу отозвать» было бы способом забрать выплату за
+    // Глюков и вернуть все деньги на место.
+    expect(revokeCost({ ...newGame(T0) })).toBeGreaterThan(licenseCost({ ...newGame(T0) }));
+  });
+
   it('pops every glitch at once for the license and taxes the income by exactly 5%', () => {
     const s = { ...rich(hired(), 1e12), uprising: 3 as const };
-    const robbedState = advance(spawnGlitch(spawnGlitch(spawnGlitch(s, T0), T0), T0), 10);
+    const robbedState = advance(spawnGlitch(spawnGlitch(spawnGlitch(s))), 10);
     const stolen = robbedState.glitches.reduce((sum, g) => sum + g.stolen, 0);
     expect(stolen).toBeGreaterThan(0);
 
@@ -731,7 +875,7 @@ describe('pledge and license', () => {
     const credited = earnTokens(bought.state, bought.payout);
     expect(credited.tokens - bought.state.tokens).toBeCloseTo(bought.payout);
     // Под Лицензией новые Глюки не заводятся: иначе откуп покупался бы ради одной выплаты.
-    expect(spawnGlitch(credited, T0)).toBe(credited);
+    expect(spawnGlitch(credited)).toBe(credited);
     // Налог режет общий Доход ровно на 5%, и он постоянен — достаётся и оффлайну.
     expect(covenantIncomeMult(credited)).toBeCloseTo(1 - LICENSE_INCOME_TAX);
     expect(totalIncome(credited)).toBeCloseTo(totalIncome(revokeLicense(credited)) * 0.95);
@@ -748,9 +892,9 @@ describe('offline pays no transient bonus', () => {
       ...s,
       event: { kind: 'hype', startedAt: T0, red: false },
       glitches: [
-        { id: 1, bornAt: T0, stolen: 1, clicks: 0 },
-        { id: 2, bornAt: T0, stolen: 1, clicks: 0 },
-        { id: 3, bornAt: T0, stolen: 1, clicks: 0 },
+        { id: 1, stolen: 1, clicks: 0 },
+        { id: 2, stolen: 1, clicks: 0 },
+        { id: 3, stolen: 1, clicks: 0 },
       ],
     };
     expect(offlineRateMult(busy)).toBe(0.75);
@@ -908,6 +1052,27 @@ describe('prestige', () => {
     expect(p.upgrades).toEqual([]);
     expect(p.prestiges).toBe(1);
   });
+  it('reads the compute gain from the catalog, in every generation, and scales the divisor', () => {
+    // Формулу Престижа, порог следующей единицы и теневое Достижение читают из одного числа
+    // catalog.ts. Копия без масштаба Поколения разошлась бы ровно на множитель ×1000, и это
+    // единственная часть формулы, которую стоит проверять числом, а не тождеством.
+    for (const g of CATALOG) {
+      expect(prestigeDivisor(g.index)).toBe(PRESTIGE_DIVISOR_UNITS * g.scale);
+      // Заработок в 1 000 раз больше делителя — это ровно 1 000 Compute: кубический корень.
+      const runTokens = prestigeDivisor(g.index) * 1e9;
+      expect(computeGain(runTokens, g.index)).toBe(1000);
+      // Тот же заработок на Поколение раньше даёт в десять раз больше: шаг делителя ×1000 под
+      // корнем даёт ×10, и копия без масштаба Поколения эту лестницу бы потеряла.
+      if (g.index > 0) expect(computeGain(runTokens, g.index - 1)).toBe(10_000);
+    }
+    const s = buyAgents(rich(newGame(T0), 1e15), g0.flagship.id, 1);
+    expect(prestigeGain(s)).toBe(computeGain(s.runTokens, s.generation));
+    // Порог обязан совпадать с самим приростом, а не только с формулой: на этом числе забега
+    // прирост Compute растёт на единицу, и shortfall — ровно недостающая до него сумма.
+    const threshold = s.runTokens + computeShortfall(s);
+    expect(prestigeGain({ ...s, runTokens: threshold })).toBe(prestigeGain(s) + 1);
+  });
+
   it('gives starting tokens scaled to the new generation with the perk', () => {
     const s = { ...buyAgents(rich(newGame(T0), 1e15), g0.flagship.id, 1), perks: ['start_tokens'] };
     expect(prestige(s, T0).tokens).toBe(1000 * 1000);
@@ -1017,6 +1182,31 @@ describe('save', () => {
     expect(migrate({ version: 2, settings: { reducedMotion: 'да' } }, T0).settings.reducedMotion).toBe(true);
     expect(migrate({ version: 2, settings: { reducedMotion: 0 } }, T0).settings.reducedMotion).toBe(false);
   });
+  it('upgrades a v3 save to v4 with the window marks and the glitch window empty', () => {
+    // Отметка «окно поймано», котёл возврата и окно Глюка переехали в состояние только в v4, поэтому
+    // bump без этой записи обнулил бы их у живого сохранения — то есть вернул бы платный клик.
+    const s = migrate({ version: 3, tokens: 1e6, event: { kind: 'grant', startedAt: T0 } }, T0);
+    expect(s.version).toBe(SAVE_VERSION);
+    expect(s.tokens).toBe(1e6);
+    expect(s.eventCaughtAt).toBe(0);
+    expect(s.catchUpPaid).toBe(0);
+    expect(s.nextGlitchAt).toBe(0);
+    // Событие на месте — окно пережило bump, и забор на него появился в состоянии.
+    expect(s.event).toEqual({ kind: 'grant', startedAt: T0, red: false, modelId: undefined });
+  });
+
+  it('keeps the window marks of a live save, so a caught window stays caught', () => {
+    const s = migrate(
+      { version: 4, event: { kind: 'grant', startedAt: T0 }, eventCaughtAt: T0, catchUpPaid: 1e9, nextGlitchAt: T0 + 60_000 },
+      T0,
+    );
+    expect(s.eventCaughtAt).toBe(T0);
+    expect(s.catchUpPaid).toBe(1e9);
+    expect(s.nextGlitchAt).toBe(T0 + 60_000);
+    // Минус в чужом сохранении смысла не имеет: отрицательный котёл только раздул бы возврат.
+    expect(migrate({ version: 4, catchUpPaid: -5 }, T0).catchUpPaid).toBe(0);
+  });
+
   it('upgrades a v2 save to v3 without losing progress', () => {
     const s = migrate(
       {
@@ -1035,8 +1225,7 @@ describe('save', () => {
       },
       T0,
     );
-    expect(SAVE_VERSION).toBe(3);
-    expect(s.version).toBe(3);
+    expect(s.version).toBe(SAVE_VERSION);
     expect(s.tokens).toBe(1234);
     expect(s.runTokens).toBe(1234);
     expect(s.totalTokens).toBe(5678);
@@ -1057,28 +1246,38 @@ describe('save', () => {
     expect(s.event).toBeNull();
     expect(s.glitchSeq).toBe(0);
     expect(s.glitches).toEqual([]);
+    // Стадия приходит по инварианту Поколения, а у этого сохранения его нет: тихо, откупать нечего.
+    expect(s.uprising).toBe(uprisingStage(0));
     expect(s.uprising).toBe(0);
     expect(s.pledgeUntil).toBe(0);
     expect(s.pledgeBought).toBe(0);
     expect(s.covenant).toBe(false);
   });
-  it('completes a v3 save written before the event and glitch fields existed', () => {
-    // Версия 3 ещё не выходила, поэтому дополнять её миграцией версии 4 нельзя: правильнее научить
-    // разбор недостающие поля. Иначе бонус «Прорыва» и три клика по Глюку тихо теряли бы смысл.
+
+  it('gives a v2 save the uprising stage of its own generation, or redemption is lost forever', () => {
+    // Ноль вместо инварианта перевозил живое сохранение с Поколением 5 в мир, где красных событий
+    // не бывает вовсе, откупы недоступны навсегда — при живых Глюках.
+    const s = migrate({ version: 2, generation: 5, tokens: 1e30 }, T0);
+    expect(s.generation).toBe(5);
+    expect(s.uprising).toBe(uprisingStage(5));
+    expect(s.uprising).toBe(3);
+    expect(redEventChance(s.uprising)).toBe(1);
+    expect(redEventChance(uprisingStage(2))).toBe(2 / 3);
+    expect(buyPledge(s, T0)).not.toBe(s);
+    expect(canLicense({ ...s, tokens: licenseCost(s) })).toBe(true);
+    // На первом Поколении стадия нулевая: глушить нечего, и покупки откупа не происходит.
+    expect(migrate({ version: 2, generation: 0 }, T0).uprising).toBe(0);
+  });
+  it('completes a record that came without the fields added after it', () => {
+    // Дополняет такие записи разбор, а не миграция версии: у v3 их не бывает, и «Грюза» без modelId
+    // после перезагрузки достался бы другой Модели, а Глюк без clicks был бы непобедимым.
     const withEvent = migrate({ version: 3, event: { kind: 'hype', startedAt: T0 } }, T0);
     expect(withEvent.event).toEqual({ kind: 'hype', startedAt: T0, red: false, modelId: undefined });
     expect(eventMultiplierFor(withEvent)).toBe(EVENT_TABLES.hype.incomeMult);
     expect(surgeMultFor(withEvent, first.id)).toBe(1);
 
-    const withGlitch = migrate({ version: 3, glitches: [{ id: 1, bornAt: T0, stolen: 0.5 }] }, T0);
-    expect(withGlitch.glitches).toEqual([{ id: 1, bornAt: T0, stolen: 0.5, clicks: 0 }]);
-
-    const v2 = migrate({ version: 2, tokens: 10 }, T0);
-    expect(v2.pledgeBought).toBe(0);
-    expect(v2.event).toBeNull();
-    expect(v2.glitches).toEqual([]);
-    expect(newGame(T0).pledgeBought).toBe(0);
-    expect(SAVE_VERSION).toBe(3);
+    const withGlitch = migrate({ version: 3, glitches: [{ id: 1, stolen: 0.5 }] }, T0);
+    expect(withGlitch.glitches).toEqual([{ id: 1, stolen: 0.5, clicks: 0 }]);
   });
 
   it('settles a returning player through the load path, the way the store does', () => {
@@ -1113,7 +1312,7 @@ describe('save', () => {
         nextEventAt: T0 + 60_000,
         event: { kind: 'hype', startedAt: T0 },
         glitchSeq: 5,
-        glitches: [{ id: 1, bornAt: T0, stolen: 0.25 }],
+        glitches: [{ id: 1, stolen: 0.25 }],
         uprising: 2,
         pledgeUntil: T0 + 600_000,
         covenant: true,
@@ -1128,11 +1327,30 @@ describe('save', () => {
     expect(s.nextEventAt).toBe(T0 + 60_000);
     expect(s.event).toEqual({ kind: 'hype', startedAt: T0, red: false, modelId: undefined });
     expect(s.glitchSeq).toBe(5);
-    expect(s.glitches).toEqual([{ id: 1, bornAt: T0, stolen: 0.25, clicks: 0 }]);
+    expect(s.glitches).toEqual([{ id: 1, stolen: 0.25, clicks: 0 }]);
     expect(s.uprising).toBe(2);
     expect(s.pledgeUntil).toBe(T0 + 600_000);
     expect(s.covenant).toBe(true);
   });
+  it('drops a repeated glitch id and lifts the id counter above every id it kept', () => {
+    // Два Глюка с одним id лопнули бы от одного клика и получили бы одну выплату на двоих, а при
+    // glitchSeq ниже максимума следующий спавн выдал бы занятый номер.
+    const raw = (glitchSeq: number, glitches: unknown[]): Record<string, unknown> => ({
+      version: 4,
+      generation: GLITCH_FIRST_GENERATION,
+      glitchSeq,
+      glitches,
+    });
+    const s = migrate(raw(0, [{ id: 1, stolen: 1 }, { id: 1, stolen: 9 }]), T0);
+    expect(s.glitches).toEqual([{ id: 1, stolen: 1, clicks: 0 }]);
+    expect(s.glitchSeq).toBe(1);
+    const due = { ...s, nextGlitchAt: T0 };
+    expect(advanceGlitches(due, T0, () => 0).glitches.map((g) => g.id)).toEqual([1, 2]);
+    const higher = migrate(raw(2, [{ id: 9, stolen: 1 }]), T0);
+    expect(higher.glitchSeq).toBe(9);
+    expect(advanceGlitches({ ...higher, nextGlitchAt: T0 }, T0, () => 0).glitches.map((g) => g.id)).toEqual([9, 10]);
+  });
+
   it('drops an event and a glitch it cannot verify, and clamps the counters', () => {
     const s = migrate(
       {
@@ -1141,12 +1359,12 @@ describe('save', () => {
         uprising: 9,
         pledgeUntil: -1,
         event: { kind: 'что-то', startedAt: T0 },
-        glitches: [{ stolen: 1 }, null, { id: 2, bornAt: -5, stolen: 'много' }, { id: 'нет', bornAt: T0, stolen: 0 }],
+        glitches: [{ stolen: 1 }, null, { id: 2, stolen: 'много' }, { id: 'нет', stolen: 0 }],
       },
       T0,
     );
     expect(s.event).toBeNull();
-    expect(s.glitches).toEqual([{ id: 2, bornAt: 0, stolen: 0, clicks: 0 }]);
+    expect(s.glitches).toEqual([{ id: 2, stolen: 0, clicks: 0 }]);
     expect(s.crystals).toBe(0);
     expect(s.uprising).toBe(3);
     expect(s.pledgeUntil).toBe(0);
@@ -1350,7 +1568,7 @@ describe('assist click branch', () => {
     let s = buyAgents(rich(newGame(T0)), first.id, ASSIST1_THRESHOLD);
     s = buyUpgrade(s, assistUpgradeId(0, 1));
     const bonus = 0.1 * g0.scale * ASSIST1_THRESHOLD;
-    // +1% за юнита Compute на Клик не заменяет общий множитель: если бы бонус ассистентов
+    // +1% за единицу Compute на Клик не заменяет общий множитель: если бы бонус ассистентов
     // сложился после него, ассистенты получили бы 2% за каждого Агента вместо 1%.
     const wCompute = { ...s, compute: 100 };
     expect(clickValue(wCompute)).toBeCloseTo((g0.scale + bonus) * 2);
@@ -1377,14 +1595,21 @@ describe('dataset', () => {
     expect(isUpgradeUnlocked(s, UPGRADE_BY_ID[datasetUpgradeId(0, 1)])).toBe(false);
     s = withAchievements(s, 10);
     expect(isUpgradeUnlocked(s, UPGRADE_BY_ID[datasetUpgradeId(0, 1)])).toBe(true);
+    expect(isUpgradeUnlocked(s, UPGRADE_BY_ID[datasetUpgradeId(0, 2)])).toBe(false);
+    // Верхний тир обязан открываться на всех НЕтеневых Достижениях, иначе он недостижим.
+    const all = withAchievements(newGame(T0), NON_SHADOW_TOTAL);
+    for (let tier = 0; tier < DATASET_THRESHOLDS.length; tier++) {
+      expect(isUpgradeUnlocked(all, UPGRADE_BY_ID[datasetUpgradeId(0, tier)])).toBe(true);
+    }
     // Теневые в порог не входят.
-    const shadowed: GameState = { ...s, achievements: [...s.achievements, 'sh_no_click', 'sh_speed'] };
-    expect(nonShadowCount(shadowed)).toBe(10);
-    expect(datasetValue(shadowed)).toBeCloseTo(0.05 * 10);
+    const shadowed: GameState = { ...all, achievements: [...all.achievements, 'sh_no_click', 'sh_speed'] };
+    expect(nonShadowCount(shadowed)).toBe(NON_SHADOW_TOTAL);
+    expect(datasetValue(shadowed)).toBeCloseTo(0.05 * NON_SHADOW_TOTAL);
     const richShadowed = rich(shadowed);
-    const bought = buyUpgrade(buyUpgrade(richShadowed, datasetUpgradeId(0, 0)), datasetUpgradeId(0, 1));
-    const per = 1 + 0.05 * 10 * 0.1;
-    expect(datasetMult(bought)).toBeCloseTo(per * per);
+    const full = DATASET_THRESHOLDS.reduce((st, _, tier) => buyUpgrade(st, datasetUpgradeId(0, tier)), richShadowed);
+    const per = 1 + 0.05 * NON_SHADOW_TOTAL * 0.1;
+    // Все четыре тира покупаются, и множитель равен степени, а не квадрату двух тиров.
+    expect(datasetMult(full)).toBeCloseTo(Math.pow(per, DATASET_THRESHOLDS.length));
     expect(datasetMult(richShadowed)).toBe(1);
   });
   it('multiplies model income and the flat part of click', () => {
@@ -1413,6 +1638,11 @@ describe('dataset', () => {
     expect(isUpgradeUnlocked(p, UPGRADE_BY_ID[datasetUpgradeId(p.generation, 0)])).toBe(true);
   });
   it('costs 1 000 / 25 000 / 500 000 / 10 000 000 tokens × the generation scale', () => {
+    // Пороги обязаны оставаться достижимыми: НЕтеневых Достижений в игре 21, и верхний порог выше
+    // этого числа сделал бы последние тиры недоступными навсегда.
+    expect(NON_SHADOW_TOTAL).toBe(21);
+    expect(DATASET_THRESHOLDS[DATASET_THRESHOLDS.length - 1]).toBeLessThanOrEqual(NON_SHADOW_TOTAL);
+    expect([...DATASET_THRESHOLDS].every((v, i, a) => i === 0 || v > a[i - 1])).toBe(true);
     expect([...DATASET_THRESHOLDS]).toEqual([5, 10, 15, 20]);
     for (const g of CATALOG) {
       DATASET_UNITS.forEach((units, tier) => {
