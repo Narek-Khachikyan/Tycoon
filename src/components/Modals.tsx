@@ -1,12 +1,17 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useGameStore } from '../store/useGameStore';
-import { ACHIEVEMENTS } from '../economy/achievements';
+import { ACHIEVEMENTS, ordinaryEarned, shadowEarned } from '../economy/achievements';
 import { GLOSSARY } from '../data/glossary';
 import { PERKS } from '../economy/perks';
 import { exportSave } from '../economy/save';
-import { formatDuration, formatNumber } from '../economy/format';
+import { formatCount, formatDuration, formatNumber } from '../economy/format';
+import { discountMult, labIncomeShare, maxAffordable } from '../economy/engine';
+import { availableUpgrades } from '../economy/upgrades';
+import { SHADOW_ACHIEVEMENTS } from '../economy/shadow';
 import { CATALOG } from '../economy/catalog';
+import { LABS, LAB_IDS } from '../data/labs';
 import { Icon } from './Icon';
+import { MascotSprite } from './MascotSprite';
 import { Num } from './Num';
 import { useDialogFocus } from './useDialogFocus';
 
@@ -14,6 +19,61 @@ interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
+
+/** Строка Достижения. Обычная запись и тень отличаются только видом, поэтому рисуются здесь,
+ *  а не двумя списками. */
+const AchievementRow: React.FC<{
+  name: string;
+  desc: string;
+  unlocked: boolean;
+  /** Тень не входит в счёт обычных и не даёт силы, поэтому вид у неё другой и без цвета:
+   *  зелёной печати у тени нет, а рамка пунктирная. */
+  shadow: boolean;
+}> = ({ name, desc, unlocked, shadow }) => {
+  const background = unlocked
+    ? shadow
+      ? 'var(--tint-gold)'
+      : 'var(--tint-green)'
+    : 'var(--bg-card)';
+  const border = shadow
+    ? `1px dashed ${unlocked ? 'var(--gold)' : 'var(--border-strong)'}`
+    : `1px solid ${unlocked ? 'var(--green)' : 'var(--border)'}`;
+
+  return (
+    <div
+      style={{
+        backgroundColor: background,
+        border,
+        borderRadius: '6px',
+        padding: '10px 12px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '12px',
+      }}
+    >
+      <div aria-hidden="true" style={{ fontSize: '1.5rem', opacity: shadow ? 0.7 : 1 }}>
+        {unlocked ? (shadow ? '🌑' : '🏆') : '🔒'}
+      </div>
+      <div style={{ flex: 1 }}>
+        {/* Без pixel-font: название Достижения по-русски, а в Pixelify Sans нет
+            заглавных «О» и «П», и они молча уходили в фолбэк прямо посреди слова
+            («Промпт-джуниор»). Это ровно то, что ADR-0003 запрещает. */}
+        <div
+          /* Светлее --green намеренно: так открытое Достижение читается ярче
+             закрытой строки, а --green на подложке сравнялся бы с --text-muted
+             соседнего описания. */
+          style={{
+            fontSize: '0.95rem',
+            color: unlocked ? (shadow ? 'var(--gold)' : '#86efac') : 'var(--text-muted)',
+          }}
+        >
+          {name}
+        </div>
+        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{desc}</div>
+      </div>
+    </div>
+  );
+};
 
 // Выход модалок — реверс существующего toast-fade (только opacity, поэтому картина
 // одинакова при полном и при выключенном движении, нового CSS ноль). Входные
@@ -106,7 +166,9 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2 id="achievements-title" style={{ fontSize: '1.3rem', color: 'var(--gold)' }}>
-            <Icon name="trophy" /> ДОСТИЖЕНИЯ ({state.achievements.length} / {ACHIEVEMENTS.length})
+            {/* Числитель — ordinaryEarned, а не achievements.length: id теней лежат в том же
+                списке, и прямой длиной счётчик шапал бы выше знаменателя. */}
+            <Icon name="trophy" /> ДОСТИЖЕНИЯ ({ordinaryEarned(state)} / {ACHIEVEMENTS.length})
           </h2>
           <button
             className="pixel-btn"
@@ -120,39 +182,52 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
         </div>
 
         <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {ACHIEVEMENTS.map((a) => {
-            const unlocked = unlockedSet.has(a.id);
-            return (
-              <div
-                key={a.id}
-                style={{
-                  backgroundColor: unlocked ? 'var(--tint-green)' : 'var(--bg-card)',
-                  border: unlocked ? '1px solid var(--green)' : '1px solid var(--border)',
-                  borderRadius: '6px',
-                  padding: '10px 12px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
-                }}
-              >
-                <div aria-hidden="true" style={{ fontSize: '1.5rem' }}>{unlocked ? '🏆' : '🔒'}</div>
-                <div style={{ flex: 1 }}>
-                  <div
-                    /* Светлее --green намеренно: так открытое Достижение читается ярче
-                       закрытой строки, а --green на подложке сравнялся бы с --text-muted
-                       соседнего описания. */
-                    style={{
-                      fontSize: '0.95rem',
-                      color: unlocked ? '#86efac' : 'var(--text-muted)',
-                    }}
-                  >
-                    {a.name}
-                  </div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{a.desc}</div>
-                </div>
-              </div>
-            );
-          })}
+          {ACHIEVEMENTS.map((a) => (
+            <AchievementRow
+              key={a.id}
+              name={a.name}
+              desc={a.desc}
+              unlocked={unlockedSet.has(a.id)}
+              shadow={false}
+            />
+          ))}
+
+          {/* Отдельная секция, а не хвост общего списка: у теней другой счётчик и нулевая сила,
+              и вперемешку с обычными они читались бы как обычные. */}
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'baseline',
+              gap: '8px',
+              marginTop: '6px',
+              paddingTop: '10px',
+              borderTop: '1px solid var(--border)',
+            }}
+          >
+            {/* Без pixel-font: в строке есть кириллица, а по ADR-0003 пиксельный шрифт
+                допустим только там, где её нет. */}
+            <span style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>
+              <span aria-hidden="true">🌑</span> Теневые Достижения
+            </span>
+            {/* Счётчик — строка из одного числа, пиксельный шрифт тут разрешён. */}
+            <span className="pixel-font" style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>
+              {shadowEarned(state)} / {SHADOW_ACHIEVEMENTS.length}
+            </span>
+          </div>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            Не дают силы и не входят в счёт выше — их берут ради рекордов.
+          </div>
+
+          {SHADOW_ACHIEVEMENTS.map((a) => (
+            <AchievementRow
+              key={a.id}
+              name={a.name}
+              desc={a.desc}
+              unlocked={unlockedSet.has(a.id)}
+              shadow
+            />
+          ))}
         </div>
       </div>
     </div>
@@ -513,7 +588,8 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
 export const OfflineModal: React.FC = () => {
   const offlineReport = useGameStore((s) => s.offlineReport);
   const dismiss = useGameStore((s) => s.dismissOfflineReport);
-  const notation = useGameStore((s) => s.state.settings.notation);
+  const state = useGameStore((s) => s.state);
+  const notation = state.settings.notation;
   // Esc здесь не закрывает: игрок должен забрать начисленное и увидеть сумму, поэтому окно
   // закрывается только своей кнопкой. Кнопка идёт через тот же closing-путь, что и
   // остальные окна: мгновенного dismiss больше нет.
@@ -521,6 +597,36 @@ export const OfflineModal: React.FC = () => {
   const cardRef = useDialogFocus<HTMLDivElement>(offlineReport !== null, requestClose, false);
 
   if (!offlineReport) return null;
+
+  const gen = CATALOG[state.generation];
+
+  // Разбор по Лабораториям делит уже начисленную сумму на доли Лабораторий в общем Доходе.
+  // Сырые секунды простоя не пересчитываются: их вместе с капом уже учёл applyOffline, и своя
+  // формула здесь дала бы расхождение с числом выше. Доля считается в движке, а не делением
+  // здесь, иначе пустой общий Доход дал бы NaN прямо на экране. Лаборатории без Агентов
+  // отфильтрованы — нулевой строкой в отчёте смотреть не на что.
+  const labRows = LAB_IDS.map((lab) => {
+    const share = labIncomeShare(state, lab);
+    return { lab, share, earned: offlineReport.earned * share };
+  })
+    .filter((row) => row.share > 0)
+    .sort((a, b) => b.earned - a.earned);
+
+  // Подсказки покупки — только из движка: цены и доступность в компоненте не считаются.
+  // availableUpgrades уже отсортирован по цене, а maxAffordable отвечает за Модели.
+  const discount = discountMult(state);
+  const affordableUpgrades = availableUpgrades(state)
+    .filter((u) => u.cost <= state.tokens)
+    .slice(0, 2);
+  const affordableModels = gen.models.filter(
+    (m) => maxAffordable(m, state.agents[m.id] ?? 0, state.tokens, discount) > 0
+  );
+  // Модели в Поколении идут по Рангу, а Доход по Рангу растёт — поэтому последняя из доступных
+  // и есть самая доходная, и сортировать по Доходу заново не нужно.
+  const bestModel = affordableModels[affordableModels.length - 1];
+  const bestCount = bestModel
+    ? maxAffordable(bestModel, state.agents[bestModel.id] ?? 0, state.tokens, discount)
+    : 0;
 
   return (
     <div
@@ -546,7 +652,8 @@ export const OfflineModal: React.FC = () => {
         className="pixel-card"
         style={{
           width: '100%',
-          maxWidth: '440px',
+          maxWidth: '520px',
+          maxHeight: '85vh',
           padding: '24px',
           display: 'flex',
           flexDirection: 'column',
@@ -583,12 +690,120 @@ export const OfflineModal: React.FC = () => {
           +<Num>{formatNumber(offlineReport.earned, notation)}</Num> Токенов
         </div>
 
+        <div
+          style={{
+            width: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px',
+            textAlign: 'left',
+            // minHeight: 0 обязателен: у флекс-элемента автоматический минимум равен
+            // содержимому, и без него разбор не сжимался бы, а выпирал из-под кнопки.
+            flex: 1,
+            minHeight: 0,
+            overflowY: 'auto',
+          }}
+        >
+          {labRows.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {/* Без pixel-font: в заголовке есть кириллица, а по ADR-0003 пиксельный шрифт
+                  допустим только на строках без неё. */}
+              <div style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>Кто заработал</div>
+              {labRows.map((row) => (
+                <div
+                  key={row.lab}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '6px 8px',
+                    backgroundColor: 'var(--bg-card)',
+                    borderRadius: '4px',
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  <MascotSprite lab={row.lab} size={20} />
+                  {/* Подпись Лаборатории — в --text-main, а не в её фирменный цвет: самый
+                      тёмный из восьми цветов на карточке даёт 1.08:1 и просто исчезает. */}
+                  <span style={{ flex: 1, minWidth: 0, color: 'var(--text-main)' }}>
+                    {LABS[row.lab].name}
+                  </span>
+                  {/* Строка целиком из числа: пиксельный шрифт тут разрешён (ADR-0003). */}
+                  <span className="pixel-font" style={{ color: 'var(--green)', fontWeight: 600 }}>
+                    +{formatNumber(row.earned, notation)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>Теперь доступно</div>
+
+            {bestModel && (
+              <div
+                style={{
+                  padding: '8px',
+                  backgroundColor: 'var(--tint-gold)',
+                  border: '1px solid var(--gold)',
+                  borderRadius: '4px',
+                  fontSize: '0.85rem',
+                }}
+              >
+                {/* Имя Модели без pixel-font: оно склеено со словом «Агент:», а по ADR-0003
+                    пиксельный шрифт допустим только на строках без кириллицы. */}
+                <div style={{ color: 'var(--text-main)' }}>
+                  Агент: <span>{bestModel.name}</span>
+                </div>
+                <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                  {/* После «на» 1 и 2–4 стоят в родительном: 1 Агента, 2 Агента, 5 Агентов.
+                      Форма берётся по той же нотации, что и напечатанное число, иначе на
+                      больших числах слово и цифры разъедутся. */}
+                  Хватит на <Num>{formatNumber(bestCount, notation)}</Num>{' '}
+                  {formatCount(bestCount, 'Агента', 'Агента', 'Агентов', notation)} ·{' '}
+                  {LABS[bestModel.lab].name}
+                  {bestModel.isFlagship ? ' · Флагман открывает Престиж' : ''}
+                </div>
+              </div>
+            )}
+
+            {affordableUpgrades.map((u) => (
+              <div
+                key={u.id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '8px',
+                  backgroundColor: 'var(--bg-card)',
+                  borderRadius: '4px',
+                  fontSize: '0.85rem',
+                }}
+              >
+                {/* Имя Апгрейда без pixel-font — та же причина, что и у Модели выше. */}
+                <span style={{ flex: 1, minWidth: 0, color: 'var(--text-main)' }}>
+                  Апгрейд: <span>{u.name}</span>
+                </span>
+                <span className="pixel-font" style={{ color: 'var(--accent-color)' }}>
+                  {formatNumber(u.cost, notation)}
+                </span>
+              </div>
+            ))}
+
+            {!bestModel && affordableUpgrades.length === 0 && (
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                Токенов пока не хватает ни на одну покупку — они уйдут в Агентов.
+              </div>
+            )}
+          </div>
+        </div>
+
         <button
           onClick={requestClose}
           className="pixel-btn pixel-btn-accent"
-          style={{ width: '100%', padding: '12px', fontSize: '1.1rem', marginTop: '6px' }}
+          style={{ width: '100%', padding: '12px', fontSize: '1.1rem', marginTop: '6px', flexShrink: 0 }}
         >
-          Забрать токены!
+          Забрать Токены!
         </button>
       </div>
     </div>

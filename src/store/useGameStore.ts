@@ -15,7 +15,11 @@ import {
   sellAgents as engineSellAgents,
 } from '../economy/engine';
 import { LAST_GENERATION } from '../economy/catalog';
-import { awardAchievements } from '../economy/achievements';
+import {
+  ACHIEVEMENTS,
+  awardAchievements,
+  awardShadowAchievements,
+} from '../economy/achievements';
 import { formatNumber } from '../economy/format';
 import { pickNews } from '../economy/news';
 import { availableUpgrades } from '../economy/upgrades';
@@ -35,6 +39,9 @@ export type ActiveTab = 'click' | 'office' | 'shop' | 'upgrades' | 'perks' | 'st
 export interface ToastMessage {
   id: string;
   title: string;
+  /** Название и описание Достижения текстом, а не id: тост — единственное, что игрок читает
+   *  по этому поводу, и id теневого Достижения в нём смотрелся бы английским словом. */
+  name: string;
   desc: string;
 }
 
@@ -220,25 +227,44 @@ export const useGameStore = create<GameStore>((set, get) => {
   const initial = loadInitialState();
 
   /**
-   * Начисляет выполненные Достижения и показывает тосты.
+   * Начисляет выполненные Достижения — обычные и теневые — и показывает тосты за обычные.
    * Вызывается из каждого перехода, который может выполнить условие Достижения.
+   *
+   * Тень начисляется молча и всегда: она даёт нулевую силу, не входит в «N / 21» и по замыслу
+   * берётся ради рекордов, поэтому ни тоста, ни звука, ни вспышки значка на ней нет — значок
+   * в шапке считает только обычные, и пульс без изменившегося числа ни о чём не говорил бы.
+   * Тишина не мешает сохранению: теневой переход возвращается из функции так же, как обычный,
+   * и следующий тик сериализует его в localStorage.
    */
   const awardEarned = (s: GameState): GameState => {
-    const { state: next, awarded } = awardAchievements(s);
-    if (awarded.length === 0) return s;
+    const { state: withOrdinary, awarded } = awardAchievements(s);
+    // Вторым вызовом и на уже обновлённом состоянии: часть условий теней читает обычные
+    // Достижения (например, «Сдача с первого раза» требует весь набор Поколения 1), и на
+    // старом состоянии такая тень ждала бы лишнего тика, а то и не наступила бы вовсе.
+    const { state: withShadows } = awardShadowAchievements(withOrdinary);
+
+    // Тождество сохранено: обе награды возвращают тот же объект, если ничего не выдали.
+    // Возврат именно withShadows обязателен — `return s` здесь потерял бы переход, закрывший
+    // только тень, и она не дошла бы до сериализации в localStorage.
+    if (awarded.length === 0) return withShadows;
+
     playAchievementSound(s.settings.muted);
+    // Текст берётся из таблицы, а не собирается из id: awardAchievements отдаёт id, и
+    // подставить его в тост — значит отдать компоненту то, что она не умеет перевести.
+    const won = new Set(awarded);
     set((st) => ({
       toasts: [
         ...st.toasts,
-        ...awarded.map((id) => ({
-          id: `${id}-${++toastCounter}`,
+        ...ACHIEVEMENTS.filter((a) => won.has(a.id)).map((a) => ({
+          id: `${a.id}-${++toastCounter}`,
           title: 'Достижение разблокировано!',
-          desc: id,
+          name: a.name,
+          desc: a.desc,
         })),
       ],
       burst: { kind: 'achievement', nonce: ++burstCounter },
     }));
-    return next;
+    return withShadows;
   };
 
   return {

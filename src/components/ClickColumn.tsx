@@ -272,7 +272,8 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
           ) : (
             <>
               До следующей покупки: не хватает <Num>{formatNumber(missing, notation)}</Num>{' '}
-              {formatCount(Math.round(missing), 'Токен', 'Токена', 'Токенов')}
+              {/* Нотация обязательна: форма считается по цифрам той же записи, что и число. */}
+              {formatCount(missing, 'Токен', 'Токена', 'Токенов', notation)}
             </>
           )}
         </div>
