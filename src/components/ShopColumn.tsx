@@ -214,31 +214,25 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
             border: '1px solid var(--border)',
           }}
         >
-          {/* Режим покупки / продажи */}
+          {/* Режим покупки / продажи. Оформление выбранного состояния живёт в index.css и
+              держится на aria-pressed, поэтому здесь нет inline-заливок: они перебили бы
+              общий паттерн и разошлись бы с множителем покупки. */}
           <div style={{ display: 'flex', gap: '4px' }}>
             <button
               onClick={() => setSellMode(false)}
               className="pixel-btn"
-              style={{
-                padding: '4px 8px',
-                fontSize: '0.8rem',
-                backgroundColor: !sellMode ? 'var(--accent-solid)' : 'transparent',
-                borderColor: !sellMode ? 'var(--accent-color)' : 'var(--border)',
-              }}
+              aria-pressed={!sellMode}
+              style={{ padding: '4px 8px', fontSize: '0.8rem' }}
             >
               Купить
             </button>
             <button
               onClick={() => setSellMode(true)}
-              className="pixel-btn"
-              style={{
-                padding: '4px 8px',
-                fontSize: '0.8rem',
-                backgroundColor: sellMode ? 'var(--red-solid)' : 'transparent',
-                borderColor: sellMode ? 'var(--red)' : 'var(--border)',
-              }}
+              className="pixel-btn pixel-btn-sell"
+              aria-pressed={sellMode}
+              style={{ padding: '4px 8px', fontSize: '0.8rem' }}
             >
-              Продать (25%)
+              Продать
             </button>
           </div>
 
@@ -249,17 +243,21 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                 key={amt}
                 onClick={() => setBuyAmount(amt)}
                 className="pixel-btn"
-                style={{
-                  padding: '4px 7px',
-                  fontSize: '0.8rem',
-                  backgroundColor: buyAmount === amt ? 'var(--border)' : 'transparent',
-                  color: buyAmount === amt ? 'var(--accent-color)' : 'var(--text-main)',
-                }}
+                aria-pressed={buyAmount === amt}
+                style={{ padding: '4px 7px', fontSize: '0.8rem' }}
               >
-                {amt === 'max' ? 'Max' : `×${amt}`}
+                {amt === 'max' ? 'Max' : <>&times;<Num>{amt}</Num></>}
               </button>
             ))}
           </div>
+
+          {/* Строка про возврат живёт только в режиме продажи: в режиме покупки её нечего
+              читать, а возврат и так назван прямо на кнопке карточки. */}
+          {sellMode && (
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', flexShrink: 0 }}>
+              Возврат 25% от цены
+            </div>
+          )}
         </div>
       )}
 
