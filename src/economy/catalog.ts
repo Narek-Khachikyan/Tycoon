@@ -47,6 +47,15 @@ export const INCOME_BASE = 0.1;
 export const INCOME_STEP = 6.5;
 export const MOD_SPREAD = 0.3;
 
+/**
+ * Делитель прироста Compute в единицах масштаба Поколения.
+ *
+ * Живёт здесь, а не в движке: это единственное число, по которому формула Престижа совпадает в
+ * самом Престиже и в Достижении «Счастливый Compute», а две копии константы разъезжаются
+ * при первой же правке баланса.
+ */
+export const PRESTIGE_DIVISOR_UNITS = 1e5;
+
 export const genScale = (index: number) => Math.pow(GEN_SCALE, index);
 
 const median = (xs: number[]) => {

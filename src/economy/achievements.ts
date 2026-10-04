@@ -1,11 +1,14 @@
-import { CATALOG } from './catalog';
+import { CATALOG, PRESTIGE_DIVISOR_UNITS } from './catalog';
 import type { GameState } from './state';
 
 export interface Achievement {
   id: string;
   name: string;
   desc: string;
-  check: (s: GameState) => boolean;
+  /** Теневые не входят в подсчёт Датасета и не обязаны выполняться в одном прогоне. */
+  shadow?: boolean;
+  /** `now` нужен только теневым на время (sh_speed); у остальных игнорируется. */
+  check: (s: GameState, now?: number) => boolean;
 }
 
 const totalAgents = (s: GameState) => Object.values(s.agents).reduce((a, b) => a + b, 0);
@@ -13,6 +16,16 @@ const totalAgents = (s: GameState) => Object.values(s.agents).reduce((a, b) => a
 const tokens = (id: string, name: string, n: number): Achievement => ({
   id, name, desc: `Заработать ${n.toExponential(0).replace('e+', 'e')} токенов за всё время`, check: (s) => s.totalTokens >= n,
 });
+
+/**
+ * Прирост Compute тем же кубичным корнем, что и Престиж.
+ *
+ * Формула продублирована числом, а не вызовом движка: достижения проверяются на каждом тике и
+ * лежат в слое, который движок читает сам. Делитель при этом один — PRESTIGE_DIVISOR_UNITS в
+ * catalog.ts, — поэтому правка баланса Престижа не оставила бы тут свою формулу.
+ */
+const prestigeGain = (s: GameState): number =>
+  Math.floor(Math.cbrt(s.runTokens / (PRESTIGE_DIVISOR_UNITS * CATALOG[s.generation].scale)));
 
 export const ACHIEVEMENTS: Achievement[] = [
   { id: 'click_1', name: 'Hello, world', desc: 'Отправить первый промпт', check: (s) => s.clicks >= 1 },
@@ -39,20 +52,52 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'gen_4', name: 'Omni-присутствие', desc: 'Дойти до 4-го поколения', check: (s) => s.maxGeneration >= 3 },
   { id: 'gen_last', name: 'На передовой', desc: 'Дойти до последнего поколения', check: (s) => s.maxGeneration >= CATALOG.length - 1 },
   { id: 'perk_1', name: 'Инвестор', desc: 'Купить первый Перк', check: (s) => s.perks.length >= 1 },
+  // Теневые: в Датасет не входят, в общем прогоне могут не выполняться.
+  {
+    id: 'sh_no_click', name: 'Тихий разгон', desc: 'Заработать 1M токенов за забег при не более 15 кликах',
+    shadow: true, check: (s) => s.runTokens >= 1e6 && s.runClicks <= 15,
+  },
+  {
+    id: 'sh_speed', name: 'Спидран', desc: 'Заработать 1M токенов за забег быстрее чем за 15 минут',
+    shadow: true, check: (s, now = Date.now()) => s.runTokens >= 1e6 && now - s.runStartedAt <= 900_000,
+  },
+  {
+    id: 'sh_hardcore', name: 'Чистый забег', desc: 'Нанять флагмана, не купив ни одного Апгрейда',
+    shadow: true,
+    check: (s) => (s.agents[CATALOG[s.generation].flagship.id] ?? 0) >= 1 && s.upgrades.length === 0,
+  },
+  {
+    id: 'sh_777', name: 'Счастливый Compute', desc: 'Достичь прироста Престижа с цифрами 777',
+    shadow: true, check: (s) => String(prestigeGain(s)).includes('777'),
+  },
 ];
 
+export const ACHIEVEMENT_BY_ID: Record<string, Achievement> = Object.fromEntries(
+  ACHIEVEMENTS.map((a) => [a.id, a]),
+);
+
+/** Число заработанных НЕтеневых Достижений — база Датасета. Неизвестные id не считаем. */
+export function nonShadowCount(state: GameState): number {
+  const have = new Set(state.achievements);
+  let n = 0;
+  for (const a of ACHIEVEMENTS) {
+    if (!a.shadow && have.has(a.id)) n++;
+  }
+  return n;
+}
+
 /** Возвращает id новых выполненных Достижений. */
-export function newlyEarned(s: GameState): string[] {
+export function newlyEarned(s: GameState, now: number = Date.now()): string[] {
   const have = new Set(s.achievements);
-  return ACHIEVEMENTS.filter((a) => !have.has(a.id) && a.check(s)).map((a) => a.id);
+  return ACHIEVEMENTS.filter((a) => !have.has(a.id) && a.check(s, now)).map((a) => a.id);
 }
 
 /**
  * Применяет вновь заработанные Достижения к состоянию.
  * Вызывается из каждого перехода состояния, который может выполнить условие.
  */
-export function awardAchievements(s: GameState): { state: GameState; awarded: string[] } {
-  const awarded = newlyEarned(s);
+export function awardAchievements(s: GameState, now: number = Date.now()): { state: GameState; awarded: string[] } {
+  const awarded = newlyEarned(s, now);
   if (awarded.length === 0) return { state: s, awarded };
   return { state: { ...s, achievements: [...s.achievements, ...awarded] }, awarded };
 }

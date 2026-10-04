@@ -1,6 +1,7 @@
 import { CATALOG, MODEL_BY_ID } from './catalog';
+import { CRYSTAL_UPGRADE_BY_ID } from './crystal';
 import { PERK_BY_ID } from './perks';
-import { newGame, SAVE_VERSION, type GameState } from './state';
+import { EVENT_KINDS, newGame, SAVE_VERSION, type ActiveEvent, type EventKind, type GameState, type Glitch } from './state';
 import { UPGRADE_BY_ID } from './upgrades';
 
 export const SAVE_KEY = 'ai-tycoon-save';
@@ -16,11 +17,80 @@ const MIGRATIONS: Record<number, Migration> = {
     version: 2,
     settings: { ...((raw.settings as object) ?? {}), reducedMotion: false },
   }),
+  // Кристаллы, события, Глюки и откуп появились в v3. У живого сохранения их нет, поэтому
+  // каждое поле получает здесь то же значение, что и newGame: миграция обязана оставить игроку
+  // игру, а не половину игры. Ни одно из них не восстанавливается — это чистые добавления.
+  // Поля внутри записей (red и modelId события, clicks Глюка) дополняет не миграция, а разбор
+  // ниже: у v2 их не бывает, а довести до ума любую запись события или Глюка обязан migrate —
+  // в том числе пришедшую из v3.
+  2: (raw) => ({
+    ...raw,
+    version: 3,
+    crystals: 0,
+    crystalPlantedAt: 0,
+    crystalUpgrades: [],
+    eventsSeen: 0,
+    nextEventAt: 0,
+    event: null,
+    glitchSeq: 0,
+    glitches: [],
+    uprising: 0,
+    pledgeUntil: 0,
+    pledgeBought: 0,
+    covenant: false,
+  }),
 };
 
 const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 
+/** Неотрицательное целое: счётчики и id не могут быть дробными или отрицательными. */
+const count = (v: unknown) => Math.max(0, Math.floor(num(v, 0)));
+
+/** Мс Unix: отрицательное время не значит ничего, поэтому оно читается как «не задано». */
+const stamp = (v: unknown) => Math.max(0, num(v, 0));
+
+/**
+ * Неотрицательное число без округления — для доли, а не для счётчика.
+ *
+ * Масштаб `stolen` принадлежит таблице Глюков, поэтому миграция не решает за неё, что это за
+ * доля, и только гарантирует конечное неотрицательное число: округление здесь стёрло бы
+ * половину украденного у живого игрока.
+ */
+const share = (v: unknown) => Math.max(0, num(v, 0));
+
 const strList = (x: unknown) => (Array.isArray(x) ? x.filter((s): s is string => typeof s === 'string') : []);
+
+const isEventKind = (v: unknown): v is EventKind => typeof v === 'string' && (EVENT_KINDS as readonly string[]).includes(v);
+
+/**
+ * Активное событие: только известный вид и нормальное время старта, иначе его нет.
+ *
+ * `red` и `modelId` дополняются здесь, а не миграцией: без них событие всё равно осталось бы
+ * событием, но потеряло бы вид эффекта и Модель «Прорыва» — и после перезагрузки игрок получил бы
+ * бонус другой Модели. Отсутствие `red` читается как обычное событие, потому что красные виды
+ * появились вместе с флагом.
+ */
+function activeEvent(v: unknown): ActiveEvent | null {
+  if (!v || typeof v !== 'object') return null;
+  const e = v as { kind?: unknown; startedAt?: unknown; red?: unknown; modelId?: unknown };
+  if (!isEventKind(e.kind)) return null;
+  const modelId = typeof e.modelId === 'string' ? e.modelId : undefined;
+  return { kind: e.kind, startedAt: stamp(e.startedAt), red: !!e.red, modelId };
+}
+
+/** Живые Глюки: запись без целого id не Глюк, а мусор — она молча выпала бы. */
+function glitchList(x: unknown): Glitch[] {
+  if (!Array.isArray(x)) return [];
+  const list: Glitch[] = [];
+  for (const g of x) {
+    if (!g || typeof g !== 'object') continue;
+    const o = g as { id?: unknown; bornAt?: unknown; stolen?: unknown; clicks?: unknown };
+    const id = num(o.id, NaN);
+    if (!Number.isFinite(id)) continue;
+    list.push({ id: Math.floor(id), bornAt: stamp(o.bornAt), stolen: share(o.stolen), clicks: count(o.clicks) });
+  }
+  return list;
+}
 
 /** Индекс Поколения: только целое число в пределах каталога, иначе `fallback`. */
 function clampGeneration(v: unknown, fallback = 0): number {
@@ -49,7 +119,8 @@ const idList = (x: unknown, known: Record<string, unknown>): string[] => [
 
 /**
  * Приводит сырое сохранение к текущей версии и каталогу:
- * неизвестные Модели/Апгрейды/Перки отбрасываются, Поколение зажимается в доступный диапазон.
+ * неизвестные Модели/Апгрейды/Перки/ускорители кристаллов отбрасываются, Поколение зажимается
+ * в доступный диапазон, событие и Глюки чинятся до проверяемой формы.
  */
 export function migrate(input: unknown, now: number): GameState {
   const base = newGame(now);
@@ -84,6 +155,22 @@ export function migrate(input: unknown, now: number): GameState {
     perks: idList(raw.perks, PERK_BY_ID),
     prestiges: num(raw.prestiges, 0),
     achievements: [...new Set(strList(raw.achievements))],
+    // Кристаллы целые и неотрицательные: запас — это счётчик, а не Доли, дробный остаток в нём
+    // означал бы, что игрок заплатил частью кристалла, чего сделать нельзя.
+    crystals: count(raw.crystals),
+    crystalPlantedAt: stamp(raw.crystalPlantedAt),
+    // Дубликат ускорителя укоротил бы цикл дважды (16ч → 12ч без второй покупки), поэтому
+    // список дедуплицируется, а неизвестный id отбрасывается, как и у Перков.
+    crystalUpgrades: idList(raw.crystalUpgrades, CRYSTAL_UPGRADE_BY_ID),
+    eventsSeen: count(raw.eventsSeen),
+    nextEventAt: stamp(raw.nextEventAt),
+    event: activeEvent(raw.event),
+    glitchSeq: count(raw.glitchSeq),
+    glitches: glitchList(raw.glitches),
+    uprising: Math.min(count(raw.uprising), 3) as GameState['uprising'],
+    pledgeUntil: stamp(raw.pledgeUntil),
+    pledgeBought: count(raw.pledgeBought),
+    covenant: !!raw.covenant,
     lastTick: num(raw.lastTick, now),
     startedAt: num(raw.startedAt, now),
     runStartedAt: num(raw.runStartedAt, now),
