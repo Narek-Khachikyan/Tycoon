@@ -1,4 +1,5 @@
 import { CATALOG, LAST_GENERATION, MODEL_BY_ID, type Model } from './catalog';
+import type { LabId } from '../data/labs';
 import { perkEffects, PERK_BY_ID, START_TOKENS_UNITS } from './perks';
 import type { GameState } from './state';
 import {
@@ -102,6 +103,21 @@ export function incomeGain(state: GameState, modelId: string, n: number): number
     agents: { ...state.agents, [modelId]: (state.agents[modelId] ?? 0) + n },
   };
   return totalIncome(hired) - totalIncome(state);
+}
+
+/** Доход Лаборатории: сумма Дохода её Моделей. Каждая Модель принадлежит ровно одной
+ *  Лаборатории, поэтому доли всех Лабораторий в сумме дают единицу. */
+function labIncome(state: GameState, lab: LabId): number {
+  return CATALOG[state.generation].models
+    .filter((m) => m.lab === lab)
+    .reduce((s, m) => s + modelIncome(state, m), 0);
+}
+
+/** Доля Лаборатории в общем Доходе. Пока Агентов нет, общий Доход нулевой, и деление
+ *  выдало бы NaN прямо на экране, поэтому такая Лаборатория читается как ноль. */
+export function labIncomeShare(state: GameState, lab: LabId): number {
+  const total = totalIncome(state);
+  return total === 0 ? 0 : labIncome(state, lab) / total;
 }
 
 export function clickValue(state: GameState, income = totalIncome(state)): number {

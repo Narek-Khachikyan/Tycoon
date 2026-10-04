@@ -2,15 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { buildCatalog, CATALOG, genScale, softMod } from './catalog';
 import {
   advance, advanceTime, applyOffline, bulkCost, buyAgents, buyPerk, buyUpgrade, canPrestige, click, clickValue,
-  incomeGain, isContentFinale, maxAffordable, modelIncome, prestige, prestigeGain, sellAgents, totalIncome,
+  incomeGain, isContentFinale, labIncomeShare, maxAffordable, modelIncome, prestige, prestigeGain, sellAgents, totalIncome,
 } from './engine';
 import { newGame, SAVE_VERSION, type GameState } from './state';
 import { exportSave, importSave, migrate } from './save';
 import { pickNews } from './news';
 import { ACHIEVEMENTS, awardAchievements, newlyEarned } from './achievements';
-import { availableUpgrades, clickUpgradeId, modelUpgradeId, synergyUpgradeId } from './upgrades';
+import {
+  availableUpgrades, clickUpgradeId, labTopTier, labWork, modelUpgradeId, MODEL_TIERS, synergyUpgradeId,
+} from './upgrades';
 import { formatCount, formatNumber } from './format';
 import { GENERATIONS } from '../data/generations';
+import { LAB_IDS } from '../data/labs';
 
 const T0 = 1_000_000;
 const g0 = CATALOG[0];
@@ -157,6 +160,42 @@ describe('income and click', () => {
     const s = { ...newGame(T0), runTokens: 1e300 };
     const clicks = availableUpgrades(s).filter((u) => u.kind === 'click');
     expect(clicks.map((u) => u.id)).toEqual([clickUpgradeId(0, 0)]);
+  });
+});
+
+describe('lab readout', () => {
+  it('splits the income of the eight labs so the roster covers all of it', () => {
+    // Поколение, где Модели есть у всех восьми Лабораторий: доли обязаны дать единицу,
+    // иначе строка ростера показывала бы Лабораторию, будто она не приносит Доход.
+    let s = rich({ ...newGame(T0), generation: 5 }, 1e300);
+    for (const m of CATALOG[5].models) s = buyAgents(s, m.id, 1000);
+    const shares = LAB_IDS.map((l) => labIncomeShare(s, l));
+    expect(shares.every((x) => x > 0)).toBe(true);
+    expect(shares.reduce((a, b) => a + b, 0)).toBeCloseTo(1);
+  });
+  it('reads a lab without agents as zero rather than NaN', () => {
+    const s = newGame(T0);
+    for (const l of LAB_IDS) {
+      expect(labIncomeShare(s, l)).toBe(0);
+      expect(Number.isNaN(labIncomeShare(s, l))).toBe(false);
+    }
+  });
+  it('reports the highest model upgrade bought in a lab', () => {
+    const meta = g0.models.filter((m) => m.lab === 'meta');
+    let s = buyAgents(rich(newGame(T0)), meta[0].id, 5);
+    s = buyAgents(s, meta[1].id, 5);
+    // Агенты есть, но Апгрейда Модели ещё нет: работа Лаборатории не начата.
+    expect(labTopTier(s, 'meta')).toBe(-1);
+    expect(labWork(s, 'meta')).toBe('');
+    s = buyUpgrade(s, modelUpgradeId(meta[0].id, 0));
+    s = buyUpgrade(s, modelUpgradeId(meta[1].id, 1));
+    expect(labTopTier(s, 'meta')).toBe(1);
+    expect(labWork(s, 'meta')).toBe(MODEL_TIERS[1].name);
+    // Агенты без Апгрейда Модели остаются без работы.
+    const google = g0.models.find((m) => m.lab === 'google')!;
+    s = buyAgents(s, google.id, 3);
+    expect(labTopTier(s, 'google')).toBe(-1);
+    expect(labWork(s, 'google')).toBe('');
   });
 });
 
