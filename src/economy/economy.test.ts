@@ -4,12 +4,12 @@ import {
   advance, advanceTime, applyOffline, bulkCost, buyAgents, buyPerk, buyUpgrade, canPrestige, click, clickValue,
   isContentFinale, maxAffordable, prestige, prestigeGain, sellAgents, totalIncome,
 } from './engine';
-import { newGame, type GameState } from './state';
+import { newGame, SAVE_VERSION, type GameState } from './state';
 import { exportSave, importSave, migrate } from './save';
 import { pickNews } from './news';
-import { awardAchievements, newlyEarned } from './achievements';
+import { ACHIEVEMENTS, awardAchievements, newlyEarned } from './achievements';
 import { availableUpgrades, clickUpgradeId, modelUpgradeId, synergyUpgradeId } from './upgrades';
-import { formatNumber } from './format';
+import { formatCount, formatNumber } from './format';
 import { GENERATIONS } from '../data/generations';
 
 const T0 = 1_000_000;
@@ -262,6 +262,42 @@ describe('save', () => {
     const s = migrate({ version: 1, upgrades: ['zzz', 'c:0:0', 'c:0:0'] }, T0);
     expect(s.upgrades).toEqual(['c:0:0']);
   });
+  it('upgrades a v1 save to the current version without touching progress', () => {
+    const s = migrate(
+      {
+        version: 1,
+        tokens: 1234,
+        totalTokens: 5678,
+        agents: { [first.id]: 7 },
+        upgrades: ['c:0:0'],
+        compute: 3,
+        lastTick: T0 - 5000,
+        settings: { notation: 'sci', muted: true },
+      },
+      T0,
+    );
+    expect(s.version).toBe(SAVE_VERSION);
+    expect(s.settings).toEqual({ notation: 'sci', muted: true, reducedMotion: false });
+    expect(s.tokens).toBe(1234);
+    expect(s.totalTokens).toBe(5678);
+    expect(s.agents).toEqual({ [first.id]: 7 });
+    expect(s.upgrades).toEqual(['c:0:0']);
+    expect(s.compute).toBe(3);
+    expect(s.lastTick).toBe(T0 - 5000);
+  });
+  it('defaults reduced motion to off for a new game and for a save without settings', () => {
+    expect(newGame(T0).settings.reducedMotion).toBe(false);
+    expect(migrate({ version: 1 }, T0).settings.reducedMotion).toBe(false);
+  });
+  it('keeps the reduced motion preference through export/import', () => {
+    const s = newGame(T0);
+    const back = importSave(exportSave({ ...s, settings: { ...s.settings, reducedMotion: true } }), T0)!;
+    expect(back.settings.reducedMotion).toBe(true);
+  });
+  it('coerces a corrupt reduced motion value to a boolean', () => {
+    expect(migrate({ version: 2, settings: { reducedMotion: 'да' } }, T0).settings.reducedMotion).toBe(true);
+    expect(migrate({ version: 2, settings: { reducedMotion: 0 } }, T0).settings.reducedMotion).toBe(false);
+  });
 });
 
 describe('format', () => {
@@ -271,6 +307,25 @@ describe('format', () => {
     expect(formatNumber(999999)).toBe('1.000 M');
     expect(formatNumber(2.5e9)).toBe('2.500 B');
     expect(formatNumber(1.23e15, 'sci')).toBe('1.23e15');
+  });
+
+  it('declines agent counts in Russian', () => {
+    const agent = (n: number) => formatCount(n, 'Агент', 'Агента', 'Агентов');
+    expect(agent(0)).toBe('Агентов');
+    expect(agent(1)).toBe('Агент');
+    expect(agent(2)).toBe('Агента');
+    expect(agent(4)).toBe('Агента');
+    expect(agent(5)).toBe('Агентов');
+    // 11–14 живут по правилу десятков, а не хвоста: «11 Агентов», но «21 Агент».
+    expect(agent(11)).toBe('Агентов');
+    expect(agent(12)).toBe('Агентов');
+    expect(agent(14)).toBe('Агентов');
+    expect(agent(21)).toBe('Агент');
+    expect(agent(22)).toBe('Агента');
+    expect(agent(25)).toBe('Агентов');
+    expect(agent(101)).toBe('Агент');
+    expect(agent(111)).toBe('Агентов');
+    expect(agent(-1)).toBe('Агент');
   });
 });
 describe('news and achievements', () => {
@@ -305,5 +360,38 @@ describe('news and achievements', () => {
     const hired = buyAgents(rich(newGame(T0), 1e6), first.id, 1);
     expect(newlyEarned(hired)).toContain('agents_1');
     expect(awardAchievements(hired).state.achievements).toContain('agents_1');
+  });
+
+  it('awards every achievement from a single maximal run, and nothing on a second pass', () => {
+    const ids = ACHIEVEMENTS.map((a) => a.id);
+    // id Достижения входит в поверхность сохранения: дубль осиротит запись, пустое имя — экран.
+    expect(new Set(ids).size).toBe(ACHIEVEMENTS.length);
+    expect(ACHIEVEMENTS.filter((a) => a.name.length === 0)).toEqual([]);
+
+    // Прогон до последнего Поколения: Престиж требует Агента-флагмана того Поколения, откуда уходит.
+    let s = newGame(T0);
+    for (let g = 0; g < CATALOG.length - 1; g++) s = prestige(buyAgents(rich(s), CATALOG[g].flagship.id, 1), T0);
+    expect(s.generation).toBe(CATALOG.length - 1);
+
+    // Финальный Забег: Агент каждой Модели («Полный зоопарк») и 250 Агентов флагмана,
+    // плюс Апгрейд, Перк и 10 000 Кликов — остальные условия.
+    s = rich(s);
+    for (const m of CATALOG[s.generation].models) s = buyAgents(s, m.id, m.isFlagship ? 250 : 1);
+    s = buyUpgrade(s, clickUpgradeId(s.generation, 0));
+    s = buyPerk(s, 'click_x2');
+    for (let i = 0; i < 10_000; i++) s = click(s);
+
+    expect([...newlyEarned(s)].sort()).toEqual([...ids].sort());
+    const first = awardAchievements(s);
+    expect([...first.awarded].sort()).toEqual([...ids].sort());
+
+    // Второй проход — тоже контракт стор-а: не только пустой список, но и тот же самый объект.
+    const second = awardAchievements(first.state);
+    expect(second.awarded).toEqual([]);
+    expect(second.state).toBe(first.state);
+
+    const firstAgent = ACHIEVEMENTS.find((a) => a.id === 'agents_1')!;
+    expect(firstAgent.name).toContain('Агент');
+    expect(firstAgent.name).not.toContain('сотрудник');
   });
 });
