@@ -13,8 +13,8 @@ import {
   sellRefund,
   shortfall,
 } from '../economy/engine';
-import { availableUpgrades } from '../economy/upgrades';
-import { PERKS } from '../economy/perks';
+import { availableUpgrades, labAgents, PAIR_SYNERGY_MULT, SYNERGY_MIN_AGENTS, UPGRADES_BY_GEN } from '../economy/upgrades';
+import { countGenPerks, genPerkCost, genPerkGeneration, genPerkId, isGenPerkId, PERK_BY_ID, PERKS } from '../economy/perks';
 import { formatCount, formatNumber } from '../economy/format';
 import type { Notation } from '../economy/state';
 import { MascotSprite } from './MascotSprite';
@@ -205,6 +205,18 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   // не узнал бы, что Престиж вообще существует. На финале контента Престиж недоступен
   // навсегда, поэтому приглушение там не снимается.
   const prestigeLocked = finale || !prestigeReady;
+  // Особые перки живут в том же PERKS, но с другой ценой и условием: реальная цена —
+  // genPerkCost (растёт с числом купленных), покупка — в своём Поколении при
+  // купленном флагмане либо в любом позднем без флагмана (buyGenPerk). Поэтому
+  // список делится здесь, в render, без нового состояния: обычные — со своей
+  // статичной ценой, особые — отдельной подсекцией ниже.
+  const regularPerks = PERKS.filter((p) => !isGenPerkId(p.id));
+  const genPerks = CATALOG.flatMap((g) => {
+    const p = PERK_BY_ID[genPerkId(g.index)];
+    return p ? [p] : [];
+  });
+  const boughtGenPerks = countGenPerks(state.perks);
+  const nextGenPerkCost = genPerkCost(state.perks);
 
   // Двухшаговый Престиж: сброс Забега необратим, поэтому первый Клик только взводит
   // кнопку, а второй в течение ARM_MS выполняет переход в новое Поколение. Звук живёт
@@ -475,6 +487,18 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               // А вот продать нечего — и обе цифры, и кнопка были бы пустыми.
               const showsGain = sellMode ? owned > 0 : count > 0;
 
+              // Прогресс до синергий — чистый derived render из состояния: число Агентов
+              // каждой Лаборатории через labAgents, без нового состояния и без таймеров.
+              // Одиночная синергия есть не у всех лаб (нужны ≥2 Модели в Поколении).
+              const singleSynergy = UPGRADES_BY_GEN[state.generation].find(
+                (u) => u.kind === 'synergy' && u.pairLab === undefined && u.lab === m.lab,
+              );
+              const singleBought = singleSynergy !== undefined && state.upgrades.includes(singleSynergy.id);
+              const singleCount = labAgents(state, m.lab);
+              const pairSynergies = UPGRADES_BY_GEN[state.generation].filter(
+                (u) => u.kind === 'synergy' && u.pairLab !== undefined && (u.lab === m.lab || u.pairLab === m.lab),
+              );
+
               return (
                 <ModelRow key={m.id} owned={owned} isFlagship={m.isFlagship} canAfford={canAfford}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -577,6 +601,68 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       кнопки, ни высота карточки не прыгают на каждом тике. */}
                   <TokenDeficit amount={missing} notation={notation} />
                   </div>
+
+                  {/* Прогресс до синергий Лаборатории: одиночный датасет — счёт одной лабы,
+                      совместный — состав пары. Только чтение состояния, без своих таймеров. */}
+                  {(singleSynergy !== undefined || pairSynergies.length > 0) && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '2px',
+                        fontSize: '0.75rem',
+                        color: 'var(--text-muted)',
+                      }}
+                    >
+                      {singleSynergy !== undefined &&
+                        (singleBought ? (
+                          <div>Общий датасет активен</div>
+                        ) : (
+                          <div>
+                            <Num>{singleCount}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num>{' '}
+                            {formatCount(singleCount, 'Агент', 'Агента', 'Агентов')} до датасета
+                            {singleCount >= SYNERGY_MIN_AGENTS
+                              ? ' — забирай во вкладке Апгрейды'
+                              : ''}
+                          </div>
+                        ))}
+                      {pairSynergies.map((u) => {
+                        if (u.kind !== 'synergy' || u.pairLab === undefined) return null;
+                        const first = labAgents(state, u.lab);
+                        const second = labAgents(state, u.pairLab);
+                        const bought = state.upgrades.includes(u.id);
+                        const ready =
+                          first >= SYNERGY_MIN_AGENTS && second >= SYNERGY_MIN_AGENTS;
+                        const pairName = `${LABS[u.lab].name} × ${LABS[u.pairLab].name}`;
+                        if (bought) {
+                          return (
+                            <div key={u.id}>
+                              {ready ? (
+                                <>
+                                  Совместный датасет {pairName} активен (×
+                                  <Num>{formatNumber(PAIR_SYNERGY_MULT, notation)}</Num>)
+                                </>
+                              ) : (
+                                <>
+                                  Совместный датасет {pairName} ждёт состав{' '}
+                                  <Num>{first}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num> +{' '}
+                                  <Num>{second}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num>
+                                </>
+                              )}
+                            </div>
+                          );
+                        }
+                        return (
+                          <div key={u.id}>
+                            <Num>{first}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num> +{' '}
+                            <Num>{second}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num> до совместного
+                            датасета {pairName}
+                            {ready ? ' — забирай во вкладке Апгрейды' : ''}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
 
                   {/* Справка AA переключатель */}
                   {/* Волосяная линия остаётся литералом: 6% белого — это заведомо слабее
@@ -814,7 +900,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {PERKS.map((p) => {
+                {regularPerks.map((p) => {
                   const owned = state.perks.includes(p.id);
                   const canAfford = !owned && unspentCompute >= p.cost;
 
@@ -868,6 +954,114 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         }}
                       >
                         {owned ? 'Куплено' : <>Купить перк (<Num>{p.cost}</Num> Compute)</>}
+                      </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Наследие поколений: особые перки переживают Престиж и усиливают только своё
+                Поколение. Цена общая на всех — genPerkCost за следующий некупленный, поэтому
+                карточка показывает её, а не статичный cost из таблицы. Покупка идёт тем же
+                buyPerk (движок сам сверяет Поколение и флагмана), новых экшенов нет. */}
+            <div>
+              <div
+                style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: '4px' }}
+              >
+                Наследие поколений (Куплено: <Num>{boughtGenPerks}</Num> из{' '}
+                <Num>{genPerks.length}</Num>)
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                Усиливают только своё Поколение навсегда. Следующий —{' '}
+                <Num>{nextGenPerkCost}</Num> Compute: цена растёт с числом купленных.
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {genPerks.map((p) => {
+                  const owned = state.perks.includes(p.id);
+                  // Поколение особого перка: null быть не может (список собран через genPerkId
+                  // по каталогу), но чужой id из старого сохранения разбираем в 0, чтобы
+                  // карточка не упала, а ушла в приглушённые.
+                  const perkGen = genPerkGeneration(p.id) ?? 0;
+                  const genName = CATALOG[perkGen]?.name ?? '';
+                  const isCurrentGen = perkGen === state.generation;
+                  const isFutureGen = perkGen > state.generation;
+                  // Флагман — то же условие, что у кнопки Престижа, но только для перка
+                  // ТЕКУЩЕГО Поколения: прошлые докупаются позже без флагмана, ведь сам
+                  // переход дальше уже доказал мастерство (Престиж требовал флагмана).
+                  const needFlagship = !owned && isCurrentGen && !prestigeReady;
+                  // Приглушены только будущие (ещё не открыты) и текущее без флагмана;
+                  // прошлые некупленные — обычные покупаемые, «упущенности» нет.
+                  const locked = !owned && (isFutureGen || needFlagship);
+                  const canAfford = !locked && unspentCompute >= nextGenPerkCost;
+
+                  return (
+                    <div
+                      key={p.id}
+                      style={{
+                        backgroundColor: 'var(--bg-card)',
+                        border: owned ? '1px solid var(--green)' : '1px solid var(--border)',
+                        borderRadius: '6px',
+                        padding: '10px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '6px',
+                        ...(locked ? { opacity: 0.6 } : undefined),
+                      }}
+                    >
+                      <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{p.name}</span>
+
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                        {p.desc}
+                      </div>
+
+                      {/* Подпись причины: будущее Поколение и missing флагман текущего —
+                          разные тупики, и молча приглушённая карточка не объяснила бы, что
+                          делать. Прошлые Поколения подписи не получают: они покупаемы как
+                          обычные, упущенности нет. */}
+                      {locked && (
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          {isFutureGen
+                            ? <>Откроется в поколении «{genName}»</>
+                            : needFlagship
+                              ? 'Нужен флагман поколения'
+                              : null}
+                        </div>
+                      )}
+
+                      <div
+                        onClickCapture={handlePerkDeny(owned || canAfford)}
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'flex-end',
+                          ...(owned || canAfford ? undefined : { cursor: 'not-allowed' }),
+                        }}
+                      >
+                      <button
+                        onClick={(e) => {
+                          restartSquash(e);
+                          buyPerk(p.id);
+                        }}
+                        onAnimationEnd={handleSquashEnd}
+                        disabled={owned || !canAfford}
+                        className={`pixel-btn ${owned ? '' : 'pixel-btn-gold'}`}
+                        style={{
+                          padding: '6px 10px',
+                          fontSize: '0.85rem',
+                          alignSelf: 'flex-end',
+                          pointerEvents: owned || canAfford ? undefined : 'none',
+                        }}
+                      >
+                        {owned ? (
+                          'Куплено'
+                        ) : (
+                          <>
+                            Купить перк (<Num>{nextGenPerkCost}</Num> Compute)
+                          </>
+                        )}
                       </button>
                       </div>
                     </div>

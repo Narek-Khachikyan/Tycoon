@@ -2,18 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { buildCatalog, CATALOG, genScale, softMod } from './catalog';
 import {
   advance, advanceTime, applyOffline, bulkCost, buyAgents, buyPerk, buyUpgrade, canPrestige, click, clickValue,
-  incomeGain, isContentFinale, labIncomeShare, maxAffordable, modelIncome, prestige, prestigeGain, sellAgents, totalIncome,
+  generationBoostMult, incomeGain, isContentFinale, labIncomeShare, maxAffordable, modelIncome, prestige, prestigeGain, sellAgents, totalIncome,
 } from './engine';
+import type { PerkEffect } from './perks';
 import { newGame, SAVE_VERSION, type GameState } from './state';
 import { exportSave, importSave, migrate } from './save';
 import { pickNews } from './news';
 import { ACHIEVEMENTS, awardAchievements, newlyEarned } from './achievements';
 import {
-  availableUpgrades, clickUpgradeId, labTopTier, labWork, modelUpgradeId, MODEL_TIERS, synergyUpgradeId,
+  availableUpgrades, clickUpgradeId, isUpgradeUnlocked, labTopTier, labWork, modelUpgradeId, MODEL_TIERS,
+  PAIR_SYNERGY_MULT, pairSynergyUpgradeId, SYNERGY_MIN_AGENTS, synergyUpgradeId, UPGRADES_BY_GEN,
+  type Upgrade,
 } from './upgrades';
 import { formatCount, formatNumber } from './format';
 import { GENERATIONS } from '../data/generations';
-import { LAB_IDS } from '../data/labs';
+import { LAB_IDS, type LabId } from '../data/labs';
 
 const T0 = 1_000_000;
 const g0 = CATALOG[0];
@@ -477,7 +480,7 @@ describe('news and achievements', () => {
   });
 
   it('awards every achievement from a single maximal run, and nothing on a second pass', () => {
-    const ids = ACHIEVEMENTS.map((a) => a.id);
+   const ids = ACHIEVEMENTS.map((a) => a.id);
     // id Достижения входит в поверхность сохранения: дубль осиротит запись, пустое имя — экран.
     expect(new Set(ids).size).toBe(ACHIEVEMENTS.length);
     expect(ACHIEVEMENTS.filter((a) => a.name.length === 0)).toEqual([]);
@@ -509,5 +512,214 @@ describe('news and achievements', () => {
     const firstAgent = ACHIEVEMENTS.find((a) => a.id === 'agents_1')!;
     expect(firstAgent.name).toContain('Агент');
     expect(firstAgent.name).not.toContain('сотрудник');
+  });
+});
+
+describe('pair synergy', () => {
+  // Пары нулевого Поколения берём из каталога, а не хардкодим: состав зависит от нарезки
+  // Поколений, и тест обязан пережить её смену, а не сгнить вместе с ней.
+  type Pair = Extract<Upgrade, { kind: 'synergy' }> & { pairLab: LabId };
+  const pairs0 = UPGRADES_BY_GEN[0].filter((u): u is Pair => u.kind === 'synergy' && u.pairLab !== undefined);
+  const pair = pairs0[0];
+  const labA = pair.lab;
+  const labB = pair.pairLab;
+
+  // Порог считается по сумме Агентов Лаборатории, поэтому всех кладём на её первую Модель.
+  const hireLab = (s: GameState, lab: LabId, n: number): GameState => {
+    const m = CATALOG[0].models.find((x) => x.lab === lab)!;
+    return buyAgents(s, m.id, n);
+  };
+  const withPair = (): GameState => {
+    let s = rich(newGame(T0));
+    s = hireLab(s, labA, SYNERGY_MIN_AGENTS);
+    s = hireLab(s, labB, SYNERGY_MIN_AGENTS);
+    return buyUpgrade(s, pair.id);
+  };
+
+  it('builds at most three pairs per generation from labs present, with unique ids', () => {
+    const all = UPGRADES_BY_GEN.flat();
+    // Дубль id молча схлопнулся бы в UPGRADE_BY_ID: проверяем, что пара не затёрла одиночку.
+    expect(new Set(all.map((u) => u.id)).size).toBe(all.length);
+    for (let g = 0; g < CATALOG.length; g++) {
+      const pairs = UPGRADES_BY_GEN[g].filter((u): u is Pair => u.kind === 'synergy' && u.pairLab !== undefined);
+      expect(pairs.length).toBeLessThanOrEqual(3);
+      for (const p of pairs) {
+        expect(p.id).toBe(pairSynergyUpgradeId(g, p.lab, p.pairLab));
+        expect(CATALOG[g].models.some((m) => m.lab === p.lab)).toBe(true);
+        expect(CATALOG[g].models.some((m) => m.lab === p.pairLab)).toBe(true);
+        // Цена — от более дорогой стороны пары тем же приёмом, что одиночная синергия.
+        const costOf = (lab: LabId) => CATALOG[g].models.filter((m) => m.lab === lab)[0].baseCost;
+        expect(p.cost).toBe(Math.max(costOf(p.lab), costOf(p.pairLab)) * 1000);
+      }
+    }
+  });
+  it('opens at 15/15 and buys through the regular upgrade path', () => {
+    let s = rich(newGame(T0));
+    s = hireLab(s, labA, SYNERGY_MIN_AGENTS);
+    s = hireLab(s, labB, SYNERGY_MIN_AGENTS);
+    expect(isUpgradeUnlocked(s, pair)).toBe(true);
+    expect(availableUpgrades(s).map((u) => u.id)).toContain(pair.id);
+    const bought = buyUpgrade(s, pair.id);
+    expect(bought).not.toBe(s);
+    expect(bought.upgrades).toContain(pair.id);
+  });
+  it('refuses the purchase at 15/14', () => {
+    let s = rich(newGame(T0));
+    s = hireLab(s, labA, SYNERGY_MIN_AGENTS);
+    s = hireLab(s, labB, SYNERGY_MIN_AGENTS - 1);
+    expect(isUpgradeUnlocked(s, pair)).toBe(false);
+    expect(buyUpgrade(s, pair.id)).toBe(s);
+  });
+  it('multiplies the income of both labs by ×1.5', () => {
+    let s = rich(newGame(T0));
+    s = hireLab(s, labA, SYNERGY_MIN_AGENTS);
+    s = hireLab(s, labB, SYNERGY_MIN_AGENTS);
+    const mA = CATALOG[0].models.find((m) => m.lab === labA)!;
+    const mB = CATALOG[0].models.find((m) => m.lab === labB)!;
+    const beforeA = modelIncome(s, mA);
+    const beforeB = modelIncome(s, mB);
+    s = buyUpgrade(s, pair.id);
+    expect(modelIncome(s, mA)).toBeCloseTo(beforeA * PAIR_SYNERGY_MULT);
+    expect(modelIncome(s, mB)).toBeCloseTo(beforeB * PAIR_SYNERGY_MULT);
+  });
+  it('fades live when sold below the threshold while the purchase stays', () => {
+    const bought = withPair();
+    const mB = CATALOG[0].models.find((m) => m.lab === labB)!;
+    // То же увольнение без покупки: состав Агентов один в один, баффа нет.
+    const plain = hireLab(hireLab(rich(newGame(T0)), labA, SYNERGY_MIN_AGENTS), labB, SYNERGY_MIN_AGENTS);
+    const sold = sellAgents(bought, mB.id, 1);
+    const expected = sellAgents(plain, mB.id, 1);
+    expect(totalIncome(sold)).toBeCloseTo(totalIncome(expected));
+    // Покупка при этом не возвращается: запись жива и оживёт при новом найме.
+    expect(sold.upgrades).toContain(pair.id);
+    expect(totalIncome(buyAgents(sold, mB.id, 1))).toBeCloseTo(totalIncome(bought));
+  });
+  it('burns on prestige like a regular synergy', () => {
+    let s = withPair();
+    s = buyAgents(s, g0.flagship.id, 1);
+    expect(s.upgrades).toContain(pair.id);
+    const p = prestige(s, T0 + 1);
+    expect(p.upgrades).toEqual([]);
+    expect(totalIncome(p)).toBe(0);
+  });
+  it('keeps rank income monotonic with the pair buff active', () => {
+    let s = rich(newGame(T0));
+    for (const m of g0.models) s = buyAgents(s, m.id, SYNERGY_MIN_AGENTS);
+    s = buyUpgrade(s, pair.id);
+    // Состав ровный, одиночных синергий и Перков нет: порядок Дохода обязан повторять
+    // порядок baseIncome — шаг цены ×6.5 на Ранг бафф ×1.5 не переворачивает.
+    const incomes = g0.models.map((m) => modelIncome(s, m));
+    for (let i = 1; i < incomes.length; i++) expect(incomes[i]).toBeGreaterThan(incomes[i - 1]);
+  });
+});
+
+describe('generation perks', () => {
+  // Забег Поколения `gen` в точке Престижа: флагман куплен, Compute хватает на особые Перки.
+  const flagged = (gen: number, compute = 100): GameState => ({
+    ...newGame(T0),
+    generation: gen,
+    maxGeneration: gen,
+    compute,
+    agents: { [CATALOG[gen].flagship.id]: 1 },
+  });
+  const allGenPerks = CATALOG.map((_, i) => `gen_${i}`);
+
+  it('продаётся в своём и прошлых поколениях, флагман нужен только в текущем', () => {
+    const s = flagged(0);
+    // Будущее Поколение — отказ тем же объектом, Compute не тронут.
+    expect(buyPerk(s, 'gen_1')).toBe(s);
+    expect(buyPerk(s, 'gen_7')).toBe(s);
+    // Своё Поколение без флагмана — тоже отказ: Престиж делается не отсюда.
+    const noFlag: GameState = { ...s, agents: {} };
+    expect(buyPerk(noFlag, 'gen_0')).toBe(noFlag);
+    // А в точке Престижа покупка проходит и переживает сам Престиж.
+    const bought = buyPerk(s, 'gen_0');
+    expect(bought.perks).toEqual(['gen_0']);
+    expect(prestige(bought, T0 + 1).perks).toEqual(['gen_0']);
+  });
+  it('докупает прошлый перк в позднем поколении без флагмана, будущее не даёт', () => {
+    // Поздний Забег без флагмана: упущенный gen_0 покупается как обычный.
+    const late: GameState = { ...newGame(T0), generation: 3, maxGeneration: 3, compute: 100, agents: {} };
+    const bought = buyPerk(late, 'gen_0');
+    expect(bought).not.toBe(late);
+    expect(bought.perks).toEqual(['gen_0']);
+    expect(bought.computeSpent).toBe(10);
+    // Будущий перк в том же Забеге — отказ тем же объектом.
+    expect(buyPerk(late, 'gen_4')).toBe(late);
+    expect(buyPerk(late, 'gen_7')).toBe(late);
+    // Прошлый перк в текущем Поколении с флагманом — тоже проходит.
+    const current = flagged(2);
+    expect(buyPerk(current, 'gen_0').perks).toEqual(['gen_0']);
+  });
+  it('берёт 10 Compute за первый особый и +5 за каждый следующий', () => {
+    let s = flagged(0);
+    s = buyPerk(s, 'gen_0');
+    expect(s.computeSpent).toBe(10);
+    // Второе и третье Поколения: особые стоят уже 15 и 20.
+    s = { ...s, generation: 1, maxGeneration: 1, agents: { [CATALOG[1].flagship.id]: 1 } };
+    s = buyPerk(s, 'gen_1');
+    expect(s.computeSpent).toBe(25);
+    s = { ...s, generation: 2, maxGeneration: 2, agents: { [CATALOG[2].flagship.id]: 1 } };
+    s = buyPerk(s, 'gen_2');
+    expect(s.computeSpent).toBe(45);
+    expect(s.perks).toEqual(['gen_0', 'gen_1', 'gen_2']);
+    // Повторная покупка и нехватка свободного Compute — отказ тем же объектом.
+    expect(buyPerk(s, 'gen_2')).toBe(s);
+    const poor = flagged(3, 5);
+    expect(buyPerk(poor, 'gen_3')).toBe(poor);
+  });
+  it('считает цену по всем купленным особым, включая докупленные позже', () => {
+    // gen_1 пропущен в своём Поколении — докупаем позже без флагмана, цена та же 10.
+    let s: GameState = { ...newGame(T0), generation: 3, maxGeneration: 3, compute: 100, agents: {} };
+    s = buyPerk(s, 'gen_1');
+    expect(s.computeSpent).toBe(10);
+    // Следующий особый (текущего Поколения, но флагман уже нанят) стоит 15:
+    // счёт идёт по всем купленным особым, а не по Поколению.
+    s = { ...s, agents: { [CATALOG[3].flagship.id]: 1 } };
+    s = buyPerk(s, 'gen_3');
+    expect(s.computeSpent).toBe(25);
+    expect(s.perks).toEqual(['gen_1', 'gen_3']);
+  });
+  it('усиливает на +10% только модели своего поколения', () => {
+    const model = CATALOG[0].models[0];
+    const s = buyAgents(rich(newGame(T0), 1e6), model.id, 10);
+    const bare = totalIncome(s);
+    // Чужой особый Перк доход не меняет (подставлен напрямую: купить его вне поколения нельзя).
+    expect(totalIncome({ ...s, perks: ['gen_1'] })).toBeCloseTo(bare);
+    // Свой даёт ровно +10% и только своим моделям.
+    expect(totalIncome({ ...s, perks: ['gen_0'] })).toBeCloseTo(bare * 1.1);
+    expect(modelIncome({ ...s, perks: ['gen_0'] }, model)).toBeCloseTo(model.baseIncome * 10 * 1.1);
+    // А модель чужого Поколения свой Перк не разгоняет: gen_0 молчит в Поколении 1.
+    const g1model = CATALOG[1].models[0];
+    const s1 = buyAgents(rich({ ...newGame(T0), generation: 1, maxGeneration: 1 }, 1e6), g1model.id, 10);
+    expect(modelIncome({ ...s1, perks: ['gen_0'] }, g1model)).toBeCloseTo(modelIncome(s1, g1model));
+  });
+  it('режет суммарный бонус хард-капом ×2', () => {
+    // Синтетическая пачка эффектов одного Поколения: кап обязан сработать раньше +200%.
+    const many: PerkEffect[] = [];
+    for (let i = 0; i < 20; i++) many.push({ kind: 'generationBoost', generation: 0, pct: 0.1 });
+    expect(generationBoostMult(many, 0)).toBe(2);
+    expect(generationBoostMult(many, 1)).toBe(1);
+    // Реальный предел: все 8 особых куплены — в своём Поколении ×1.1, то есть влезли в кап.
+    const model = CATALOG[3].models[2];
+    const s = buyAgents(rich({ ...newGame(T0), generation: 3, maxGeneration: 3 }, 1e6), model.id, 5);
+    const bare = modelIncome(s, model);
+    const perked = modelIncome({ ...s, perks: allGenPerks }, model);
+    expect(perked).toBeCloseTo(bare * 1.1);
+    expect(perked).toBeLessThanOrEqual(bare * 2);
+  });
+  it('держит топ N с капом ниже базы N+1 на каждом переходе', () => {
+    for (let n = 0; n < CATALOG.length - 1; n++) {
+      const top = CATALOG[n].flagship;
+      const next = CATALOG[n + 1].flagship;
+      // Топ-сетап Поколения: 1 Агент флагмана при всех 8 особых (свой даёт ×1.1, чужие — 0).
+      const s: GameState = { ...newGame(T0), generation: n, perks: allGenPerks, agents: { [top.id]: 1 } };
+      const withPerks = modelIncome(s, top);
+      // Тот же сетап, но с бонусом, разогнанным до капа ×2: худший случай, покрытый инвариантом.
+      expect((withPerks / 1.1) * 2).toBeLessThan(next.baseIncome);
+      // Перк не может перевернуть и базовый порядок: с ним Поколение либо всё ещё слабее
+      // следующего, либо, если каталог когда-то снова развернётся, не станет сильнее.
+      expect(withPerks < next.baseIncome).toBe(top.baseIncome < next.baseIncome);
+    }
   });
 });
