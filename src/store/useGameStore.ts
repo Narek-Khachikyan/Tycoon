@@ -248,7 +248,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       {
         id: 0,
         userPrompt: 'Запуск системы AI Tycoon...',
-        aiResponse: 'Добро пожаловать в эру искусственного интеллекта! Нажмите «Отправить промпт».',
+        aiResponse: 'Добро пожаловать в эру искусственного интеллекта! Нажми «Отправить промпт».',
       },
     ],
     burst: null,

@@ -138,6 +138,11 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const upgrades = availableUpgrades(state);
   const unspentCompute = state.compute - state.computeSpent;
   const finale = isContentFinale(state);
+  const prestigeReady = canPrestige(state);
+  // Вкладка приглушена, а не скрыта: скрытая вкладка — дверь в одну сторону, и игрок
+  // не узнал бы, что Престиж вообще существует. На финале контента Престиж недоступен
+  // навсегда, поэтому приглушение там не снимается.
+  const prestigeLocked = finale || !prestigeReady;
 
   const toggleAA = (id: string) => {
     setExpandedAA((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -195,7 +200,21 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
         <button
           onClick={() => setTab('perks')}
           className={`pixel-btn ${tab === 'perks' ? 'pixel-btn-accent' : ''}`}
-          style={{ flex: 1, padding: '8px 4px', fontSize: '0.9rem' }}
+          title={
+            finale
+              ? 'Ты дошёл до последнего поколения — дальше престиж недоступен'
+              : prestigeReady
+                ? undefined
+                : 'Найми 1 агента флагмана, чтобы разблокировать престиж'
+          }
+          style={{
+            flex: 1,
+            padding: '8px 4px',
+            fontSize: '0.9rem',
+            ...(prestigeLocked
+              ? { color: 'var(--text-muted)', borderColor: 'var(--border)' }
+              : undefined),
+          }}
         >
           Престиж
         </button>
@@ -537,10 +556,10 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                 gap: '8px',
               }}
             >
-              <div style={{ fontSize: '1.1rem', color: 'var(--gold)' }}>Престиж в следующее Поколение</div>
+              <div style={{ fontSize: '1.1rem', color: 'var(--gold)' }}>Престиж в следующее поколение</div>
 
               <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                Сбросит текущий Забег (Токены, Агенты, Апгрейды) и перенесёт вас в следующее Поколение.
+                Сбросит текущий забег (токены, агенты, апгрейды) и перенесёт тебя в следующее поколение.
               </div>
 
               <div
@@ -552,10 +571,10 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                 }}
               >
                 <div>
-                  Получите Compute: <Num>{prestigeGain(state)}</Num>
+                  Получишь Compute: <Num>{prestigeGain(state)}</Num>
                 </div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                  (Каждая единица Compute даёт постоянный бонус +1% к Доходу)
+                  (Каждая единица Compute даёт постоянный бонус +1% к доходу)
                 </div>
               </div>
 
@@ -566,7 +585,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                   className="pixel-btn pixel-btn-gold"
                   style={{ width: '100%', marginTop: '4px' }}
                 >
-                  {canPrestige(state) ? 'Сделать Престиж!' : 'Нужен 1 Агент Флагмана'}
+                  {canPrestige(state) ? 'Сделать престиж!' : 'Нужен 1 агент флагмана'}
                 </button>
               )}
             </div>
@@ -576,7 +595,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               <div
                 style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: '8px' }}
               >
-                Постоянные Перки (Свободно: <Num>{unspentCompute}</Num> Compute)
+                Постоянные перки (Свободно: <Num>{unspentCompute}</Num> Compute)
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -614,7 +633,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         className={`pixel-btn ${owned ? '' : 'pixel-btn-gold'}`}
                         style={{ padding: '6px 10px', fontSize: '0.85rem', alignSelf: 'flex-end' }}
                       >
-                        {owned ? 'Куплено' : 'Купить Перк'}
+                        {owned ? 'Куплено' : 'Купить перк'}
                       </button>
                     </div>
                   );

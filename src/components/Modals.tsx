@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useGameStore } from '../store/useGameStore';
 import { ACHIEVEMENTS } from '../economy/achievements';
+import { GLOSSARY } from '../data/glossary';
 import { PERKS } from '../economy/perks';
 import { exportSave } from '../economy/save';
 import { formatDuration, formatNumber } from '../economy/format';
@@ -206,6 +207,31 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
               <span style={{ color: 'var(--text-main)', fontWeight: 600 }}>{val}</span>
             </div>
           ))}
+
+          {/* Справка по словарю игры. Формулировки сверены с CONTEXT.md — он источник
+              правды для словаря, а не этот файл. Живёт в том же прокручиваемом теле,
+              чтобы окно не переполнялось на маленьком экране. */}
+          <div style={{ marginTop: '8px' }}>
+            <div style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: '6px' }}>
+              СПРАВКА
+            </div>
+            <dl style={{ display: 'flex', flexDirection: 'column', gap: '6px', margin: 0 }}>
+              {GLOSSARY.map((g) => (
+                <div
+                  key={g.term}
+                  style={{
+                    padding: '6px 8px',
+                    backgroundColor: 'var(--bg-card)',
+                    borderRadius: '4px',
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  <dt style={{ color: 'var(--text-main)', fontWeight: 600 }}>{g.term}</dt>
+                  <dd style={{ color: 'var(--text-muted)', margin: '2px 0 0' }}>{g.text}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
         </div>
       </div>
     </div>
@@ -248,7 +274,9 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   };
 
   const handleReset = () => {
-    if (window.confirm('Вы уверены, что хотите сбросить весь прогресс игры? Это действие необратимо!')) {
+    if (window.confirm(
+        'Сбросить весь прогресс? Токены, агенты, апгрейды и Compute пропадут навсегда. Отменить это нельзя.',
+      )) {
       resetGame();
       onClose();
     }
@@ -305,7 +333,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
           <div>
             <div style={{ fontWeight: 600 }}>Формат больших чисел</div>
             <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-              1.23 M или 1.23e6
+              1,23 M или 1.23e6
             </div>
           </div>
           <div style={{ display: 'flex', gap: '6px' }}>
@@ -340,7 +368,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
             style={{ padding: '6px 12px', fontSize: '0.85rem' }}
           >
             <Icon name={state.settings.muted ? 'sound-off' : 'sound-on'} />{' '}
-            {state.settings.muted ? 'Выключен' : 'Включен'}
+            {state.settings.muted ? 'выключен' : 'включен'}
           </button>
         </div>
 
@@ -372,7 +400,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
           <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
             <input
               type="text"
-              placeholder="Вставьте код сохранения..."
+              placeholder="Вставь код сохранения..."
               value={importCode}
               onChange={(e) => setImportCode(e.target.value)}
               style={{
@@ -467,11 +495,11 @@ export const OfflineModal: React.FC = () => {
         </h2>
 
         <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>
-          Пока вы отдыхали (
+          Пока ты отдыхал (
           <span style={{ color: 'var(--gold)', fontWeight: 700 }}>
             {formatDuration(offlineReport.seconds)}
           </span>
-          ), ваши ИИ-Агенты усердно трудились и заработали:
+          ), твои ИИ-Агенты усердно трудились и заработали:
         </div>
 
         <div

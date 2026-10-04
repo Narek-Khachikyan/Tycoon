@@ -31,7 +31,7 @@ const NEWS: NewsItem[] = [
   { text: 'Агенты сами пишут код, сами ревьюят и сами себя хвалят.', when: gen(5) },
   { text: 'Метрика насытилась. Срочно нужна новая метрика для метрик.', when: gen(6) },
   { text: 'Ты на передовой ИИ. Даже Artificial Analysis ещё не успел всё замерить.', when: gen(CATALOG.length - 1) },
-  { text: 'Ваши Агенты требуют отпуск. Им отказано: они работают оффлайн.', when: (s) => s.prestiges > 0 },
+  { text: 'Твои агенты требуют отпуск. Им отказано: они работают оффлайн.', when: (s) => s.prestiges > 0 },
 ];
 
 export function pickNews(s: GameState, rnd = Math.random): string {

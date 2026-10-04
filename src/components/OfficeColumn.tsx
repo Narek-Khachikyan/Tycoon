@@ -152,8 +152,8 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
             Флагман: <span style={{ color: 'var(--gold)' }}>{flagship.name}</span> ({LABS[flagship.lab].name})
           </div>          <div style={{ fontSize: '0.85rem', color: flagshipOwned ? 'var(--green)' : 'var(--text-muted)', marginTop: '4px' }}>
             {flagshipOwned
-              ? 'Флагман нанят! Престиж в следующее Поколение разблокирован.'
-              : 'Найми хотя бы 1 Агента флагмана, чтобы открыть Престиж.'}
+              ? 'Флагман нанят! Престиж в следующее поколение разблокирован.'
+              : 'Найми хотя бы 1 агента флагмана, чтобы открыть престиж.'}
           </div>
         </div>
 
@@ -163,7 +163,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
             className="pixel-btn pixel-btn-gold"
             style={{ fontSize: '1rem', padding: '10px 16px' }}
           >
-            Совершить Престиж
+            Совершить престиж
           </button>
         )}
 
@@ -179,7 +179,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
           >
             <div style={{ color: 'var(--gold)', fontSize: '1rem' }}>Финал контента MVP!</div>
             <div style={{ fontSize: '0.8rem', color: 'var(--gold)' }}>
-              Вы на острие ИИ! Ждите новые реальные модели в будущих апдейтах.
+              Ты на острие ИИ! Жди новые реальные модели в будущих апдейтах.
             </div>
           </div>
         )}
@@ -352,7 +352,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
             >
               <div style={{ fontSize: '1.1rem', color: 'var(--text-main)' }}>Офис пока пуст</div>
               <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: '6px' }}>
-                Найми своего первого ИИ-Агента в магазине справа!
+                Найми своего первого ИИ-агента в магазине справа!
               </div>
             </div>
           </div>
@@ -384,7 +384,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
 
         {activeLabs.length === 0 ? (
           <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-            Пока никто не нанят — Сцена ждёт первого Агента.
+            Пока никто не нанят — Сцена ждёт первого агента.
           </div>
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px' }}>
@@ -415,7 +415,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
                   </span>
                   {synergyOn && (
                     <span
-                      title={`Синергия: +${synergyPct}% к Доходу всех Моделей ${lab.name}`}
+                      title={`Синергия: +${synergyPct}% к доходу всех моделей ${lab.name}`}
                       style={{ fontSize: '0.75rem', color: 'var(--gold)' }}
                     >
                       +<Num>{synergyPct}</Num>%
@@ -429,7 +429,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
 
         {synergyLabs.length > 0 && (
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            Синергия: каждый Агент Лаборатории добавляет Доход всем её Моделям (Апгрейд «Общий датасет»).
+            Синергия: каждый агент Лаборатории добавляет доход всем её моделям (апгрейд «Общий датасет»).
           </div>
         )}
       </div>
