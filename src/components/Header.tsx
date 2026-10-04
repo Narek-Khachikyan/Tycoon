@@ -83,7 +83,7 @@ export const Header: React.FC<HeaderProps> = ({
             }}
             title="Бонус к доходу от Compute"
           >
-            <Num>{formatNumber(state.compute)}</Num> Compute (+{state.compute}%)
+            <Num>{formatNumber(state.compute)}</Num> Compute (+<Num>{state.compute}</Num>%)
           </span>
         )}
       </div>

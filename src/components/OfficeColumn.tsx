@@ -150,7 +150,8 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
           </div>
           <div style={{ fontSize: '1.25rem', color: 'var(--text-main)', marginTop: '2px' }}>
             Флагман: <span style={{ color: 'var(--gold)' }}>{flagship.name}</span> ({LABS[flagship.lab].name})
-          </div>          <div style={{ fontSize: '0.85rem', color: flagshipOwned ? 'var(--green)' : 'var(--text-muted)', marginTop: '4px' }}>
+          </div>
+          <div style={{ fontSize: '0.85rem', color: flagshipOwned ? 'var(--green)' : 'var(--text-muted)', marginTop: '4px' }}>
             {flagshipOwned
               ? 'Флагман нанят! Престиж в следующее поколение разблокирован.'
               : 'Найми хотя бы 1 агента флагмана, чтобы открыть престиж.'}

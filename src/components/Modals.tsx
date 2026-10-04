@@ -123,20 +123,20 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   // Значение-узел, а не строка: строка целиком из числа остаётся пиксельной (ADR-0003), а
   // строка со словом («3 ч 12 мин», «1: Рассвет») набирается Nunito.
   const statRows: [string, React.ReactNode][] = [
-    ['Токенов сейчас', <Num key="a">{formatNumber(state.tokens, notation)}</Num>],
-    ['Токенов за текущий Забег', <Num key="b">{formatNumber(state.runTokens, notation)}</Num>],
-    ['Токенов за всё время', <Num key="c">{formatNumber(state.totalTokens, notation)}</Num>],
+    ['Токенов сейчас', <Num key="tokens">{formatNumber(state.tokens, notation)}</Num>],
+    ['Токенов за текущий Забег', <Num key="runTokens">{formatNumber(state.runTokens, notation)}</Num>],
+    ['Токенов за всё время', <Num key="totalTokens">{formatNumber(state.totalTokens, notation)}</Num>],
     ['Кликов за Забег', state.runClicks.toLocaleString('ru-RU')],
     ['Кликов за всё время', state.clicks.toLocaleString('ru-RU')],
-    ['Агентов в текущем офисе', <Num key="d">{totalAgents}</Num>],
-    ['Апгрейдов куплено', <Num key="e">{state.upgrades.length}</Num>],
+    ['Агентов в текущем офисе', <Num key="agents">{totalAgents}</Num>],
+    ['Апгрейдов куплено', <Num key="upgrades">{state.upgrades.length}</Num>],
     ['Текущее Поколение', `${CATALOG[state.generation].id}: ${CATALOG[state.generation].name}`],
     ['Максимальное Поколение', `${CATALOG[state.maxGeneration].id}: ${CATALOG[state.maxGeneration].name}`],
-    ['Престижей совершено', <Num key="f">{state.prestiges}</Num>],
+    ['Престижей совершено', <Num key="prestiges">{state.prestiges}</Num>],
     [
       'Всего Compute',
       <>
-        <Num key="g">{state.compute}</Num> (+{state.compute}% к доходу)
+        <Num key="compute">{state.compute}</Num> (+<Num>{state.compute}</Num>% к доходу)
       </>,
     ],
     ['Перков открыто', `${state.perks.length} / ${PERKS.length}`],

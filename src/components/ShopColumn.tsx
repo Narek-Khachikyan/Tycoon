@@ -11,10 +11,12 @@ import {
   maxAffordable,
   prestigeGain,
   sellRefund,
+  shortfall,
 } from '../economy/engine';
 import { availableUpgrades } from '../economy/upgrades';
 import { PERKS } from '../economy/perks';
 import { formatCount, formatNumber } from '../economy/format';
+import type { Notation } from '../economy/state';
 import { MascotSprite } from './MascotSprite';
 import { Num } from './Num';
 import { Icon } from './Icon';
@@ -30,6 +32,31 @@ const SPARK = Array.from({ length: SPARK_COUNT }, (_, i) => {
 });
 
 let sparkCounter = 0;
+
+/**
+ * Строка «Не хватает N Токенов».
+ *
+ * Живёт под кнопкой покупки и всегда занимает строку, даже когда дефицита нет: иначе карточка
+ * прыгала бы по высоте на каждом тике, а с ней и кнопка под ней. aria-live не ставится — число
+ * меняется двадцать раз в секунду и иначе читалось бы вслух.
+ */
+const TokenDeficit: React.FC<{ amount: number; notation: Notation }> = ({ amount, notation }) => (
+  <div
+    style={{
+      minHeight: '1em',
+      fontSize: '0.75rem',
+      color: 'var(--text-muted)',
+      textAlign: 'right',
+    }}
+  >
+    {amount > 0 && (
+      <>
+        Не хватает <Num>{formatNumber(amount, notation)}</Num>{' '}
+        {formatCount(Math.round(amount), 'Токен', 'Токена', 'Токенов')}
+      </>
+    )}
+  </div>
+);
 
 /**
  * Строка Модели. Владеет своим откликом на покупку: магазин перерисовывается каждый тик, и
@@ -294,16 +321,16 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               const canAfford = !sellMode ? count > 0 && cost <= state.tokens : owned >= count && count > 0;
               // Прирост общего Дохода именно от этой покупки, посчитанный движком. Отдельная
               // формула в компоненте разошлась бы с экономикой на первом же Перке или Синергии.
-              const gain = incomeGain(state, m.id, Math.max(count, 0));
+              // Продажа ограничена тем, что есть: sellAgents берёт min(n, owned), и подпись про
+              // большую сделку, чем возможна, вводила бы в заблуждение.
+              const gain = incomeGain(state, m.id, sellMode ? Math.min(count, owned) : count);
               const isAAOpen = !!expandedAA[m.id];
               const lab = LABS[m.lab];
 
               // Дефицит: при фиксированном множителе он считается на всю сумму покупки, а при Max
               // с пустым кошельком покупки нет вообще — тогда показываем, чего стоит одна единица.
-              const shortfall =
-                sellMode || canAfford
-                  ? 0
-                  : Math.max(0, (count > 0 ? cost : bulkCost(m, owned, 1, d)) - state.tokens);
+              const missing =
+                sellMode || canAfford ? 0 : shortfall(count > 0 ? cost : bulkCost(m, owned, 1, d), state.tokens);
 
               // Строка прироста описывает действие, которое кнопка действительно выполнит. Покупка,
               // которая не по карману, подпись всё равно заслуживает: рядом стоит строка дефицита.
@@ -369,8 +396,8 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       style={{
                         padding: '6px 12px',
                         fontSize: '0.85rem',
-                        backgroundColor: sellMode ? 'var(--red-solid)' : undefined,
-                        borderColor: sellMode ? 'var(--red)' : undefined,
+                        backgroundColor: sellMode && canAfford ? 'var(--red-solid)' : undefined,
+                        borderColor: sellMode && canAfford ? 'var(--red)' : undefined,
                       }}
                     >
                       {/* «Купить ×0» обещало бы покупку, которой не будет. */}
@@ -391,23 +418,8 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                   </div>
 
                   {/* Дефицит — отдельной строкой с зарезервированной высотой, поэтому ни размер
-                      кнопки, ни высота карточки не прыгают на каждом тике. aria-live не ставится:
-                      строка меняется двадцать раз в секунду и иначе читалась бы вслух. */}
-                  <div
-                    style={{
-                      minHeight: '1em',
-                      fontSize: '0.75rem',
-                      color: 'var(--text-muted)',
-                      textAlign: 'right',
-                    }}
-                  >
-                    {shortfall > 0 && (
-                      <>
-                        Не хватает <Num>{formatNumber(shortfall, notation)}</Num>{' '}
-                        {formatCount(Math.round(shortfall), 'Токена', 'Токенов', 'Токенов')}
-                      </>
-                    )}
-                  </div>
+                      кнопки, ни высота карточки не прыгают на каждом тике. */}
+                  <TokenDeficit amount={missing} notation={notation} />
 
                   {/* Справка AA переключатель */}
                   {/* Волосяная линия остаётся литералом: 6% белого — это заведомо слабее
@@ -484,12 +496,12 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {upgrades.length === 0 ? (
               <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: '40px' }}>
-                Пока нет доступных Апгрейдов. Нанимай больше Агентов!
+                Пока нет доступных апгрейдов. Нанимай больше агентов!
               </div>
             ) : (
               upgrades.map((u) => {
                 const canAfford = state.tokens >= u.cost;
-                const shortfall = canAfford ? 0 : u.cost - state.tokens;
+                const missing = canAfford ? 0 : shortfall(u.cost, state.tokens);
                 return (
                   <div
                     key={u.id}
@@ -520,21 +532,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       Улучшить (<Num>{formatNumber(u.cost, notation)}</Num>)
                     </button>
 
-                    <div
-                      style={{
-                        minHeight: '1em',
-                        fontSize: '0.75rem',
-                        color: 'var(--text-muted)',
-                        textAlign: 'right',
-                      }}
-                    >
-                      {shortfall > 0 && (
-                        <>
-                          Не хватает <Num>{formatNumber(shortfall, notation)}</Num>{' '}
-                          {formatCount(Math.round(shortfall), 'Токена', 'Токенов', 'Токенов')}
-                        </>
-                      )}
-                    </div>
+                    <TokenDeficit amount={missing} notation={notation} />
                   </div>
                 );
               })
@@ -616,12 +614,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         gap: '6px',
                       }}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{p.name}</span>
-                        <span style={{ fontSize: '0.85rem', color: 'var(--gold)' }}>
-                          <Num>{p.cost}</Num> Compute
-                        </span>
-                      </div>
+                      <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{p.name}</span>
 
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                         {p.desc}
@@ -633,7 +626,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         className={`pixel-btn ${owned ? '' : 'pixel-btn-gold'}`}
                         style={{ padding: '6px 10px', fontSize: '0.85rem', alignSelf: 'flex-end' }}
                       >
-                        {owned ? 'Куплено' : 'Купить перк'}
+                        {owned ? 'Куплено' : <>Купить перк (<Num>{p.cost}</Num> Compute)</>}
                       </button>
                     </div>
                   );

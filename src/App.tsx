@@ -30,7 +30,14 @@ export const App: React.FC = () => {
   const [isSettingsOpen, setSettingsOpen] = useState(false);
   // Ширина окна нужна не для порога, а для базиса колонок: он считается из той же доли окна,
   // что и раньше, иначе колонки стали бы постоянными. Порог и базис берутся из одного модуля.
-  const [viewport, setViewport] = useState({ width: 0, single: true });
+  //
+  // Первый кадр обязан быть верным, поэтому ширина читается сразу, а не по умолчанию: с
+  // `single: true` по умолчанию на десктопе игра на долю секунды показывала одноколоночный
+  // режим и потом переключалась, то есть моргала при каждой загрузке.
+  const [viewport, setViewport] = useState(() => {
+    const width = typeof window === 'undefined' ? 0 : window.innerWidth;
+    return { width, single: width < THREE_COL_MIN };
+  });
   const rootRef = useRef<HTMLDivElement>(null);
 
   // Responsive check

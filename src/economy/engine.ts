@@ -46,6 +46,17 @@ export function sellRefund(model: Model, owned: number, n: number, discount = 1)
   return bulkCost(model, owned - k, k, discount) * SELL_REFUND;
 }
 
+/**
+ * Сколько Токенов не хватает до покупки: цена минус кошелёк, но не ниже нуля.
+ *
+ * Живёт здесь, а не в компоненте, потому что это деньги — цена и кошелёк числа движка, и
+ * магазин не должен вычитать их сам. Ноль означает «хватает»: отрицательный дефицит показал бы
+ * игроку, что он богаче, чем нужно.
+ */
+export function shortfall(cost: number, tokens: number): number {
+  return Math.max(0, cost - tokens);
+}
+
 // ---------- Доход ----------
 
 export function globalMult(state: GameState): number {
