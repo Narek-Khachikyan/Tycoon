@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motionAllowed, useGameStore, type BuyAmount } from '../store/useGameStore';
-import { CATALOG } from '../economy/catalog';
+import { aaNote, CATALOG, type AASource } from '../economy/catalog';
 import { LABS } from '../data/labs';
 import {
   bulkCost,
@@ -10,6 +10,7 @@ import {
   maxAffordable,
   modelIncome,
   prestigeGain,
+  progressToNextAgent,
   sellRefund,
 } from '../economy/engine';
 import { availableUpgrades } from '../economy/upgrades';
@@ -30,14 +31,17 @@ const SPARK = Array.from({ length: SPARK_COUNT }, (_, i) => {
 let sparkCounter = 0;
 
 /**
- * Строка Модели. Владеет своим откликом на покупку: магазин перерисовывается каждый тик, и
- * отмечать покупку в сторе значило бы гонять эффект по всей колонке двадцать раз в секунду.
+ * Строка Модели. Владеет обоими своими откликами — на покупку и на достижение цели: магазин
+ * перерисовывается каждый тик, и отмечать их в сторе значило бы гонять эффект по всей
+ * колонке двадцать раз в секунду.
  */
 const ModelRow: React.FC<{
   owned: number;
   isFlagship: boolean;
+  /** Следующий Агент доступен прямо сейчас: полоса цели только что наполнилась. */
+  nextReady: boolean;
   children: React.ReactNode;
-}> = ({ owned, isFlagship, children }) => {
+}> = ({ owned, isFlagship, nextReady, children }) => {
   const rowRef = useRef<HTMLDivElement>(null);
   const prevOwned = useRef(owned);
   const [sparks, setSparks] = useState<{ id: number; x: number; y: number } | null>(null);
@@ -70,6 +74,25 @@ const ModelRow: React.FC<{
       y: at.top + at.height / 2 - row.top,
     });
   }, [owned]);
+
+  // Вспышка полосы означает ровно одно: Агент стал доступен. С покупкой она не совпадает
+  // никогда — покупка поднимает цену следующего Агента, и полоса падает обратно, поэтому
+  // хлопок строки и вспышка не наезжают друг на друга. Отдельного узла не нужно: слой
+  // вспышки лежит на полосе, а класс висит на строке, ref которой уже есть.
+  const wasReady = useRef(nextReady);
+  useEffect(() => {
+    const before = wasReady.current;
+    wasReady.current = nextReady;
+    // Только переход, а не значение: строка монтируется заново при каждом переключении
+    // вкладок магазина, и мигание на готовом Агенте при возврате в «Модели» было бы рябью
+    // из ничего. У покупки выше тот же ref и тот же смысл.
+    if (!nextReady || before) return;
+    const node = rowRef.current;
+    if (!node) return;
+    node.classList.remove('model-row--flash');
+    void node.offsetWidth;
+    node.classList.add('model-row--flash');
+  }, [nextReady]);
 
   // Снимается целиком по последнему animationend: все восемь гаснут в один кадр, а таймеры
   // для их уборки в игре запрещены.
@@ -115,6 +138,28 @@ const ModelRow: React.FC<{
   );
 };
 
+/**
+ * Число Справки AA вместе с пометкой источника. Подпись под числом, а не его цвет: замером
+ * AA является не каждое число — скорость она меряет у пяти Моделей из 75, — и молча
+ * показывать авторскую оценку под заголовком «Справка Artificial Analysis» было бы враньём.
+ */
+const AAValue: React.FC<{ label: string; value: string; color: string; source: AASource }> = ({
+  label,
+  value,
+  color,
+  source,
+}) => (
+  <div>
+    <div style={{ color: 'var(--text-muted)' }}>{label}</div>
+    <div style={{ color, fontWeight: 700 }}>{value}</div>
+    {source !== 'aa' && (
+      <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', lineHeight: 1.25 }}>
+        ✎ {source === 'pinned' ? 'закреплено автором' : 'оценка автора'}
+      </div>
+    )}
+  </div>
+);
+
 export const ShopColumn: React.FC = () => {
   const [tab, setTab] = useState<'models' | 'upgrades' | 'perks'>('models');
   const [expandedAA, setExpandedAA] = useState<Record<string, boolean>>({});
@@ -128,7 +173,7 @@ export const ShopColumn: React.FC = () => {
   const sellAgents = useGameStore((s) => s.sellAgents);
   const buyUpgrade = useGameStore((s) => s.buyUpgrade);
   const buyPerk = useGameStore((s) => s.buyPerk);
-  const triggerPrestige = useGameStore((s) => s.triggerPrestige);
+  const requestPrestige = useGameStore((s) => s.requestPrestige);
 
   const gen = CATALOG[state.generation];
   const notation = state.settings.notation;
@@ -273,10 +318,18 @@ export const ShopColumn: React.FC = () => {
               const canAfford = !sellMode ? count > 0 && cost <= state.tokens : owned >= count && count > 0;
               const mIncome = modelIncome(state, m);
               const isAAOpen = !!expandedAA[m.id];
+              const note = aaNote(gen, m);
               const lab = LABS[m.lab];
 
+              // Доля недостающего — из движка, где она считается по той же цене, что и
+              // покупка. Подпись справа от полосы берёт эту цену тем же bulkCost с той же
+              // Перк-скидкой, поэтому обе цифры на карточке про один и тот же Агент.
+              const missingShare = progressToNextAgent(state, m);
+              const nextReady = missingShare === 0;
+              const missingTokens = bulkCost(m, owned, 1, d) - state.tokens;
+
               return (
-                <ModelRow key={m.id} owned={owned} isFlagship={m.isFlagship}>
+                <ModelRow key={m.id} owned={owned} isFlagship={m.isFlagship} nextReady={nextReady}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <MascotSprite lab={m.lab} size={28} />
@@ -334,6 +387,28 @@ export const ShopColumn: React.FC = () => {
                     </button>
                   </div>
 
+                  {/* Полоса до следующего Агента. Ширина целым процентам и без перехода:
+                      магазин перерисовывается двадцать раз в секунду, а переход на ширину,
+                      который перезапускался бы каждый кадр, тянул бы заливку позади
+                      настоящей доли и перезапускал бы анимацию на ровном месте. */}
+                  <div className="model-goal">
+                    <div className="model-goal__track">
+                      <div
+                        className="model-goal__fill"
+                        style={{ width: `${Math.round((1 - missingShare) * 100)}%` }}
+                      />
+                    </div>
+                    <span
+                      style={{
+                        fontSize: '0.7rem',
+                        color: nextReady ? 'var(--accent-color)' : 'var(--text-muted)',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {nextReady ? 'Агент доступен' : `ещё ${formatNumber(missingTokens, notation)} Токенов`}
+                    </span>
+                  </div>
+
                   {/* Справка AA переключатель */}
                   {/* Волосяная линия остаётся литералом: 6% белого — это заведомо слабее
                      любой ступени лестницы рамок, и --border здесь превратил бы её в
@@ -362,23 +437,49 @@ export const ShopColumn: React.FC = () => {
                           backgroundColor: 'var(--bg-void)',
                           borderRadius: '4px',
                           fontSize: '0.75rem',
-                          display: 'grid',
-                          gridTemplateColumns: 'repeat(3, 1fr)',
-                          gap: '6px',
                         }}
                       >
-                        <div>
-                          <div style={{ color: 'var(--text-muted)' }}>Intelligence:</div>
-                          <div style={{ color: 'var(--gold)', fontWeight: 700 }}>{m.iq} IQ</div>
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(3, 1fr)',
+                            gap: '6px',
+                          }}
+                        >
+                          <AAValue
+                            label="Intelligence:"
+                            value={`${m.iq} IQ`}
+                            color="var(--gold)"
+                            source={m.aaSources.iq}
+                          />
+                          <AAValue
+                            label="Скорость:"
+                            value={`${m.speed} t/s`}
+                            color="var(--accent-color)"
+                            source={m.aaSources.speed}
+                          />
+                          <AAValue
+                            label="Цена API:"
+                            value={`$${m.price}/1M`}
+                            color="var(--green)"
+                            source={m.aaSources.price}
+                          />
                         </div>
-                        <div>
-                          <div style={{ color: 'var(--text-muted)' }}>Скорость:</div>
-                          <div style={{ color: 'var(--accent-color)', fontWeight: 700 }}>{m.speed} t/s</div>
-                        </div>
-                        <div>
-                          <div style={{ color: 'var(--text-muted)' }}>Цена API:</div>
-                          <div style={{ color: 'var(--green)', fontWeight: 700 }}>${m.price}/1M</div>
-                        </div>
+
+                        {/* Подпись нужна не к каждому числу, а к тем решениям мейнтейнера,
+                            которые игрок из самих чисел не выводит. */}
+                        {note && (
+                          <div
+                            style={{
+                              marginTop: '6px',
+                              fontSize: '0.7rem',
+                              lineHeight: 1.3,
+                              color: 'var(--text-muted)',
+                            }}
+                          >
+                            {note}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -461,35 +562,60 @@ export const ShopColumn: React.FC = () => {
                 Сбросит текущий Забег (Токены, Агенты, Апгрейды) и перенесёт вас в следующее Поколение.
               </div>
 
-              <div
-                style={{
-                  backgroundColor: 'var(--tint-strong)',
-                  padding: '8px',
-                  borderRadius: '4px',
-                  fontSize: '0.85rem',
-                }}
-              >
-                <div>
-                  Получите Compute:{' '}
-                  <span className="pixel-font" style={{ color: 'var(--gold)', fontWeight: 700 }}>
-                    +{prestigeGain(state)}
-                  </span>
-                </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                  (Каждая единица Compute даёт постоянный бонус +1% к Доходу)
-                </div>
-              </div>
-
               {!finale && (
-                <button
-                  onClick={triggerPrestige}
-                  disabled={!canPrestige(state)}
-                  className="pixel-btn pixel-btn-gold"
-                  style={{ width: '100%', marginTop: '4px' }}
+                <div
+                  style={{
+                    backgroundColor: 'var(--tint-strong)',
+                    padding: '8px',
+                    borderRadius: '4px',
+                    fontSize: '0.85rem',
+                  }}
                 >
-                  {canPrestige(state) ? 'Сделать Престиж!' : '🔒 Нужен 1 Агент Флагмана'}
-                </button>
+                  <div>
+                    Получите Compute:{' '}
+                    {/* Через formatNumber, как и окно подтверждения: в поздней игре gain —
+                        число с пятнадцатью значащими цифрами, и сырое не помещалось в карточку. */}
+                    <span className="pixel-font" style={{ color: 'var(--gold)', fontWeight: 700 }}>
+                      +{formatNumber(prestigeGain(state), notation)}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    (Каждая единица Compute даёт постоянный бонус +1% к Доходу)
+                  </div>
+                </div>
               )}
+
+              {/* На финале обещать Compute нельзя: Престиж там не происходит, и число под
+                  заголовком было бы обещанием, которое игра не выполнит. */}
+              {finale && (
+                <div
+                  style={{
+                    backgroundColor: 'var(--tint-gold)',
+                    padding: '8px',
+                    borderRadius: '4px',
+                    fontSize: '0.85rem',
+                    color: 'var(--text-main)',
+                  }}
+                >
+                  Финал контента: Поколение {gen.id} — последнее. Продолжение выйдет с новыми
+                  реальными Моделями.
+                </div>
+              )}
+
+              {/* Кнопка не гаснет, даже когда Престиж невозможен: погашенная кнопка молчит о
+                  причине, а окно подтверждения её объясняет и отказывает тем же переходом,
+                  который проверяет стор. */}
+              <button
+                onClick={requestPrestige}
+                className="pixel-btn pixel-btn-gold"
+                style={{ width: '100%', marginTop: '4px' }}
+              >
+                {finale
+                  ? '🔒 Финал контента'
+                  : canPrestige(state)
+                    ? 'Сделать Престиж!'
+                    : '🔒 Нужен 1 Агент Флагмана'}
+              </button>
             </div>
 
             {/* Магазин Перков */}

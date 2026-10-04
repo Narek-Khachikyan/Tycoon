@@ -1,4 +1,5 @@
 import { CATALOG, LAST_GENERATION, MODEL_BY_ID, type Model } from './catalog';
+import type { LabId } from '../data/labs';
 import { perkEffects, PERK_BY_ID, START_TOKENS_UNITS } from './perks';
 import type { GameState } from './state';
 import {
@@ -46,6 +47,21 @@ export function sellRefund(model: Model, owned: number, n: number, discount = 1)
   return bulkCost(model, owned - k, k, discount) * SELL_REFUND;
 }
 
+/**
+ * Доля `[0, 1]` того, сколько Токенов ещё не хватает до следующего Агента `model`:
+ * `0` — Агент доступен прямо сейчас, `1` — не хватает всего.
+ *
+ * Цена берётся из `bulkCost` с Перком-скидкой, как в `buyAgents`: своя формула цены
+ * в UI разошлась бы с той, по которой Агент реально покупается. Деление возможно
+ * только когда `tokens < cost`; верхняя граница защищает долю от Токенов ниже нуля,
+ * которые `migrate` из повреждённого сохранения не отсекает.
+ */
+export function progressToNextAgent(state: GameState, model: Model): number {
+  const cost = bulkCost(model, state.agents[model.id] ?? 0, 1, discountMult(state));
+  if (state.tokens >= cost) return 0;
+  return Math.min(1, 1 - state.tokens / cost);
+}
+
 // ---------- Доход ----------
 
 export function globalMult(state: GameState): number {
@@ -70,6 +86,19 @@ export function modelIncome(state: GameState, model: Model): number {
 
 export function totalIncome(state: GameState): number {
   return CATALOG[state.generation].models.reduce((s, m) => s + modelIncome(state, m), 0);
+}
+
+/**
+ * Доход всех Моделей Лаборатории — доля `totalIncome` для разбора Оффлайн-дохода.
+ *
+ * Считается суммой `modelIncome`, а не своей формулой: Апгрейды Модели, Синергия,
+ * Перк на Лабораторию и Compute уже учтены внутри, и любой новый множитель обязан
+ * попасть в обе суммы сразу, иначе доли не будут сходиться к начисленному Доходу.
+ */
+export function labIncome(state: GameState, lab: LabId): number {
+  return CATALOG[state.generation].models
+    .filter((m) => m.lab === lab)
+    .reduce((s, m) => s + modelIncome(state, m), 0);
 }
 
 export function clickValue(state: GameState, income = totalIncome(state)): number {
@@ -208,6 +237,37 @@ export function startingTokens(state: GameState, generation: number): number {
   return perkEffects(state.perks).some((e) => e.kind === 'startTokens')
     ? START_TOKENS_UNITS * CATALOG[generation].scale
     : 0;
+}
+
+export interface PrestigePreview {
+  /** Compute, который начислит Престиж. */
+  gain: number;
+  agentsLost: number;
+  upgradesLost: number;
+  tokensLost: number;
+  /** Поколение, в которое игрок перейдёт. */
+  generation: number;
+  /** Престиж сейчас невозможен: нет Флагмана или это финал контента. */
+  blocked: boolean;
+}
+
+/**
+ * Разбор Престижа для модалки подтверждения: что игрок получит и что сгорит.
+ *
+ * `gain` — это ровно `prestigeGain(state)`, а не вторая формула: модалка и кнопка
+ * обязаны показывать одно число, иначе Compute, начисленный переходом, разойдётся
+ * с обещанным. `blocked` повторяет условия отказа самого `prestige` (нет Флагмана
+ * либо финал контента), чтобы UI объяснил причину, а не просто погасил кнопку.
+ */
+export function prestigePreview(state: GameState): PrestigePreview {
+  return {
+    gain: prestigeGain(state),
+    agentsLost: Object.values(state.agents).reduce((s, n) => s + n, 0),
+    upgradesLost: state.upgrades.length,
+    tokensLost: state.tokens,
+    generation: Math.min(state.generation + 1, LAST_GENERATION),
+    blocked: !canPrestige(state) || isContentFinale(state),
+  };
 }
 
 export function prestige(state: GameState, now: number): GameState {

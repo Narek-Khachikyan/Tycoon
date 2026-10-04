@@ -1,21 +1,49 @@
 import { describe, expect, it } from 'vitest';
-import { buildCatalog, CATALOG, genScale, softMod } from './catalog';
+import { buildCatalog, CATALOG, genScale, softMod, type Model } from './catalog';
 import {
   advance, advanceTime, applyOffline, bulkCost, buyAgents, buyPerk, buyUpgrade, canPrestige, click, clickValue,
-  isContentFinale, maxAffordable, prestige, prestigeGain, sellAgents, totalIncome,
+  discountMult, isContentFinale, labIncome, maxAffordable, modelIncome, prestige, prestigeGain, prestigePreview,
+  progressToNextAgent, sellAgents, totalIncome,
 } from './engine';
 import { newGame, SAVE_VERSION, type GameState } from './state';
 import { exportSave, importSave, migrate } from './save';
 import { pickNews } from './news';
 import { ACHIEVEMENTS, awardAchievements, newlyEarned } from './achievements';
-import { availableUpgrades, clickUpgradeId, modelUpgradeId, synergyUpgradeId } from './upgrades';
+import {
+  availableUpgrades,
+  clickUpgradeId,
+  labAgents,
+  modelUpgradeId,
+  SYNERGY_PER_AGENT,
+  synergyUpgradeId,
+} from './upgrades';
 import { formatCount, formatNumber } from './format';
 import { GENERATIONS } from '../data/generations';
+import { LAB_IDS } from '../data/labs';
 
 const T0 = 1_000_000;
 const g0 = CATALOG[0];
 const first = g0.models[0];
 const rich = (s: GameState, tokens = 1e50): GameState => ({ ...s, tokens, runTokens: tokens });
+
+/** Цена следующего Агента той же формулой, что и `buyAgents`. */
+const nextCost = (s: GameState, m: Model) => bulkCost(m, s.agents[m.id] ?? 0, 1, discountMult(s));
+
+/** Забег, дошедший до Поколения `gen` через настоящие Престижи (бюджет покрывает Флагмана). */
+const toGeneration = (gen: number, tokens = 1e30): GameState => {
+  let s = newGame(T0);
+  while (s.generation < gen) s = prestige(buyAgents(rich(s, tokens), CATALOG[s.generation].flagship.id, 1), T0);
+  return s;
+};
+
+/** Забег в Поколении `gen`: все Модели, все открытые Апгрейды, Перк на Лабораторию и скидка. */
+const loaded = (gen: number): GameState => {
+  let s: GameState = rich(toGeneration(gen), 1e30);
+  s = { ...s, compute: Math.max(s.compute, 200) };
+  for (const m of CATALOG[gen].models) s = buyAgents(s, m.id, 30);
+  for (const u of availableUpgrades(s)) s = buyUpgrade(s, u.id);
+  return buyPerk(buyPerk(s, 'lab_anthropic'), 'discount');
+};
 
 describe('catalog', () => {
   it('ranks models by intelligence and makes the smartest the flagship', () => {
@@ -76,6 +104,73 @@ describe('prices', () => {
   });
 });
 
+describe('progress to the next agent', () => {
+  it('is zero as soon as the next agent is affordable', () => {
+    const price = nextCost(newGame(T0), first);
+    expect(progressToNextAgent({ ...newGame(T0), tokens: price }, first)).toBe(0);
+    expect(progressToNextAgent({ ...newGame(T0), tokens: price * 1.5 }, first)).toBe(0);
+    expect(progressToNextAgent({ ...newGame(T0), tokens: 1e300 }, first)).toBe(0);
+  });
+
+  it('is one without tokens, and never NaN at a zero price or zero income', () => {
+    const empty = newGame(T0);
+    expect(totalIncome(empty)).toBe(0);
+    expect(progressToNextAgent(empty, first)).toBe(1);
+    // Бесплатный Агент — уже доступен, то есть 0, а не деление на нулевую цену.
+    const free = progressToNextAgent(empty, { ...first, baseCost: 0 });
+    expect(free).toBe(0);
+    expect(Number.isNaN(free)).toBe(false);
+  });
+
+  it('falls monotonically as tokens accumulate and stays strictly inside (0, 1)', () => {
+    const s = buyAgents(rich(newGame(T0), 1e30), first.id, 12);
+    const price = nextCost(s, first);
+    expect(progressToNextAgent({ ...s, tokens: 0 }, first)).toBe(1);
+    expect(progressToNextAgent({ ...s, tokens: price / 2 }, first)).toBeCloseTo(0.5, 12);
+    let previous = 1;
+    for (let step = 1; step <= 10; step++) {
+      const p = progressToNextAgent({ ...s, tokens: (price * step) / 10 }, first);
+      expect(p).toBeLessThan(previous);
+      expect(p).toBeGreaterThanOrEqual(0);
+      expect(p).toBeLessThanOrEqual(1);
+      previous = p;
+    }
+    expect(previous).toBe(0);
+  });
+
+  it('tracks the price the purchase actually charges', () => {
+    const s = buyAgents(rich(newGame(T0), 1e30), first.id, 12);
+    const price = nextCost(s, first);
+    const affordable = { ...s, tokens: price };
+    const paid = buyAgents(affordable, first.id, 1);
+    // Полоса обнулилась ровно на той цене, которую списал buyAgents, и после покупки
+    // начинается заново — иначе прогресс мерил бы не тот Агент.
+    expect(progressToNextAgent(affordable, first)).toBe(0);
+    expect(price).toBeCloseTo(bulkCost(first, 12, 1), 9);
+    expect(paid.agents[first.id]).toBe(13);
+    expect(affordable.tokens - paid.tokens).toBeCloseTo(price, 9);
+    expect(progressToNextAgent(paid, first)).toBe(1);
+  });
+
+  it('counts the discount perk: the same tokens get the player further', () => {
+    const plain = { ...newGame(T0), tokens: nextCost(newGame(T0), first) / 2 };
+    const perk = { ...plain, perks: ['discount'] };
+    expect(discountMult(perk)).toBeLessThan(1);
+    expect(progressToNextAgent(plain, first)).toBeCloseTo(0.5, 12);
+    expect(progressToNextAgent(perk, first)).toBeLessThan(progressToNextAgent(plain, first));
+    expect(progressToNextAgent(perk, first)).toBeGreaterThan(0);
+  });
+
+  it('works on late-generation price scales', () => {
+    const last = CATALOG.length - 1;
+    const flagship = CATALOG[last].flagship;
+    const s = { ...toGeneration(last), tokens: 0 };
+    expect(progressToNextAgent(s, flagship)).toBe(1);
+    expect(progressToNextAgent({ ...s, tokens: nextCost(s, flagship) / 2 }, flagship)).toBeCloseTo(0.5, 12);
+    expect(progressToNextAgent({ ...s, tokens: 1e300 }, flagship)).toBe(0);
+  });
+});
+
 describe('income and click', () => {
   it('sums agent income and advances tokens over time', () => {
     const s = buyAgents(rich(newGame(T0), 10_000), first.id, 10);
@@ -121,6 +216,51 @@ describe('income and click', () => {
     const s = { ...newGame(T0), runTokens: 1e300 };
     const clicks = availableUpgrades(s).filter((u) => u.kind === 'click');
     expect(clicks.map((u) => u.id)).toEqual([clickUpgradeId(0, 0)]);
+  });
+});
+
+describe('lab income', () => {
+  it('splits total income across labs without losing a token to rounding', () => {
+    for (const gen of [0, 3, CATALOG.length - 1]) {
+      const s = loaded(gen);
+      // Фикстура обязана реально нести множители, иначе сумма проверяет голый каталог.
+      expect(s.upgrades.length).toBeGreaterThan(0);
+      expect(s.perks).toEqual(['lab_anthropic', 'discount']);
+      const total = totalIncome(s);
+      expect(total).toBeGreaterThan(0);
+      // Сумма долей обязана совпадать с начисляемым Доходом: расхождение означало бы,
+      // что разбор Оффлайн-дохода считает по другой формуле, чем сам Доход.
+      const sum = LAB_IDS.reduce((acc, lab) => acc + labIncome(s, lab), 0);
+      expect(sum / total).toBeCloseTo(1, 12);
+      for (const lab of LAB_IDS) expect(labIncome(s, lab)).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('is zero, not NaN, before the first agent is hired and for labs absent from the generation', () => {
+    const empty = newGame(T0);
+    for (const lab of LAB_IDS) expect(labIncome(empty, lab)).toBe(0);
+    // xai появляется только со второго Поколения, meta — исчезает в последнем.
+    const late = loaded(CATALOG.length - 1);
+    expect(labIncome(late, 'meta')).toBe(0);
+    expect(CATALOG[late.generation].models.some((m) => m.lab === 'meta')).toBe(false);
+    expect(labIncome(late, 'anthropic')).toBeGreaterThan(0);
+  });
+
+  it('attributes income to the lab of the model that earns it', () => {
+    const s = buyAgents(rich(newGame(T0), 1e30), first.id, 10);
+    expect(labIncome(s, first.lab)).toBeCloseTo(first.baseIncome * 10);
+    for (const lab of LAB_IDS) if (lab !== first.lab) expect(labIncome(s, lab)).toBe(0);
+  });
+
+  it('carries the lab synergy into the split and matches the per-model sum', () => {
+    const lab = 'anthropic';
+    const models = g0.models.filter((m) => m.lab === lab);
+    let s = buyAgents(rich(newGame(T0), 1e30), models[0].id, 20);
+    const withoutSynergy = labIncome(s, lab);
+    s = buyUpgrade(s, synergyUpgradeId(0, lab));
+    expect(labAgents(s, lab)).toBe(20);
+    expect(labIncome(s, lab)).toBeCloseTo(withoutSynergy * (1 + SYNERGY_PER_AGENT * 20));
+    expect(labIncome(s, lab)).toBeCloseTo(models.reduce((sum, m) => sum + modelIncome(s, m), 0));
   });
 });
 
@@ -219,6 +359,66 @@ describe('prestige', () => {
     expect(s.perks).toEqual(['click_x2']);
     expect(buyPerk(s, 'start_tokens')).toBe(s);
     expect(clickValue(s)).toBeCloseTo(2 * 1.04);
+  });
+});
+
+describe('prestige preview', () => {
+  it('reports exactly what the prestige transition grants and wipes', () => {
+    let s = buyAgents(rich(newGame(T0), 1e15), first.id, 5);
+    s = buyAgents(s, g0.flagship.id, 1);
+    s = buyUpgrade(s, modelUpgradeId(first.id, 0));
+    const p = prestigePreview(s);
+    expect(p.agentsLost).toBe(6);
+    expect(p.upgradesLost).toBe(1);
+    expect(p.tokensLost).toBe(s.tokens);
+    expect(p.generation).toBe(1);
+    expect(p.blocked).toBe(false);
+
+    const after = prestige(s, T0 + 1);
+    expect(after.compute).toBe(s.compute + p.gain);
+    expect(after.generation).toBe(p.generation);
+    expect(Object.values(after.agents).reduce((n, c) => n + c, 0)).toBe(0);
+    expect(after.upgrades).toEqual([]);
+  });
+
+  it('agrees with prestigeGain on every kind of run', () => {
+    const runs = [
+      newGame(T0),
+      click(click(newGame(T0))),
+      buyAgents(rich(newGame(T0), 1e15), g0.flagship.id, 1),
+      advance(buyAgents(rich(newGame(T0), 1e6), first.id, 3), 300),
+      loaded(5),
+    ];
+    for (const s of runs) expect(prestigePreview(s).gain).toBe(prestigeGain(s));
+  });
+
+  it('blocks before the flagship is hired and unblocks once it is', () => {
+    const before = buyAgents(rich(newGame(T0), 1e15), first.id, 5);
+    expect(canPrestige(before)).toBe(false);
+    expect(prestigePreview(before).blocked).toBe(true);
+
+    const after = buyAgents(before, g0.flagship.id, 1);
+    expect(prestigePreview(after).blocked).toBe(false);
+  });
+
+  it('blocks at the content finale, where the generation stays put', () => {
+    const last = CATALOG.length - 1;
+    const s = loaded(last);
+    expect(isContentFinale(s)).toBe(true);
+    const p = prestigePreview(s);
+    expect(p.blocked).toBe(true);
+    expect(p.generation).toBe(last);
+    expect(prestigePreview(s).generation).toBe(prestige(s, T0).generation);
+  });
+
+  it('sums agents across every lab, including a model outside the flagship chain', () => {
+    const gen = CATALOG[3];
+    let s = rich(toGeneration(3), 1e30);
+    for (const m of [gen.models[0], gen.models[1], gen.flagship]) s = buyAgents(s, m.id, 4);
+    const total = Object.values(s.agents).reduce((n, c) => n + c, 0);
+    expect(prestigePreview(s).agentsLost).toBe(12);
+    expect(total).toBe(12);
+    expect(prestigePreview(prestige(s, T0)).agentsLost).toBe(0);
   });
 });
 

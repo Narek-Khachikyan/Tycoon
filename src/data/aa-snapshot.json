@@ -1,1 +1,2650 @@
-{}
+{
+  "claude-opus-5-5": {
+    "iq": 57.6,
+    "speed": 96.725,
+    "price": 8
+  },
+  "claude-sonnet-5-5": {
+    "iq": 56,
+    "speed": 138.411,
+    "price": 4
+  },
+  "claude-opus-5-5-xhigh": {
+    "iq": 56,
+    "speed": 77.246,
+    "price": 8
+  },
+  "claude-opus-5-5-high": {
+    "iq": 53.6,
+    "speed": 72.73,
+    "price": 8
+  },
+  "claude-fable-5-1": {
+    "iq": 53.4,
+    "speed": 68.822,
+    "price": 20
+  },
+  "claude-fable-5-1-xhigh": {
+    "iq": 53.2,
+    "speed": 60.574,
+    "price": 20
+  },
+  "gpt-6-astra": {
+    "iq": 52.7,
+    "speed": 65.114,
+    "price": 20
+  },
+  "gemini-4-argon": {
+    "iq": 52.6,
+    "price": 4
+  },
+  "gpt-6-astra-xhigh": {
+    "iq": 52.4,
+    "speed": 59.63,
+    "price": 20
+  },
+  "claude-sonnet-5-5-xhigh": {
+    "iq": 51.9,
+    "speed": 105.028,
+    "price": 4
+  },
+  "gpt-6-1-sol": {
+    "iq": 51.8,
+    "speed": 58.225,
+    "price": 4
+  },
+  "claude-opus-5-5-medium": {
+    "iq": 51.2,
+    "speed": 72.082,
+    "price": 8
+  },
+  "claude-fable-5-1-high": {
+    "iq": 51.2,
+    "speed": 55.052,
+    "price": 20
+  },
+  "gpt-6-1-sol-xhigh": {
+    "iq": 51,
+    "speed": 54.332,
+    "price": 4
+  },
+  "gpt-6-astra-high": {
+    "iq": 50.9,
+    "speed": 54.261,
+    "price": 20
+  },
+  "claude-opus-5": {
+    "iq": 50.8,
+    "price": 10
+  },
+  "gpt-6-1-sol-high": {
+    "iq": 50.2,
+    "speed": 51.925,
+    "price": 4
+  },
+  "claude-opus-5-xhigh": {
+    "iq": 49.7,
+    "price": 10
+  },
+  "claude-fable-5": {
+    "iq": 49.6,
+    "price": 20
+  },
+  "gpt-6-astra-medium": {
+    "iq": 49.6,
+    "speed": 53.399,
+    "price": 20
+  },
+  "claude-fable-5-1-medium": {
+    "iq": 48.9,
+    "speed": 56.022,
+    "price": 20
+  },
+  "claude-opus-5-high": {
+    "iq": 48.1,
+    "price": 10
+  },
+  "muse-spark-1-3": {
+    "iq": 48.1,
+    "speed": 163.786,
+    "price": 2
+  },
+  "gpt-6-1-sol-medium": {
+    "iq": 47.8,
+    "speed": 52.222,
+    "price": 4
+  },
+  "gpt-6-sol": {
+    "iq": 47.6,
+    "speed": 91.319,
+    "price": 4
+  },
+  "gpt-5-6-sol": {
+    "iq": 47,
+    "price": 8
+  },
+  "claude-fable-5-1-low": {
+    "iq": 46.8,
+    "speed": 51.525,
+    "price": 20
+  },
+  "claude-sonnet-5-5-high": {
+    "iq": 46.8,
+    "speed": 103.07,
+    "price": 4
+  },
+  "grok-4-7": {
+    "iq": 46.4,
+    "speed": 75.979,
+    "price": 3
+  },
+  "grok-4-7-high": {
+    "iq": 46.3,
+    "speed": 76.142,
+    "price": 3
+  },
+  "mimo-v2-6-pro": {
+    "iq": 46.3,
+    "speed": 43.404,
+    "price": 0.544
+  },
+  "gpt-6-astra-low": {
+    "iq": 45.8,
+    "speed": 52.769,
+    "price": 20
+  },
+  "qwen3-8-max": {
+    "iq": 45.4,
+    "speed": 36.96,
+    "price": 3
+  },
+  "muse-spark-1-3-xhigh": {
+    "iq": 45.1,
+    "speed": 161.96,
+    "price": 2
+  },
+  "claude-opus-5-medium": {
+    "iq": 44.8,
+    "price": 10
+  },
+  "glm-5-3": {
+    "iq": 44.8,
+    "speed": 75.216,
+    "price": 2.15
+  },
+  "grok-4-6": {
+    "iq": 44.3,
+    "price": 3
+  },
+  "gpt-6-sol-xhigh": {
+    "iq": 44.2,
+    "speed": 99.233,
+    "price": 4
+  },
+  "grok-4-6-xhigh": {
+    "iq": 44.2,
+    "price": 3
+  },
+  "gpt-5-6-sol-xhigh": {
+    "iq": 44,
+    "price": 8
+  },
+  "step-5": {
+    "iq": 43.7,
+    "speed": 84.482,
+    "price": 1.425
+  },
+  "kimi-k3": {
+    "iq": 43.6,
+    "speed": 34.086,
+    "price": 6
+  },
+  "grok-4-6-medium": {
+    "iq": 42.8,
+    "price": 3
+  },
+  "gpt-6-sol-high": {
+    "iq": 42.4,
+    "speed": 80.679,
+    "price": 4
+  },
+  "gpt-5-6-sol-high": {
+    "iq": 42.3,
+    "price": 8
+  },
+  "claude-opus-5-5-low": {
+    "iq": 42.3,
+    "speed": 73.536,
+    "price": 8
+  },
+  "grok-4-7-low": {
+    "iq": 42.2,
+    "speed": 68.046,
+    "price": 3
+  },
+  "gpt-6-1-sol-low": {
+    "iq": 42.1,
+    "speed": 50.837,
+    "price": 4
+  },
+  "gpt-5-6-terra": {
+    "iq": 42.1,
+    "speed": 115.386,
+    "price": 4.5
+  },
+  "glm-5-3-flash": {
+    "iq": 41.8,
+    "speed": 49.678,
+    "price": 0.237
+  },
+  "claude-opus-4-8": {
+    "iq": 41.8,
+    "price": 10
+  },
+  "ling-3-1-flash": {
+    "iq": 41.1,
+    "speed": 215.835,
+    "price": 0.45
+  },
+  "gemini-3-8-flash": {
+    "iq": 40.9,
+    "speed": 243.468,
+    "price": 1.5
+  },
+  "claude-sonnet-5-5-medium": {
+    "iq": 40.8,
+    "speed": 100.694,
+    "price": 4
+  },
+  "claude-opus-4-7": {
+    "iq": 40.7,
+    "price": 10
+  },
+  "qwen3-8-max-0803": {
+    "iq": 40.2,
+    "price": 3
+  },
+  "qwen3-8-2-4t-a95b": {
+    "iq": 39.9,
+    "speed": 37.532,
+    "price": 3
+  },
+  "qwen3-8-flash-next": {
+    "iq": 39.8,
+    "speed": 52.95,
+    "price": 0.23
+  },
+  "gpt-6-sol-medium": {
+    "iq": 39.8,
+    "price": 4
+  },
+  "gemini-3-8-flash-medium": {
+    "iq": 39.8,
+    "price": 1.5
+  },
+  "gemini-3-7-flash-medium": {
+    "iq": 39.6,
+    "price": 1.5
+  },
+  "muse-spark-1-2": {
+    "iq": 39.6,
+    "price": 2
+  },
+  "deepseek-v4-1-flash": {
+    "iq": 39.5,
+    "speed": 207.371,
+    "price": 0.525
+  },
+  "claude-opus-5-low": {
+    "iq": 39.4,
+    "price": 10
+  },
+  "gpt-5-6-sol-medium": {
+    "iq": 39.2,
+    "price": 8
+  },
+  "gemini-3-7-flash": {
+    "iq": 39.1,
+    "price": 1.5
+  },
+  "gpt-5-4": {
+    "iq": 39,
+    "price": 5.625
+  },
+  "grok-4-5": {
+    "iq": 38.8,
+    "price": 3
+  },
+  "gpt-5-5": {
+    "iq": 38.4,
+    "price": 11.25
+  },
+  "claude-sonnet-5": {
+    "iq": 38.2,
+    "price": 4
+  },
+  "gpt-6-luna": {
+    "iq": 38.1,
+    "speed": 137.613,
+    "price": 0.2
+  },
+  "gpt-5-6-terra-xhigh": {
+    "iq": 38,
+    "speed": 105.644,
+    "price": 4.5
+  },
+  "mimo-v2-6-flash": {
+    "iq": 37.9,
+    "speed": 56.624,
+    "price": 0.175
+  },
+  "gpt-5-6-luna": {
+    "iq": 37.3,
+    "price": 0.45
+  },
+  "gpt-5-5-high": {
+    "iq": 37,
+    "price": 11.25
+  },
+  "gemini-3-7-flash-low": {
+    "iq": 36.9,
+    "price": 1.5
+  },
+  "deepseek-v4-pro": {
+    "iq": 36,
+    "speed": 110.467,
+    "price": 1.98
+  },
+  "claude-sonnet-5-5-low": {
+    "iq": 35.9,
+    "speed": 100.693,
+    "price": 4
+  },
+  "grok-4-6-low": {
+    "iq": 35.1,
+    "price": 3
+  },
+  "deepseek-v4-flash-vision": {
+    "iq": 34.8,
+    "speed": 219.575,
+    "price": 0.66
+  },
+  "gpt-6-luna-xhigh": {
+    "iq": 34.6,
+    "speed": 136.926,
+    "price": 0.2
+  },
+  "gpt-5-6-luna-xhigh": {
+    "iq": 34.6,
+    "price": 0.45
+  },
+  "claude-sonnet-5-xhigh": {
+    "iq": 34.4,
+    "price": 4
+  },
+  "deepseek-v4-flash": {
+    "iq": 34.3,
+    "price": 0.66
+  },
+  "glm-5-3-low": {
+    "iq": 34.3,
+    "speed": 78.514,
+    "price": 2.15
+  },
+  "gpt-5-6-terra-high": {
+    "iq": 34.2,
+    "speed": 94.702,
+    "price": 4.5
+  },
+  "gpt-6-sol-low": {
+    "iq": 34.2,
+    "speed": 84.73,
+    "price": 4
+  },
+  "gemini-3-6-flash": {
+    "iq": 34,
+    "price": 1.5
+  },
+  "jt-4-1-flash-236b-a21b": {
+    "iq": 33.9
+  },
+  "gpt-5-5-medium": {
+    "iq": 33.8,
+    "price": 11.25
+  },
+  "muse-spark-1-1": {
+    "iq": 33.7,
+    "price": 2
+  },
+  "glm-5-2": {
+    "iq": 33.7,
+    "price": 2.15
+  },
+  "qwen3-8-27b": {
+    "iq": 33.7,
+    "speed": 46.602,
+    "price": 1.125
+  },
+  "gemini-3-5-flash-medium": {
+    "iq": 33.6,
+    "price": 3.375
+  },
+  "motif-3": {
+    "iq": 33.6
+  },
+  "gpt-5-6-sol-low": {
+    "iq": 33.5,
+    "price": 8
+  },
+  "gemini-3-8-flash-low": {
+    "iq": 33.5,
+    "price": 1.5
+  },
+  "gpt-6-luna-high": {
+    "iq": 32.9,
+    "speed": 127.616,
+    "price": 0.2
+  },
+  "gemini-3-5-flash": {
+    "iq": 32.6,
+    "price": 3.375
+  },
+  "gpt-5-3-codex": {
+    "iq": 32.5,
+    "speed": 105.144,
+    "price": 4.813
+  },
+  "motif-0714": {
+    "iq": 32.3
+  },
+  "gpt-5-6-luna-high": {
+    "iq": 32.1,
+    "price": 0.45
+  },
+  "claude-opus-4-6-adaptive": {
+    "iq": 31.9,
+    "price": 10
+  },
+  "claude-sonnet-5-high": {
+    "iq": 31.7,
+    "price": 4
+  },
+  "muse-spark": {
+    "iq": 31.3
+  },
+  "claude-opus-4-7-non-reasoning": {
+    "iq": 30.9,
+    "price": 10
+  },
+  "gpt-5-5-low": {
+    "iq": 30.7,
+    "price": 11.25
+  },
+  "k2-horizon-375b-a23b": {
+    "iq": 30.5,
+    "speed": 119.542
+  },
+  "deepseek-v4-pro-0424": {
+    "iq": 30.4,
+    "price": 0.544
+  },
+  "gpt-5-2": {
+    "iq": 30.4,
+    "price": 4.813
+  },
+  "deepseek-v4-pro-0424-high": {
+    "iq": 30.1,
+    "price": 0.544
+  },
+  "gpt-5-6-terra-medium": {
+    "iq": 30.1,
+    "speed": 97.385,
+    "price": 4.5
+  },
+  "kimi-k3-low": {
+    "iq": 30.1,
+    "speed": 33.037,
+    "price": 6
+  },
+  "claude-sonnet-4-6-adaptive": {
+    "iq": 30.1,
+    "price": 6
+  },
+  "gpt-6-luna-medium": {
+    "iq": 29.9,
+    "price": 0.2
+  },
+  "gemini-3-1-pro-preview": {
+    "iq": 29.7,
+    "speed": 127.614,
+    "price": 4.5
+  },
+  "qwen3-7-max": {
+    "iq": 29.5,
+    "price": 3.75
+  },
+  "minimax-m3": {
+    "iq": 29.2,
+    "speed": 74.309,
+    "price": 0.525
+  },
+  "claude-opus-4-5-thinking": {
+    "iq": 29.1,
+    "price": 10
+  },
+  "mimo-v2-pro": {
+    "iq": 28.6
+  },
+  "gpt-6-sol-non-reasoning": {
+    "iq": 28.5,
+    "speed": 82.254,
+    "price": 4
+  },
+  "gpt-5-2-codex": {
+    "iq": 28.5,
+    "price": 4.813
+  },
+  "qwen3-6-max": {
+    "iq": 28.4,
+    "price": 2.925
+  },
+  "gpt-5-6-sol-non-reasoning": {
+    "iq": 28.3,
+    "price": 8
+  },
+  "nex-n2-pro": {
+    "iq": 28.2
+  },
+  "solar-pro4": {
+    "iq": 28.2,
+    "speed": 98.019,
+    "price": 0.525
+  },
+  "claude-sonnet-5-medium": {
+    "iq": 28.1,
+    "price": 4
+  },
+  "gemini-3-pro": {
+    "iq": 28,
+    "price": 4.5
+  },
+  "glm-5": {
+    "iq": 27.9,
+    "price": 1.55
+  },
+  "gpt-5-4-low": {
+    "iq": 27.6,
+    "price": 5.625
+  },
+  "qwen3-8-27b-medium": {
+    "iq": 27.6,
+    "speed": 50.204,
+    "price": 1.125
+  },
+  "gpt-5-6-terra-low": {
+    "iq": 27.5,
+    "speed": 95.178,
+    "price": 4.5
+  },
+  "jt-4-1-flash-236b-a21b-non-reasoning": {
+    "iq": 27.3
+  },
+  "grok-build-0-1-06-16": {
+    "iq": 27.2,
+    "price": 1.25
+  },
+  "qwen3-6-plus": {
+    "iq": 27,
+    "price": 1.125
+  },
+  "kimi-k2-6": {
+    "iq": 27,
+    "price": 1.712
+  },
+  "quasar-438b": {
+    "iq": 26.7,
+    "speed": 153.037,
+    "price": 0.9
+  },
+  "glm-5-turbo": {
+    "iq": 26.6
+  },
+  "gpt-5-2-medium": {
+    "iq": 26.5,
+    "price": 4.813
+  },
+  "apodex-1-1": {
+    "iq": 26.4,
+    "price": 0.975
+  },
+  "claude-opus-4-6": {
+    "iq": 26.4,
+    "price": 10
+  },
+  "gemini-3-flash-reasoning": {
+    "iq": 26.3,
+    "price": 1.125
+  },
+  "qwen3-8-27b-low": {
+    "iq": 26.2,
+    "speed": 51.17,
+    "price": 1.125
+  },
+  "glm-5-1": {
+    "iq": 26.1,
+    "price": 1.981
+  },
+  "gpt-5-5-instant-06-26": {
+    "iq": 26,
+    "speed": 124.98,
+    "price": 11.25
+  },
+  "mimo-v2-5-pro": {
+    "iq": 26,
+    "price": 0.544
+  },
+  "kimi-k2-7-code": {
+    "iq": 25.8,
+    "speed": 91.841,
+    "price": 1.712
+  },
+  "inkling-small": {
+    "iq": 25.7,
+    "speed": 218.66,
+    "price": 0.525
+  },
+  "grok-4-20": {
+    "iq": 25.7,
+    "price": 1.563
+  },
+  "k2-horizon-mova-36b-a4b": {
+    "iq": 25.3
+  },
+  "hy3": {
+    "iq": 25.3,
+    "speed": 92.174,
+    "price": 0.241
+  },
+  "grok-4-20-0309": {
+    "iq": 25.2,
+    "price": 3
+  },
+  "mimo-v2-5-0424": {
+    "iq": 25.2,
+    "price": 0.175
+  },
+  "qwen3-7-plus": {
+    "iq": 25.2,
+    "speed": 55.737,
+    "price": 0.7
+  },
+  "mimo-v2-omni-0327": {
+    "iq": 25.1
+  },
+  "gpt-5-6-luna-medium": {
+    "iq": 25,
+    "price": 0.45
+  },
+  "inkling": {
+    "iq": 25,
+    "speed": 168.868,
+    "price": 1.762
+  },
+  "gpt-5-codex": {
+    "iq": 24.9,
+    "price": 3.438
+  },
+  "grok-4-3": {
+    "iq": 24.9,
+    "price": 1.563
+  },
+  "grok-4-3-medium": {
+    "iq": 24.8,
+    "price": 1.563
+  },
+  "solar-open2-250b": {
+    "iq": 24.7
+  },
+  "gpt-5-1": {
+    "iq": 24.7,
+    "price": 3.438
+  },
+  "claude-sonnet-4-6": {
+    "iq": 24.7,
+    "price": 6
+  },
+  "deepseek-v4-1-flash-non-reasoning": {
+    "iq": 24.7,
+    "speed": 216.88,
+    "price": 0.525
+  },
+  "ling-3-0-flash-vl": {
+    "iq": 24.6,
+    "price": 0.111
+  },
+  "deepseek-v4-flash-0420-high": {
+    "iq": 24.4,
+    "price": 0.143
+  },
+  "grok-4-3-low": {
+    "iq": 24.3,
+    "price": 1.563
+  },
+  "claude-sonnet-5-low": {
+    "iq": 24.3,
+    "price": 4
+  },
+  "glm-5-1-non-reasoning": {
+    "iq": 24.2,
+    "price": 2.135
+  },
+  "deepseek-v4-flash-0420": {
+    "iq": 24.2,
+    "price": 0.168
+  },
+  "gpt-5-4-mini": {
+    "iq": 24.1,
+    "price": 1.688
+  },
+  "solar-mini4": {
+    "iq": 24.1,
+    "price": 0.175
+  },
+  "mimo-v2-omni": {
+    "iq": 23.9
+  },
+  "gemini-3-5-flash-minimal": {
+    "iq": 23.8,
+    "price": 3.375
+  },
+  "gpt-5-1-codex": {
+    "iq": 23.7,
+    "price": 3.438
+  },
+  "claude-opus-4-5": {
+    "iq": 23.7,
+    "price": 10
+  },
+  "kimi-k2-6-non-reasoning": {
+    "iq": 23.6,
+    "price": 1.712
+  },
+  "glm-5v-turbo": {
+    "iq": 23.5
+  },
+  "kimi-k2-5": {
+    "iq": 23.5,
+    "price": 1.137
+  },
+  "claude-sonnet-4-6-non-reasoning-low-effort": {
+    "iq": 23.3,
+    "price": 6
+  },
+  "claude-sonnet-5-non-reasoning": {
+    "iq": 23.2,
+    "price": 4
+  },
+  "gpt-5-5-non-reasoning": {
+    "iq": 23.2,
+    "price": 11.25
+  },
+  "gpt-5": {
+    "iq": 23,
+    "price": 3.438
+  },
+  "nvidia-nemotron-3-ultra-550b-a55b": {
+    "iq": 22.9,
+    "speed": 168.912,
+    "price": 1.075
+  },
+  "qwen3-5-27b": {
+    "iq": 22.9,
+    "price": 0.825
+  },
+  "gpt-5-medium": {
+    "iq": 22.9,
+    "price": 3.438
+  },
+  "claude-4-1-opus-thinking": {
+    "iq": 22.8,
+    "price": 30
+  },
+  "minimax-m2-5": {
+    "iq": 22.8,
+    "price": 0.525
+  },
+  "minimax-m2-7": {
+    "iq": 22.8,
+    "price": 0.525
+  },
+  "hy3-preview": {
+    "iq": 22.7,
+    "price": 0.1
+  },
+  "a-x-k2": {
+    "iq": 22.7
+  },
+  "gpt-5-5-instant-05-26": {
+    "iq": 22.7,
+    "price": 11.25
+  },
+  "ling-3-0-flash-fin": {
+    "iq": 22.6,
+    "speed": 353.09,
+    "price": 0.111
+  },
+  "grok-4": {
+    "iq": 22.5,
+    "price": 6
+  },
+  "mimo-v2-0206": {
+    "iq": 22.4
+  },
+  "glm-5-2-non-reasoning": {
+    "iq": 22.4,
+    "price": 2.15
+  },
+  "gemini-3-pro-low": {
+    "iq": 22.3,
+    "price": 4.5
+  },
+  "glm-4-7": {
+    "iq": 22.2,
+    "price": 1
+  },
+  "gemini-3-5-flash-lite": {
+    "iq": 22.2,
+    "speed": 338.647,
+    "price": 0.85
+  },
+  "kimi-k2-thinking": {
+    "iq": 22,
+    "price": 1.075
+  },
+  "o3-pro": {
+    "iq": 21.9,
+    "price": 35
+  },
+  "g9v3-39a5b": {
+    "iq": 21.8
+  },
+  "glm-5-non-reasoning": {
+    "iq": 21.8,
+    "price": 1.55
+  },
+  "kat-coder-pro-v2": {
+    "iq": 21.7,
+    "price": 0.525
+  },
+  "gpt-6-luna-low": {
+    "iq": 21.5,
+    "speed": 124.805,
+    "price": 0.2
+  },
+  "deepseek-v3-2-reasoning": {
+    "iq": 21.5,
+    "price": 0.315
+  },
+  "qwen3-5-397b-a17b-non-reasoning": {
+    "iq": 21.4,
+    "speed": 83.101,
+    "price": 1.35
+  },
+  "qwen3-6-27b": {
+    "iq": 21.4,
+    "price": 1.35
+  },
+  "qwen3-max-thinking": {
+    "iq": 21.3
+  },
+  "gpt-5-6-luna-low": {
+    "iq": 21,
+    "price": 0.45
+  },
+  "minimax-m2-1": {
+    "iq": 20.9,
+    "price": 0.525
+  },
+  "deepseek-v4-pro-0424-non-reasoning": {
+    "iq": 20.8,
+    "price": 0.544
+  },
+  "mimo-v2-flash-reasoning": {
+    "iq": 20.8,
+    "price": 0.15
+  },
+  "gpt-5-low": {
+    "iq": 20.8,
+    "price": 3.438
+  },
+  "gpt-5-6-terra-non-reasoning": {
+    "iq": 20.8,
+    "speed": 96.575,
+    "price": 4.5
+  },
+  "gpt-5-4-nano": {
+    "iq": 20.7,
+    "price": 0.463
+  },
+  "claude-4-5-sonnet-thinking": {
+    "iq": 20.7,
+    "price": 6
+  },
+  "claude-4-opus-thinking": {
+    "iq": 20.6,
+    "price": 30
+  },
+  "gpt-5-mini-medium": {
+    "iq": 20.6,
+    "price": 0.688
+  },
+  "k2-horizon-7b": {
+    "iq": 20.6
+  },
+  "qwen3-5-omni-plus": {
+    "iq": 20.4,
+    "speed": 120.745,
+    "price": 1.5
+  },
+  "gpt-5-1-codex-mini": {
+    "iq": 20.4,
+    "price": 0.688
+  },
+  "grok-4-1-fast-reasoning": {
+    "iq": 20.4
+  },
+  "deepseek-v4-pro-non-reasoning": {
+    "iq": 20.4,
+    "speed": 140.466,
+    "price": 1.427
+  },
+  "o3": {
+    "iq": 20.2,
+    "speed": 129.186,
+    "price": 3.5
+  },
+  "qwen3-8-27b-non-reasoning": {
+    "iq": 20.2,
+    "speed": 53.595,
+    "price": 1.125
+  },
+  "ling-3-0-flash": {
+    "iq": 20.1,
+    "speed": 355.425,
+    "price": 0.111
+  },
+  "gpt-5-4-nano-medium": {
+    "iq": 20,
+    "price": 0.463
+  },
+  "qwen3-6-27b-non-reasoning": {
+    "iq": 19.8,
+    "price": 1.35
+  },
+  "gpt-5-4-mini-medium": {
+    "iq": 19.7,
+    "price": 1.688
+  },
+  "k-exaone-2-0-0803": {
+    "iq": 19.7
+  },
+  "step-3-7-flash": {
+    "iq": 19.5,
+    "price": 0.438
+  },
+  "kimi-k2-5-non-reasoning": {
+    "iq": 19.4,
+    "price": 1.2
+  },
+  "qwen3-5-27b-non-reasoning": {
+    "iq": 19.4,
+    "price": 0.825
+  },
+  "claude-4-5-sonnet": {
+    "iq": 19.3,
+    "price": 6
+  },
+  "qwen3-5-35b-a3b": {
+    "iq": 19.3,
+    "price": 0.688
+  },
+  "longcat-2-0": {
+    "iq": 19.1,
+    "price": 0.525
+  },
+  "claude-4-sonnet-thinking": {
+    "iq": 18.9
+  },
+  "deepseek-v4-flash-0420-non-reasoning": {
+    "iq": 18.9,
+    "price": 0.117
+  },
+  "jt-35b-flash": {
+    "iq": 18.7
+  },
+  "minimax-m2": {
+    "iq": 18.6,
+    "price": 0.525
+  },
+  "kat-coder-pro-v1": {
+    "iq": 18.6
+  },
+  "claude-4-1-opus": {
+    "iq": 18.6,
+    "price": 30
+  },
+  "glm-4-6-reasoning": {
+    "iq": 18.5,
+    "price": 0.963
+  },
+  "gpt-6-luna-non-reasoning": {
+    "iq": 18.5,
+    "speed": 126.316,
+    "price": 0.2
+  },
+  "qwen3-5-397b-a17b": {
+    "iq": 18.4,
+    "speed": 86.361,
+    "price": 1.35
+  },
+  "mimo-v2-5-pro-non-reasoning": {
+    "iq": 18.3,
+    "price": 0.544
+  },
+  "qwen3-6-35b-a3b": {
+    "iq": 18.2,
+    "speed": 134.874,
+    "price": 0.844
+  },
+  "gpt-5-4-non-reasoning": {
+    "iq": 18.2,
+    "price": 5.625
+  },
+  "grok-4-fast-reasoning": {
+    "iq": 17.9,
+    "price": 0.275
+  },
+  "gemini-3-flash": {
+    "iq": 17.9,
+    "price": 1.125
+  },
+  "qwen3-5-122b-a10b-non-reasoning": {
+    "iq": 17.7,
+    "speed": 144.676,
+    "price": 1.1
+  },
+  "claude-3-7-sonnet-thinking": {
+    "iq": 17.7
+  },
+  "muse-glimmer": {
+    "iq": 17.5,
+    "speed": 136.808,
+    "price": 0.581
+  },
+  "glm-4-7-non-reasoning": {
+    "iq": 17.4,
+    "price": 1
+  },
+  "hy3-non-reasoning": {
+    "iq": 17,
+    "price": 0.1
+  },
+  "ling-2-6-1t": {
+    "iq": 17,
+    "price": 0.85
+  },
+  "gpt-5-2-non-reasoning": {
+    "iq": 17,
+    "price": 4.813
+  },
+  "step-3-5-flash": {
+    "iq": 17,
+    "price": 0.15
+  },
+  "doubao-seed-code": {
+    "iq": 16.9
+  },
+  "claude-4-5-haiku-reasoning": {
+    "iq": 16.9,
+    "speed": 109.741,
+    "price": 2
+  },
+  "gpt-5-mini": {
+    "iq": 16.8,
+    "price": 0.688
+  },
+  "gemma-4-26b-a4b": {
+    "iq": 16.7,
+    "price": 0.168
+  },
+  "o4-mini": {
+    "iq": 16.7,
+    "price": 1.925
+  },
+  "ring-2-6-1t": {
+    "iq": 16.6,
+    "speed": 128.643,
+    "price": 0.85
+  },
+  "step-3-5-flash-0202": {
+    "iq": 16.6,
+    "price": 0.15
+  },
+  "claude-4-opus": {
+    "iq": 16.6,
+    "price": 30
+  },
+  "claude-4-sonnet": {
+    "iq": 16.6
+  },
+  "deepseek-v3-2-reasoning-0925": {
+    "iq": 16.6,
+    "price": 0.315
+  },
+  "qwen3-max-thinking-preview": {
+    "iq": 16.3,
+    "price": 2.4
+  },
+  "gemini-2-5-pro": {
+    "iq": 16.1,
+    "price": 3.438
+  },
+  "mimo-v2-flash": {
+    "iq": 16
+  },
+  "deepseek-v3-2": {
+    "iq": 16,
+    "price": 0.315
+  },
+  "k2-horizon-3-7b": {
+    "iq": 15.6
+  },
+  "qwen3-max": {
+    "iq": 15.6,
+    "price": 2.4
+  },
+  "qwen3-5-122b-a10b": {
+    "iq": 15.6,
+    "speed": 132.322,
+    "price": 1.1
+  },
+  "gemini-3-1-flash-lite-preview": {
+    "iq": 15.6,
+    "price": 0.563
+  },
+  "gpt-5-6-luna-non-reasoning": {
+    "iq": 15.5,
+    "price": 0.45
+  },
+  "gemini-2-5-flash-preview-09-2025-reasoning": {
+    "iq": 15.5
+  },
+  "claude-4-5-haiku": {
+    "iq": 15.4,
+    "speed": 102.283,
+    "price": 2
+  },
+  "kimi-k2-0905": {
+    "iq": 15.3,
+    "price": 1.075
+  },
+  "claude-3-7-sonnet": {
+    "iq": 15.3,
+    "price": 6
+  },
+  "qwen3-6-35b-a3b-non-reasoning": {
+    "iq": 15.2,
+    "speed": 151.13,
+    "price": 0.844
+  },
+  "o1": {
+    "iq": 15.2,
+    "price": 26.25
+  },
+  "qwen3-5-35b-a3b-non-reasoning": {
+    "iq": 15.1,
+    "price": 0.688
+  },
+  "gemini-2-5-pro-03-25": {
+    "iq": 15
+  },
+  "glm-4-6": {
+    "iq": 14.9,
+    "price": 0.981
+  },
+  "glm-4-7-flash": {
+    "iq": 14.9,
+    "price": 0.153
+  },
+  "granite-4-2-30b": {
+    "iq": 14.8,
+    "speed": 78.006,
+    "price": 0.282
+  },
+  "deepseek-v3-1-terminus-reasoning": {
+    "iq": 14.8,
+    "price": 1.914
+  },
+  "gemma-4-31b": {
+    "iq": 14.7,
+    "speed": 35.496
+  },
+  "grok-3-mini-reasoning": {
+    "iq": 14.6,
+    "price": 0.35
+  },
+  "grok-4-20-0309-non-reasoning": {
+    "iq": 14.6,
+    "price": 3
+  },
+  "gemini-2-5-pro-05-06": {
+    "iq": 14.5,
+    "price": 3.438
+  },
+  "deepseek-v3-2-speciale": {
+    "iq": 14.5
+  },
+  "k-exaone": {
+    "iq": 14.4
+  },
+  "ernie-5-0-thinking-preview": {
+    "iq": 14.3
+  },
+  "grok-4-20-non-reasoning": {
+    "iq": 14.2,
+    "price": 1.563
+  },
+  "mistral-medium-3-5": {
+    "iq": 14.2,
+    "speed": 171.052,
+    "price": 3
+  },
+  "gemma-4-12b": {
+    "iq": 14.2,
+    "speed": 147.646,
+    "price": 0.15
+  },
+  "nova-2-0-pro-reasoning-medium": {
+    "iq": 14.2,
+    "speed": 136.093,
+    "price": 3.438
+  },
+  "grok-code-fast-1": {
+    "iq": 14.1
+  },
+  "grok-4-3-non-reasoning": {
+    "iq": 14,
+    "price": 1.563
+  },
+  "deepseek-v3-1-terminus": {
+    "iq": 13.9,
+    "price": 0.453
+  },
+  "gemma-4-31b-non-reasoning": {
+    "iq": 13.9,
+    "speed": 39.302,
+    "price": 0.205
+  },
+  "deepseek-v3-2-0925": {
+    "iq": 13.9,
+    "price": 0.315
+  },
+  "apriel-v1-5-15b-thinker": {
+    "iq": 13.8
+  },
+  "mercury-2": {
+    "iq": 13.8,
+    "price": 0.375
+  },
+  "deepseek-v3-1": {
+    "iq": 13.7,
+    "price": 0.84
+  },
+  "nova-2-0-omni-reasoning-medium": {
+    "iq": 13.6,
+    "price": 0.85
+  },
+  "deepseek-v3-1-reasoning": {
+    "iq": 13.5,
+    "price": 0.855
+  },
+  "qwen3-vl-235b-a22b-reasoning": {
+    "iq": 13.4,
+    "price": 1.3
+  },
+  "apriel-v1-6-15b-thinker": {
+    "iq": 13.4
+  },
+  "nova-2-0-lite-reasoning": {
+    "iq": 13.4,
+    "speed": 224.62,
+    "price": 0.85
+  },
+  "gpt-5-1-non-reasoning": {
+    "iq": 13.3,
+    "price": 3.438
+  },
+  "qwen3-5-9b-non-reasoning": {
+    "iq": 13.3,
+    "speed": 85.157,
+    "price": 0.19
+  },
+  "exaone-4-5-33b": {
+    "iq": 13.2
+  },
+  "command-a-plus": {
+    "iq": 13.1,
+    "speed": 183.462
+  },
+  "gemma-4-26b-a4b-non-reasoning": {
+    "iq": 13.1,
+    "speed": 95.837,
+    "price": 0.198
+  },
+  "qwen3-5-4b": {
+    "iq": 13.1,
+    "speed": 16.057,
+    "price": 0.06
+  },
+  "deepseek-r1": {
+    "iq": 13.1,
+    "price": 1.763
+  },
+  "gemini-2-5-flash-reasoning": {
+    "iq": 13.1,
+    "price": 0.85
+  },
+  "gpt-5-nano": {
+    "iq": 13,
+    "price": 0.138
+  },
+  "nemotron-3-5-lightning": {
+    "iq": 12.9,
+    "speed": 295.146,
+    "price": 0.095
+  },
+  "nvidia-nemotron-3-super-120b-a12b": {
+    "iq": 12.8,
+    "speed": 155.195,
+    "price": 0.45
+  },
+  "nova-2-0-pro-reasoning-low": {
+    "iq": 12.8,
+    "speed": 147.52,
+    "price": 3.438
+  },
+  "glm-4-5": {
+    "iq": 12.8
+  },
+  "kimi-k2": {
+    "iq": 12.7,
+    "price": 1.002
+  },
+  "qwen3-235b-a22b-instruct-2507-reasoning": {
+    "iq": 12.7,
+    "price": 0.747
+  },
+  "gpt-4-1": {
+    "iq": 12.7,
+    "price": 3.5
+  },
+  "qwen3-max-preview": {
+    "iq": 12.6,
+    "price": 2.4
+  },
+  "nova-2-0-lite-reasoning-medium": {
+    "iq": 12.5,
+    "speed": 247.482,
+    "price": 0.85
+  },
+  "gpt-5-nano-medium": {
+    "iq": 12.5,
+    "price": 0.138
+  },
+  "qwen3-5-omni-flash": {
+    "iq": 12.5,
+    "speed": 233.695,
+    "price": 0.275
+  },
+  "o3-mini": {
+    "iq": 12.5,
+    "price": 1.925
+  },
+  "minicpm5-2b": {
+    "iq": 12.5
+  },
+  "o1-pro": {
+    "iq": 12.4,
+    "price": 262.5
+  },
+  "gemini-2-5-flash-preview-09-2025": {
+    "iq": 12.4
+  },
+  "mercury-2-5": {
+    "iq": 12.3,
+    "speed": 858.457,
+    "price": 0.375
+  },
+  "jt-mini": {
+    "iq": 12.2
+  },
+  "grok-3": {
+    "iq": 12.1,
+    "price": 8
+  },
+  "seed-oss-36b-instruct": {
+    "iq": 12.1,
+    "price": 0.3
+  },
+  "qwen3-235b-a22b-instruct-2507": {
+    "iq": 12,
+    "price": 0.403
+  },
+  "qwen3-coder-480b-a35b-instruct": {
+    "iq": 11.9,
+    "price": 3
+  },
+  "qwen3-vl-32b-reasoning": {
+    "iq": 11.9,
+    "price": 0.28
+  },
+  "magistral-medium-2509": {
+    "iq": 11.8
+  },
+  "sonar-reasoning-pro": {
+    "iq": 11.8
+  },
+  "nova-2-0-lite-reasoning-low": {
+    "iq": 11.8,
+    "speed": 209.783,
+    "price": 0.85
+  },
+  "hypernova-60b": {
+    "iq": 11.7
+  },
+  "minimax-m1-80k": {
+    "iq": 11.7,
+    "price": 0.963
+  },
+  "gpt-5-4-nano-non-reasoning": {
+    "iq": 11.7,
+    "price": 0.463
+  },
+  "nemotron-cascade-2-30b-a3b": {
+    "iq": 11.7
+  },
+  "gemini-2-5-flash-reasoning-04-2025": {
+    "iq": 11.7
+  },
+  "gpt-oss-120b": {
+    "iq": 11.6,
+    "speed": 188.544,
+    "price": 0.261
+  },
+  "k2-think-v2": {
+    "iq": 11.5
+  },
+  "longcat-flash-lite": {
+    "iq": 11.5
+  },
+  "gpt-5-minimal": {
+    "iq": 11.4,
+    "price": 3.438
+  },
+  "deepseek-r1-0120": {
+    "iq": 11.4,
+    "price": 2.5
+  },
+  "o1-preview": {
+    "iq": 11.4,
+    "price": 28.875
+  },
+  "hyperclova-x-seed-think-32b": {
+    "iq": 11.4
+  },
+  "grok-4-1-fast": {
+    "iq": 11.3
+  },
+  "mistral-small-4": {
+    "iq": 11.3,
+    "speed": 170.91,
+    "price": 0.262
+  },
+  "glm-4-6v-reasoning": {
+    "iq": 11.2,
+    "price": 0.45
+  },
+  "k-exaone-non-reasoning": {
+    "iq": 11.2
+  },
+  "qwen3-next-80b-a3b-reasoning": {
+    "iq": 11.2,
+    "speed": 186.362,
+    "price": 0.412
+  },
+  "qwen3-5-9b": {
+    "iq": 11.2,
+    "speed": 64.787,
+    "price": 0.151
+  },
+  "gpt-5-4-mini-non-reasoning": {
+    "iq": 11.1,
+    "price": 1.688
+  },
+  "nova-2-0-omni-reasoning-low": {
+    "iq": 11.1,
+    "price": 0.85
+  },
+  "glm-4-5-air": {
+    "iq": 11.1,
+    "price": 0.372
+  },
+  "granite-4-2-8b": {
+    "iq": 11.1,
+    "speed": 47.655,
+    "price": 0.107
+  },
+  "grok-4-fast": {
+    "iq": 11.1,
+    "price": 0.275
+  },
+  "ling-3-0-tiny": {
+    "iq": 11.1,
+    "speed": 46.711
+  },
+  "mi-dm-k-2-5-pro-dec28": {
+    "iq": 11
+  },
+  "o3-mini-high": {
+    "iq": 11,
+    "price": 1.925
+  },
+  "ring-1t": {
+    "iq": 10.9
+  },
+  "g9v3-3b": {
+    "iq": 10.8
+  },
+  "trinity-large-thinking": {
+    "iq": 10.8,
+    "speed": 377.512,
+    "price": 0.388
+  },
+  "qwen3-5-4b-non-reasoning": {
+    "iq": 10.8,
+    "speed": 14.029,
+    "price": 0.06
+  },
+  "intellect-3": {
+    "iq": 10.6
+  },
+  "glm-4-7-flash-non-reasoning": {
+    "iq": 10.6,
+    "price": 0.153
+  },
+  "gpt-5-chatgpt": {
+    "iq": 10.4
+  },
+  "solar-open-100b-reasoning": {
+    "iq": 10.4
+  },
+  "grok-3-reasoning": {
+    "iq": 10.4
+  },
+  "gemini-2-5-flash-lite-preview-09-2025-reasoning": {
+    "iq": 10.4,
+    "price": 0.175
+  },
+  "nemotron-3-nano-omni-30b-a3b": {
+    "iq": 10.3,
+    "speed": 264.732,
+    "price": 0.42
+  },
+  "gpt-oss-120b-low": {
+    "iq": 10.2,
+    "speed": 186.281,
+    "price": 0.249
+  },
+  "gpt-4-1-mini": {
+    "iq": 10.2,
+    "price": 0.7
+  },
+  "llama-4-maverick": {
+    "iq": 10,
+    "speed": 72.373,
+    "price": 0.422
+  },
+  "minimax-m1-40k": {
+    "iq": 10
+  },
+  "nova-2-0-pro": {
+    "iq": 10,
+    "speed": 131.608,
+    "price": 3.438
+  },
+  "gpt-oss-20b-low": {
+    "iq": 10,
+    "speed": 228.414,
+    "price": 0.106
+  },
+  "qwen3-vl-235b-a22b-instruct": {
+    "iq": 9.9,
+    "price": 0.7
+  },
+  "north-mini-code": {
+    "iq": 9.9,
+    "speed": 103.374
+  },
+  "gpt-5-mini-minimal": {
+    "iq": 9.9,
+    "price": 0.688
+  },
+  "k2-v2": {
+    "iq": 9.9
+  },
+  "gemini-2-5-flash": {
+    "iq": 9.9,
+    "price": 0.85
+  },
+  "qwen3-30b-a3b-2507-reasoning": {
+    "iq": 9.8,
+    "price": 0.75
+  },
+  "o1-mini": {
+    "iq": 9.8
+  },
+  "deepseek-v3-0324": {
+    "iq": 9.7,
+    "price": 0.405
+  },
+  "ling-2-6-flash": {
+    "iq": 9.7
+  },
+  "qwen3-next-80b-a3b-instruct": {
+    "iq": 9.6,
+    "speed": 179.331,
+    "price": 0.412
+  },
+  "tri-21b-think-preview": {
+    "iq": 9.6
+  },
+  "qwen3-coder-30b-a3b-instruct": {
+    "iq": 9.6,
+    "price": 0.9
+  },
+  "gpt-4-5": {
+    "iq": 9.6
+  },
+  "diffusiongemma-26b-a4b": {
+    "iq": 9.5
+  },
+  "qwen3-235b-a22b-instruct-reasoning": {
+    "iq": 9.5,
+    "price": 2.625
+  },
+  "qwq-32b": {
+    "iq": 9.5,
+    "price": 0.745
+  },
+  "qwen3-vl-30b-a3b-reasoning": {
+    "iq": 9.5,
+    "price": 0.75
+  },
+  "gemini-2-0-flash-thinking-exp-0121": {
+    "iq": 9.4
+  },
+  "gemma-4-12b-non-reasoning": {
+    "iq": 9.4,
+    "speed": 148.067,
+    "price": 0.15
+  },
+  "gemini-2-5-flash-lite-preview-09-2025": {
+    "iq": 9.3,
+    "price": 0.175
+  },
+  "mistral-large-3": {
+    "iq": 9.3,
+    "speed": 81.552,
+    "price": 0.75
+  },
+  "qwen3-coder-next": {
+    "iq": 9.2,
+    "speed": 114.723,
+    "price": 0.563
+  },
+  "motif-2-12-7b": {
+    "iq": 9.2
+  },
+  "mistral-medium-3-1": {
+    "iq": 9.2
+  },
+  "ling-1t": {
+    "iq": 9.2
+  },
+  "nova-premier": {
+    "iq": 9.2
+  },
+  "solar-pro-2-preview-reasoning": {
+    "iq": 9.1
+  },
+  "granite-4-2-3b": {
+    "iq": 9.1,
+    "speed": 229.226,
+    "price": 0.052
+  },
+  "magistral-medium": {
+    "iq": 9.1
+  },
+  "mistral-medium-3": {
+    "iq": 9,
+    "price": 0.8
+  },
+  "k2-v2-medium": {
+    "iq": 9
+  },
+  "llama-nemotron-super-49b-v1-5-reasoning": {
+    "iq": 9
+  },
+  "devstral-medium": {
+    "iq": 9
+  },
+  "mistral-small-4-non-reasoning": {
+    "iq": 9,
+    "speed": 166.231,
+    "price": 0.262
+  },
+  "tri-21b-think-v0-5": {
+    "iq": 9
+  },
+  "gpt-oss-20b": {
+    "iq": 9,
+    "speed": 213.622,
+    "price": 0.098
+  },
+  "gpt-4o-chatgpt-03-25": {
+    "iq": 9
+  },
+  "gemini-2-0-flash": {
+    "iq": 8.9
+  },
+  "claude-3-5-haiku": {
+    "iq": 8.9
+  },
+  "llama-3-3-nemotron-super-49b-reasoning": {
+    "iq": 8.9
+  },
+  "gemma-4-e4b": {
+    "iq": 8.9,
+    "speed": 42.615,
+    "price": 0.04
+  },
+  "nvidia-nemotron-3-nano-30b-a3b-reasoning": {
+    "iq": 8.9,
+    "speed": 207.883,
+    "price": 0.088
+  },
+  "qwen3-4b-2507-instruct-reasoning": {
+    "iq": 8.8
+  },
+  "minicpm5-1b": {
+    "iq": 8.8
+  },
+  "sarvam-105b": {
+    "iq": 8.8,
+    "price": 0.074
+  },
+  "gemini-2-0-pro-experimental-02-05": {
+    "iq": 8.7
+  },
+  "nova-2-0-lite": {
+    "iq": 8.7,
+    "speed": 221.778,
+    "price": 0.85
+  },
+  "devstral-small-2505": {
+    "iq": 8.7
+  },
+  "claude-3-opus": {
+    "iq": 8.7,
+    "price": 30
+  },
+  "minicpm5-1b-non-reasoning": {
+    "iq": 8.7
+  },
+  "sonar-reasoning": {
+    "iq": 8.7
+  },
+  "gemini-2-5-flash-04-2025": {
+    "iq": 8.7
+  },
+  "devstral-2": {
+    "iq": 8.6
+  },
+  "magistral-small-2509": {
+    "iq": 8.6,
+    "price": 0.75
+  },
+  "qwen3-32b-instruct-reasoning": {
+    "iq": 8.6,
+    "price": 0.28
+  },
+  "gemini-2-5-flash-lite-reasoning": {
+    "iq": 8.5,
+    "price": 0.175
+  },
+  "deepseek-v3": {
+    "iq": 8.5,
+    "price": 0.463
+  },
+  "gpt-4o": {
+    "iq": 8.4,
+    "price": 4.375
+  },
+  "nanbeige4-1-3b": {
+    "iq": 8.4
+  },
+  "lfm2-5-2-6b": {
+    "iq": 8.4
+  },
+  "qwen3-vl-32b-instruct": {
+    "iq": 8.4,
+    "price": 0.28
+  },
+  "deepseek-r1-distill-qwen-32b": {
+    "iq": 8.4
+  },
+  "glm-4-6v": {
+    "iq": 8.4,
+    "price": 0.45
+  },
+  "qwen3-235b-a22b-instruct": {
+    "iq": 8.3,
+    "price": 1.225
+  },
+  "mistral-small-3-2": {
+    "iq": 8.2,
+    "price": 0.106
+  },
+  "magistral-small": {
+    "iq": 8.2
+  },
+  "gemini-2-0-flash-experimental": {
+    "iq": 8.2
+  },
+  "exaone-4-0-32b-reasoning": {
+    "iq": 8.2
+  },
+  "qwen3-vl-8b-reasoning": {
+    "iq": 8.2,
+    "price": 0.66
+  },
+  "qwen3-14b-instruct-reasoning": {
+    "iq": 8.2,
+    "price": 1.313
+  },
+  "nova-2-0-omni": {
+    "iq": 8.2,
+    "price": 0.85
+  },
+  "deepseek-r1-qwen3-8b": {
+    "iq": 8.1
+  },
+  "llama-4-scout": {
+    "iq": 8.1,
+    "speed": 55.315,
+    "price": 0.313
+  },
+  "qwen-2-5-max": {
+    "iq": 8
+  },
+  "qwen3-vl-30b-a3b-instruct": {
+    "iq": 7.9,
+    "price": 0.35
+  },
+  "hermes-4-llama-3-1-70b-reasoning": {
+    "iq": 7.9
+  },
+  "gemini-1-5-pro": {
+    "iq": 7.9
+  },
+  "solar-pro-2-preview": {
+    "iq": 7.9
+  },
+  "deepseek-r1-distill-llama-70b": {
+    "iq": 7.9,
+    "price": 0.8
+  },
+  "claude-35-sonnet": {
+    "iq": 7.9,
+    "price": 6
+  },
+  "deepseek-r1-distill-qwen-14b": {
+    "iq": 7.8
+  },
+  "falcon-h1r-7b": {
+    "iq": 7.8
+  },
+  "gpt-4-1-nano": {
+    "iq": 7.8,
+    "price": 0.175
+  },
+  "solar-pro-3": {
+    "iq": 7.8,
+    "price": 0.262
+  },
+  "ling-flash-2-0": {
+    "iq": 7.8,
+    "price": 0.247
+  },
+  "gemma-4-e2b": {
+    "iq": 7.8
+  },
+  "qwen3-omni-30b-a3b-reasoning": {
+    "iq": 7.8,
+    "speed": 110.798,
+    "price": 0.43
+  },
+  "gpt-4o-2024-08-06": {
+    "iq": 7.7,
+    "price": 4.375
+  },
+  "qwen2-5-72b-instruct": {
+    "iq": 7.7,
+    "price": 0.48
+  },
+  "sonar": {
+    "iq": 7.7
+  },
+  "step-3-vl-10b": {
+    "iq": 7.7
+  },
+  "llama-3-3-instruct-70b": {
+    "iq": 7.7,
+    "speed": 85.248,
+    "price": 0.712
+  },
+  "qwen3-30b-a3b-instruct-reasoning": {
+    "iq": 7.6,
+    "price": 0.75
+  },
+  "sonar-pro": {
+    "iq": 7.6
+  },
+  "devstral-small": {
+    "iq": 7.6
+  },
+  "qwq-32b-preview": {
+    "iq": 7.6
+  },
+  "glm-4-5v-reasoning": {
+    "iq": 7.6,
+    "price": 0.9
+  },
+  "mistral-large-2": {
+    "iq": 7.6
+  },
+  "devstral-small-2": {
+    "iq": 7.5
+  },
+  "llama-3-1-nemotron-ultra-253b-v1-reasoning": {
+    "iq": 7.5
+  },
+  "qwen3-30b-a3b-2507": {
+    "iq": 7.5,
+    "price": 0.35
+  },
+  "ernie-4-5-300b-a47b": {
+    "iq": 7.5,
+    "price": 0.485
+  },
+  "hermes-4-llama-3-1-405b-reasoning": {
+    "iq": 7.5,
+    "speed": 39.553,
+    "price": 1.5
+  },
+  "solar-pro-2-reasoning": {
+    "iq": 7.5
+  },
+  "nvidia-nemotron-nano-12b-v2-vl-reasoning": {
+    "iq": 7.5
+  },
+  "gemma-4-e4b-non-reasoning": {
+    "iq": 7.5,
+    "speed": 43.779,
+    "price": 0.04
+  },
+  "granite-4-1-30b": {
+    "iq": 7.4
+  },
+  "nvidia-nemotron-nano-9b-v2-reasoning": {
+    "iq": 7.4,
+    "speed": 18.657,
+    "price": 0.07
+  },
+  "hermes-4-llama-3-1-405b": {
+    "iq": 7.4,
+    "speed": 42.267,
+    "price": 1.5
+  },
+  "gemini-2-0-flash-lite-001": {
+    "iq": 7.4
+  },
+  "llama-nemotron-super-49b-v1-5": {
+    "iq": 7.4
+  },
+  "qwen3-32b-instruct": {
+    "iq": 7.3,
+    "price": 0.28
+  },
+  "gpt-4o-2024-05-13": {
+    "iq": 7.3,
+    "price": 7.5
+  },
+  "gemini-2-0-flash-lite-preview": {
+    "iq": 7.3
+  },
+  "k2-v2-low": {
+    "iq": 7.3
+  },
+  "llama-3-1-nemotron-nano-4b-reasoning": {
+    "iq": 7.3
+  },
+  "kimi-linear-48b-a3b-instruct": {
+    "iq": 7.3
+  },
+  "llama-3-1-instruct-405b": {
+    "iq": 7.3
+  },
+  "qwen3-8b-instruct-reasoning": {
+    "iq": 7.3,
+    "price": 0.66
+  },
+  "llama-3-3-nemotron-super-49b": {
+    "iq": 7.3
+  },
+  "qwen3-vl-8b-instruct": {
+    "iq": 7.3,
+    "price": 0.31
+  },
+  "qwen3-4b-instruct-reasoning": {
+    "iq": 7.2
+  },
+  "lfm2-5-8b-a1b": {
+    "iq": 7.2
+  },
+  "claude-35-sonnet-june-24": {
+    "iq": 7.2,
+    "price": 6
+  },
+  "tulu3-405b": {
+    "iq": 7.2
+  },
+  "gpt-4o-chatgpt": {
+    "iq": 7.2
+  },
+  "ring-flash-2-0": {
+    "iq": 7.2,
+    "price": 0.247
+  },
+  "pixtral-large-2411": {
+    "iq": 7.1
+  },
+  "olmo-3-1-32b-think": {
+    "iq": 7.1
+  },
+  "mistral-small-3-1": {
+    "iq": 7.1,
+    "price": 0.125
+  },
+  "grok-2-1212": {
+    "iq": 7.1
+  },
+  "gpt-5-nano-minimal": {
+    "iq": 7.1,
+    "price": 0.138
+  },
+  "gemini-1-5-flash": {
+    "iq": 7.1
+  },
+  "qwen3-vl-4b-reasoning": {
+    "iq": 7
+  },
+  "gpt-4-turbo": {
+    "iq": 7,
+    "price": 15
+  },
+  "solar-pro-2": {
+    "iq": 7
+  },
+  "nova-pro": {
+    "iq": 7,
+    "price": 1.4
+  },
+  "command-a": {
+    "iq": 7,
+    "speed": 69.68,
+    "price": 4.375
+  },
+  "qwen3-5-2b": {
+    "iq": 6.9
+  },
+  "llama-3-1-nemotron-instruct-70b": {
+    "iq": 6.9
+  },
+  "llama-3-1-instruct-8b": {
+    "iq": 6.9,
+    "price": 0.028
+  },
+  "grok-beta": {
+    "iq": 6.9
+  },
+  "qwen2-5-32b-instruct": {
+    "iq": 6.9
+  },
+  "nvidia-nemotron-3-nano-30b-a3b": {
+    "iq": 6.8,
+    "speed": 248.189,
+    "price": 0.088
+  },
+  "nvidia-nemotron-nano-9b-v2": {
+    "iq": 6.8,
+    "speed": 128.889,
+    "price": 0.086
+  },
+  "mistral-large-2407": {
+    "iq": 6.8,
+    "price": 3
+  },
+  "qwen3-4b-2507-instruct": {
+    "iq": 6.7
+  },
+  "qwen2-5-coder-32b-instruct": {
+    "iq": 6.7
+  },
+  "qwen3-14b-instruct": {
+    "iq": 6.7,
+    "price": 0.612
+  },
+  "gpt-4": {
+    "iq": 6.7,
+    "price": 37.5
+  },
+  "glm-4-5v": {
+    "iq": 6.7,
+    "price": 0.9
+  },
+  "mistral-small-3": {
+    "iq": 6.7,
+    "price": 0.058
+  },
+  "gemini-2-5-flash-lite": {
+    "iq": 6.7,
+    "price": 0.175
+  },
+  "nova-lite": {
+    "iq": 6.7,
+    "price": 0.105
+  },
+  "gpt-4o-mini": {
+    "iq": 6.7,
+    "price": 0.262
+  },
+  "hermes-4-llama-3-1-70b": {
+    "iq": 6.7
+  },
+  "qwen3-30b-a3b-instruct": {
+    "iq": 6.6,
+    "price": 0.35
+  },
+  "deepseek-v2-5": {
+    "iq": 6.6
+  },
+  "qwen3-4b-instruct": {
+    "iq": 6.6
+  },
+  "llama-3-1-instruct-70b": {
+    "iq": 6.6,
+    "price": 0.56
+  },
+  "granite-4-1-8b": {
+    "iq": 6.6
+  },
+  "sarvam-30b": {
+    "iq": 6.6,
+    "price": 0.047
+  },
+  "gemini-2-0-flash-thinking-exp-1219": {
+    "iq": 6.6
+  },
+  "deepseek-v2-5-sep-2024": {
+    "iq": 6.6
+  },
+  "olmo-3-1-32b-instruct": {
+    "iq": 6.5
+  },
+  "mistral-saba": {
+    "iq": 6.5
+  },
+  "deepseek-r1-distill-llama-8b": {
+    "iq": 6.5
+  },
+  "gemma-4-e2b-non-reasoning": {
+    "iq": 6.5
+  },
+  "olmo-3-32b-think": {
+    "iq": 6.5
+  },
+  "gemini-1-5-pro-may-2024": {
+    "iq": 6.4
+  },
+  "r1-1776": {
+    "iq": 6.4
+  },
+  "qwen-turbo": {
+    "iq": 6.4,
+    "price": 0.088
+  },
+  "reka-flash": {
+    "iq": 6.4,
+    "price": 0.35
+  },
+  "llama-3-2-instruct-90b-vision": {
+    "iq": 6.4
+  },
+  "solar-mini": {
+    "iq": 6.4,
+    "price": 0.15
+  },
+  "celeris-1": {
+    "iq": 6.3,
+    "speed": 2344.499,
+    "price": 0.325
+  },
+  "grok-1": {
+    "iq": 6.3
+  },
+  "qwen2-72b-instruct": {
+    "iq": 6.3
+  },
+  "phi-4-mini": {
+    "iq": 6.3,
+    "speed": 46.826
+  },
+  "exaone-4-0-32b": {
+    "iq": 6.3
+  },
+  "qwen3-5-2b-non-reasoning": {
+    "iq": 6.2
+  },
+  "gemini-1-5-flash-8b": {
+    "iq": 6.2
+  },
+  "qwen3-5-0-8b": {
+    "iq": 6.1
+  },
+  "deephermes-3-mistral-24b-preview": {
+    "iq": 6.1
+  },
+  "jamba-1-7-large": {
+    "iq": 6.1
+  },
+  "granite-4-0-h-small": {
+    "iq": 6,
+    "speed": 54.18,
+    "price": 0.107
+  },
+  "ministral-3-14b": {
+    "iq": 6,
+    "speed": 92.524,
+    "price": 0.2
+  },
+  "jamba-1-5-large": {
+    "iq": 6,
+    "price": 3.5
+  },
+  "qwen3-omni-30b-a3b-instruct": {
+    "iq": 6,
+    "speed": 108.763,
+    "price": 0.43
+  },
+  "hermes-3-llama-3-1-70b": {
+    "iq": 6,
+    "price": 0.7
+  },
+  "qwen3-8b-instruct": {
+    "iq": 6,
+    "price": 0.31
+  },
+  "deepseek-coder-v2": {
+    "iq": 6
+  },
+  "olmo-2-32b": {
+    "iq": 6
+  },
+  "jamba-1-6-large": {
+    "iq": 6
+  },
+  "lfm2-24b-a2b": {
+    "iq": 5.9
+  },
+  "gemini-1-5-flash-may-2024": {
+    "iq": 5.9
+  },
+  "phi-4": {
+    "iq": 5.9,
+    "speed": 40.843,
+    "price": 0.219
+  },
+  "claude-3-sonnet": {
+    "iq": 5.9
+  },
+  "nova-micro": {
+    "iq": 5.9,
+    "speed": 272.419,
+    "price": 0.061
+  },
+  "granite-4-1-3b": {
+    "iq": 5.9
+  },
+  "mistral-small": {
+    "iq": 5.8
+  },
+  "gemini-1-0-ultra": {
+    "iq": 5.8
+  },
+  "phi-3-mini": {
+    "iq": 5.8
+  },
+  "nvidia-nemotron-nano-12b-v2-vl": {
+    "iq": 5.8,
+    "speed": 189.05,
+    "price": 0.3
+  },
+  "gemma-3n-e4b-preview-0520": {
+    "iq": 5.8
+  },
+  "phi-4-multimodal": {
+    "iq": 5.8,
+    "speed": 17.247
+  },
+  "qwen2-5-coder-7b-instruct": {
+    "iq": 5.8
+  },
+  "mistral-large": {
+    "iq": 5.8,
+    "price": 6
+  },
+  "mistral-8x22b-instruct": {
+    "iq": 5.7
+  },
+  "llama-2-chat-7b": {
+    "iq": 5.7,
+    "price": 0.1
+  },
+  "llama-3-2-instruct-3b": {
+    "iq": 5.7
+  },
+  "minicpm-v4-6-1-3b": {
+    "iq": 5.7
+  },
+  "jamba-reasoning-3b": {
+    "iq": 5.7
+  },
+  "qwen3-vl-4b-instruct": {
+    "iq": 5.7
+  },
+  "qwen1-5-110b-chat": {
+    "iq": 5.7
+  },
+  "reka-flash-3": {
+    "iq": 5.6,
+    "speed": 94.662,
+    "price": 0.35
+  },
+  "olmo-3-7b-think": {
+    "iq": 5.6
+  },
+  "claude-21": {
+    "iq": 5.6
+  },
+  "claude-3-haiku": {
+    "iq": 5.6,
+    "price": 0.5
+  },
+  "olmo-2-7b": {
+    "iq": 5.6
+  },
+  "molmo-7b-d": {
+    "iq": 5.6
+  },
+  "ling-mini-2-0": {
+    "iq": 5.5
+  },
+  "deepseek-r1-distill-qwen-1-5b": {
+    "iq": 5.5
+  },
+  "claude-2": {
+    "iq": 5.5
+  },
+  "deepseek-v2": {
+    "iq": 5.5
+  },
+  "mistral-small-2402": {
+    "iq": 5.5
+  },
+  "mistral-medium": {
+    "iq": 5.5
+  },
+  "gpt-35-turbo": {
+    "iq": 5.5,
+    "price": 0.75
+  },
+  "ministral-3-8b": {
+    "iq": 5.5,
+    "speed": 109.279,
+    "price": 0.15
+  },
+  "llama-3-instruct-70b": {
+    "iq": 5.5,
+    "price": 1.175
+  },
+  "arctic-instruct": {
+    "iq": 5.4
+  },
+  "qwen-chat-72b": {
+    "iq": 5.4
+  },
+  "lfm-40b": {
+    "iq": 5.4
+  },
+  "llama-3-2-instruct-11b-vision": {
+    "iq": 5.4,
+    "speed": 14.483,
+    "price": 0.345
+  },
+  "qwen3-5-0-8b-non-reasoning": {
+    "iq": 5.4
+  },
+  "palm-2": {
+    "iq": 5.4
+  },
+  "gemini-1-0-pro": {
+    "iq": 5.3
+  },
+  "deepseek-coder-v2-lite": {
+    "iq": 5.3
+  },
+  "sarvam-m-reasoning": {
+    "iq": 5.3
+  },
+  "deepseek-llm-67b-chat": {
+    "iq": 5.3
+  },
+  "llama-2-chat-70b": {
+    "iq": 5.3
+  },
+  "llama-2-chat-13b": {
+    "iq": 5.3
+  },
+  "command-r-plus-04-2024": {
+    "iq": 5.3
+  },
+  "openchat-35": {
+    "iq": 5.3
+  },
+  "dbrx": {
+    "iq": 5.3
+  },
+  "exaone-4-0-1-2b-reasoning": {
+    "iq": 5.3
+  },
+  "olmo-3-7b-instruct": {
+    "iq": 5.2,
+    "price": 0.125
+  },
+  "exaone-4-0-1-2b": {
+    "iq": 5.2
+  },
+  "lfm2-5-1-2b-thinking": {
+    "iq": 5.2
+  },
+  "jamba-1-7-mini": {
+    "iq": 5.2
+  },
+  "lfm2-2-6b": {
+    "iq": 5.2
+  },
+  "lfm2-5-1-2b-instruct": {
+    "iq": 5.2
+  },
+  "jamba-1-5-mini": {
+    "iq": 5.2,
+    "price": 0.25
+  },
+  "granite-4-0-h-nano-1b": {
+    "iq": 5.2
+  },
+  "qwen3-1-7b-instruct-reasoning": {
+    "iq": 5.2
+  },
+  "jamba-1-6-mini": {
+    "iq": 5.2
+  },
+  "mixtral-8x7b-instruct": {
+    "iq": 5.1,
+    "price": 0.512
+  },
+  "gemma-3-270m": {
+    "iq": 5.1
+  },
+  "apertus-70b-instruct": {
+    "iq": 5.1,
+    "price": 1.345
+  },
+  "granite-4-0-micro": {
+    "iq": 5.1
+  },
+  "deephermes-3-llama-3-1-8b-preview": {
+    "iq": 5.1
+  },
+  "claude-instant": {
+    "iq": 5
+  },
+  "command-r-03-2024": {
+    "iq": 5
+  },
+  "llama-65b": {
+    "iq": 5
+  },
+  "mistral-7b-instruct": {
+    "iq": 5,
+    "price": 0.162
+  },
+  "qwen-chat-14b": {
+    "iq": 5
+  },
+  "granite-4-0-nano-1b": {
+    "iq": 5
+  },
+  "molmo2-8b": {
+    "iq": 5
+  },
+  "lfm2-8b-a1b": {
+    "iq": 4.9
+  },
+  "granite-3-3-8b-instruct": {
+    "iq": 4.9,
+    "price": 0.085
+  },
+  "qwen3-1-7b-instruct": {
+    "iq": 4.9
+  },
+  "gemma-3-27b": {
+    "iq": 4.9
+  },
+  "ministral-3-3b": {
+    "iq": 4.8,
+    "speed": 266.908,
+    "price": 0.1
+  },
+  "apertus-8b-instruct": {
+    "iq": 4.8,
+    "price": 0.125
+  },
+  "gemma-3-1b": {
+    "iq": 4.8
+  },
+  "gemma-3-4b": {
+    "iq": 4.8
+  },
+  "gemma-3n-e2b": {
+    "iq": 4.8
+  },
+  "gemma-3n-e4b": {
+    "iq": 4.8
+  },
+  "granite-4-0-350m": {
+    "iq": 4.8
+  },
+  "granite-4-0-h-350m": {
+    "iq": 4.8
+  },
+  "lfm2-1-2b": {
+    "iq": 4.8
+  },
+  "lfm2-5-vl-1-6b": {
+    "iq": 4.8
+  },
+  "llama-3-instruct-8b": {
+    "iq": 4.8,
+    "price": 0.07
+  },
+  "llama-3-2-instruct-1b": {
+    "iq": 4.8
+  },
+  "qwen3-0-6b-instruct": {
+    "iq": 4.8
+  },
+  "qwen3-0-6b-instruct-reasoning": {
+    "iq": 4.8
+  },
+  "tiny-aya-global": {
+    "iq": 4.8,
+    "speed": 130.407
+  },
+  "nvidia-nemotron-3-nano-4b": {
+    "iq": 4.8
+  },
+  "gemma-3-12b": {
+    "iq": 3.8
+  },
+  "k2-horizon-0-9b": {
+    "iq": 3
+  },
+  "cogito-v2-1-reasoning": {
+    "price": 1.25
+  },
+  "gpt-5-4-pro": {
+    "price": 67.5
+  }
+}

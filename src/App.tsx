@@ -9,6 +9,7 @@ import { Footer } from './components/Footer';
 import {
   AchievementsModal,
   OfflineModal,
+  PrestigeModal,
   SettingsModal,
   StatsModal,
 } from './components/Modals';
@@ -186,6 +187,7 @@ export const App: React.FC = () => {
         onClose={() => setSettingsOpen(false)}
       />
       <OfflineModal />
+      <PrestigeModal />
       <Toasts />
     </div>
   );

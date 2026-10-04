@@ -1,0 +1,305 @@
+import { describe, expect, it } from 'vitest';
+import {
+  ACHIEVEMENTS,
+  awardAchievements,
+  awardShadowAchievements,
+  newlyEarned,
+  newlyEarnedShadows,
+  ordinaryEarned,
+  shadowEarned,
+} from './achievements';
+import { CATALOG, LAST_GENERATION, type Model } from './catalog';
+import {
+  advance,
+  applyOffline,
+  bulkCost,
+  buyAgents,
+  buyPerk,
+  buyUpgrade,
+  click,
+  prestige,
+  totalIncome,
+} from './engine';
+import { PERKS } from './perks';
+import { migrate } from './save';
+import { newGame, SAVE_VERSION, type GameState } from './state';
+import { SHADOW_ACHIEVEMENTS } from './shadow';
+import { CLICK_UPGRADES, clickUpgradeId } from './upgrades';
+
+const T0 = 1_000_000;
+const HOUR = 3_600_000;
+const g0 = CATALOG[0];
+const g2 = CATALOG[2];
+const last = CATALOG[LAST_GENERATION];
+
+/** Токены в кармане: тесты строят конец игры, а не играют до него. */
+const rich = (s: GameState, tokens: number): GameState => ({ ...s, tokens, runTokens: tokens });
+
+/** Сколько стоит `n` Агентов Модели с нуля: цена берётся из движка, а не выдумывается. */
+const priceOf = (m: Model, n: number): number => bulkCost(m, 0, n);
+
+/** Сколько Кликов подряд: клик — самый дешёвый переход, поэтому набирается циклом. */
+const clickN = (s: GameState, n: number): GameState => {
+  let out = s;
+  for (let i = 0; i < n; i++) out = click(out);
+  return out;
+};
+
+/**
+ * Дождаться, пока Доход наберёт `tokens`: время считается из настоящего Дохода.
+ * Запас вчетверо нужен потому, что иначе округление double решает, закрыт ли рубеж,
+ * и тест зависит от погрешности деления вместо условия Достижения.
+ */
+const idle = (s: GameState, tokens: number): GameState => advance(s, (tokens * 4) / totalIncome(s));
+
+/** Перк «Скрипт-автокликер» куплен и Клики идут со скоростью 1/сек. */
+const autoClicking = (s: GameState): GameState => buyPerk({ ...s, compute: 25 }, 'autoclick');
+
+/**
+ * Все Поколения пройдены Престижами, Флагман каждого куплен по-настоящему.
+ * `stepMs` — игровое время между Престижами: спринт отличается от прогулки только им.
+ */
+const prestigeToFrontier = (stepMs = 0): GameState => {
+  let s = newGame(T0);
+  for (let g = 0; g < CATALOG.length - 1; g++) {
+    s = prestige(buyAgents(rich(s, 1e50), CATALOG[g].flagship.id, 1), T0 + g * stepMs);
+  }
+  return s;
+};
+
+/** Купить по `n` Агентов каждой Модели, ровно на сумму их цен. */
+const hireAll = (s: GameState, models: Model[], n: number): GameState =>
+  models.reduce((st, m) => buyAgents(st, m.id, n), rich(s, models.reduce((sum, m) => sum + priceOf(m, n), 0)));
+
+/**
+ * Конец игры: последнее Поколение и по 2000 Агентов каждой Модели — 10 000 Агентов.
+ * Объёмы взяты из цен движка и остаются конечными числами: 1e650 в double — это Infinity,
+ * и такой «богатый» игрок не смог бы даже купить первого Агента.
+ */
+const lateGame = (): GameState => hireAll(prestigeToFrontier(1_000), last.models, 2_000);
+
+/** Поколение 1 закрыто целиком: 100 Агентов одной Модели, все Модели, Апгрейд, 10 000 Кликов. */
+const firstGenerationCleared = (): GameState => {
+  let s = buyAgents(rich(newGame(T0), 1e30), g0.models[0].id, 100);
+  for (const m of g0.models) s = buyAgents(s, m.id, 1);
+  s = buyUpgrade(s, clickUpgradeId(0, 0));
+  return idle(clickN(s, 10_000), 1e10);
+};
+
+/** Состояние, в котором выполнено условие каждой тени. Шутка недостижима by design. */
+const REACH: Record<string, () => GameState> = {
+  // Перк даёт Клик в секунду: 100 000 Кликов — это 27 суток непрерывной игры.
+  shadow_click_100k: () => advance(autoClicking(newGame(T0)), 100_000),
+  shadow_early_roster: () => awardAchievements(firstGenerationCleared()).state,
+  shadow_final_no_upgrade: () => hireAll(prestigeToFrontier(), [last.flagship], 1),
+  shadow_final_no_perk: () => prestigeToFrontier(),
+  // 25 000 Кликов в Поколении 1: заработок идёт в Клики, ни одного Агента так и не нанято.
+  shadow_purist_25k: () => clickN(newGame(T0), 25_000),
+  // Три Модели Поколения 3 по одному Агенту, Флагман включён — Забег уже можно закрыть.
+  shadow_minimal_roster: () =>
+    [g2.models[0], g2.models[1], g2.flagship].reduce(
+      (s, m) => buyAgents(rich(s, 1e30), m.id, 1),
+      { ...newGame(T0), generation: 2, maxGeneration: 2 },
+    ),
+  // Простой длиннее лимита Оффлайн-дохода: 100 часов при lastTick, приведённом к now.
+  shadow_100_hours: () => applyOffline(newGame(T0), T0 + 100 * HOUR).state,
+  shadow_all_click_upgrades: () =>
+    CLICK_UPGRADES.reduce((s, _, i) => buyUpgrade(s, clickUpgradeId(0, i)), rich(newGame(T0), 1e12)),
+  shadow_click_worth_1e24: () => lateGame(),
+  shadow_one_model_1000: () => hireAll(prestigeToFrontier(), [last.models[0]], 1_000),
+  shadow_flagship_500: () => hireAll(prestigeToFrontier(), [last.flagship], 500),
+  shadow_swarm_10k: () => hireAll(prestigeToFrontier(), last.models, 2_000),
+  shadow_all_perks: () =>
+    PERKS.reduce((s, p) => buyPerk(s, p.id), { ...newGame(T0), compute: PERKS.reduce((n, p) => n + p.cost, 0) }),
+  shadow_run_clicks_100k: () => advance(autoClicking(newGame(T0)), 100_000),
+  shadow_compute_hoarder: () => prestige(buyAgents(rich(newGame(T0), 1e30), g0.flagship.id, 1), T0),
+  // Числовая лестница: Доход последнего Поколения доводит общий счёт до любого рубежа.
+  shadow_tok_33: () => idle(lateGame(), 1e33),
+  shadow_tok_45: () => idle(lateGame(), 1e45),
+  shadow_tok_60: () => idle(lateGame(), 1e60),
+  shadow_tok_80: () => idle(lateGame(), 1e80),
+  shadow_tok_110: () => idle(lateGame(), 1e110),
+  shadow_tok_150: () => idle(lateGame(), 1e150),
+  shadow_tok_200: () => idle(lateGame(), 1e200),
+  shadow_tok_260: () => idle(lateGame(), 1e260),
+  shadow_tok_300: () => idle(lateGame(), 1e300),
+  shadow_run_1e300: () => idle(lateGame(), 1e300),
+  // Спринт: все Престижи за шесть секунд игровых часов. Счётчик Престижей упирается в
+  // число Поколений (Престиж запрещён на последнем), поэтому ускоряется здесь только время.
+  shadow_all_prestiges_15m: () => prestigeToFrontier(1_000),
+};
+
+/** Тень, условие которой нельзя выполнить ни в какой момент игры. */
+const UNREACHABLE = 'shadow_blind_modal';
+
+/** Состояния для проверок чистоты: пустое, начало Поколения 1 и конец игры. */
+const probes = (): GameState[] => [
+  newGame(T0),
+  clickN(newGame(T0), 10_000),
+  applyOffline(newGame(T0), T0 + 100 * HOUR).state,
+  lateGame(),
+  idle(lateGame(), 1e45),
+];
+
+const deepFreeze = (v: unknown): void => {
+  if (v && typeof v === 'object') {
+    Object.freeze(v);
+    for (const x of Object.values(v)) deepFreeze(x);
+  }
+};
+
+describe('теневая лестница не трогает обычные достижения', () => {
+  it('держит знаменатель обычных Достижений на 21', () => {
+    expect(ACHIEVEMENTS.length).toBe(21);
+    expect(new Set(ACHIEVEMENTS.map((a) => a.id)).size).toBe(21);
+    expect(SHADOW_ACHIEVEMENTS.length).toBeGreaterThanOrEqual(24);
+    expect(SHADOW_ACHIEVEMENTS.length).toBeLessThanOrEqual(32);
+  });
+
+  it('не смешивает id двух лестниц', () => {
+    const ordinary = new Set(ACHIEVEMENTS.map((a) => a.id));
+    const shadows = new Set(SHADOW_ACHIEVEMENTS.map((a) => a.id));
+    expect(shadows.size).toBe(SHADOW_ACHIEVEMENTS.length);
+    for (const id of shadows) expect(ordinary.has(id)).toBe(false);
+  });
+
+  it('считает обычные по id, а не по длине списка', () => {
+    const earned = [...ACHIEVEMENTS, ...SHADOW_ACHIEVEMENTS].reduce(
+      (s, a) => ({ ...s, achievements: [...s.achievements, a.id] }),
+      newGame(T0),
+    );
+    // Длина списка после теней перестала быть числителем — иначе счётчик ушёл бы за 21.
+    expect(earned.achievements.length).toBeGreaterThan(ACHIEVEMENTS.length);
+    expect(ordinaryEarned(earned)).toBe(ACHIEVEMENTS.length);
+    expect(ordinaryEarned(earned) / ACHIEVEMENTS.length).toBe(1);
+    expect(shadowEarned(earned)).toBe(SHADOW_ACHIEVEMENTS.length);
+  });
+
+  it('не выдаёт тени при awardAchievements и не выдаёт обычные при awardShadowAchievements', () => {
+    const state = idle(lateGame(), 1e45);
+    const isShadow = (id: string) => SHADOW_ACHIEVEMENTS.some((a) => a.id === id);
+
+    const ordinary = awardAchievements(state);
+    expect(ordinary.awarded.some(isShadow)).toBe(false);
+    expect(ordinary.state.achievements.some((id) => id.startsWith('shadow_'))).toBe(false);
+    expect(newlyEarnedShadows(state).length).toBeGreaterThan(0);
+
+    const shadows = awardShadowAchievements(state);
+    expect(shadows.awarded.length).toBeGreaterThan(0);
+    expect(shadows.awarded.every(isShadow)).toBe(true);
+    // Обычный числитель от выдачи теней не сдвигается ни на единицу.
+    expect(ordinaryEarned(shadows.state)).toBe(ordinaryEarned(state));
+  });
+
+  it('переживает загрузку без миграции: migrate отбрасывает только Модели, Апгрейды и Перки', () => {
+    const raw = { ...newGame(T0), version: SAVE_VERSION, achievements: [UNREACHABLE, 'click_1', 'неизвестный-id'] };
+    const loaded = migrate(raw, T0);
+    expect(loaded.achievements).toEqual([UNREACHABLE, 'click_1', 'неизвестный-id']);
+    expect(ordinaryEarned(loaded)).toBe(1);
+    // Тени не заводят новую версию сохранения: форма GameState не менялась.
+    expect(SAVE_VERSION).toBe(2);
+  });
+});
+
+describe('каждое теневое достижение достижимо', () => {
+  it('имеет состояние, в котором условие истинно', () => {
+    const missing = SHADOW_ACHIEVEMENTS.filter((a) => a.id !== UNREACHABLE && !REACH[a.id]).map((a) => a.id);
+    expect(missing).toEqual([]);
+    const unmet = SHADOW_ACHIEVEMENTS.filter((a) => a.id !== UNREACHABLE && !a.check(REACH[a.id]())).map((a) => a.id);
+    expect(unmet).toEqual([]);
+  });
+
+  it('не выдаётся в пустом новом игре', () => {
+    expect(SHADOW_ACHIEVEMENTS.filter((a) => a.check(newGame(T0))).map((a) => a.id)).toEqual([]);
+    expect(newlyEarnedShadows(newGame(T0))).toEqual([]);
+  });
+
+  it('остаётся недостижимой шуткой даже в максимальном состоянии', () => {
+    const joke = SHADOW_ACHIEVEMENTS.find((a) => a.id === UNREACHABLE)!;
+    expect(joke.check(lateGame())).toBe(false);
+    expect(joke.check(idle(lateGame(), 1e300))).toBe(false);
+    expect(newlyEarnedShadows(idle(lateGame(), 1e300))).not.toContain(UNREACHABLE);
+  });
+
+  it('идёт по возрастанию: числовая лестница и её рубежи', () => {
+    const prefix = 'shadow_tok_';
+    const rungs = SHADOW_ACHIEVEMENTS.filter((a) => a.id.startsWith(prefix)).map((a) => Number(a.id.slice(prefix.length)));
+    expect(rungs).toEqual([33, 45, 60, 80, 110, 150, 200, 260, 300]);
+    for (let i = 1; i < rungs.length; i++) expect(rungs[i]).toBeGreaterThan(rungs[i - 1]);
+    // Обычные Достижения кончаются на 1e27 — лестница начинается строго выше.
+    expect(rungs[0]).toBeGreaterThan(27);
+  });
+
+  it('числовая лестница закрывается ровно на своём рубеже', () => {
+    const prefix = 'shadow_tok_';
+    for (const a of SHADOW_ACHIEVEMENTS.filter((x) => x.id.startsWith(prefix))) {
+      const rung = Math.pow(10, Number(a.id.slice(prefix.length)));
+      expect(a.check({ ...newGame(T0), totalTokens: rung })).toBe(true);
+      // Ниже рубежа — минус процент, а не единица: на 1e300 шаг float64 шире единицы,
+      // и `rung - 1` сравнялось бы с самим рубежом.
+      expect(a.check({ ...newGame(T0), totalTokens: (rung * 9) / 10 })).toBe(false);
+    }
+  });
+
+  it('награждает тень один раз и не выдаёт её повторно', () => {
+    const state = idle(lateGame(), 1e45);
+    const first = awardShadowAchievements(state);
+    expect(first.awarded.length).toBeGreaterThan(0);
+    const second = awardShadowAchievements(first.state);
+    expect(second.awarded).toEqual([]);
+    // Контракт стор-а: пустой список — это тот же объект состояния, а не копия.
+    expect(second.state).toBe(first.state);
+    expect(newlyEarned(first.state).every((id) => !id.startsWith('shadow_'))).toBe(true);
+  });
+
+  it('остаётся закрытой после потери условия, поэтому тень и лежит в сохранении', () => {
+    const earned = awardShadowAchievements(clickN(newGame(T0), 25_000)).state;
+    expect(earned.achievements).toContain('shadow_purist_25k');
+    // Престиж обнуляет runClicks — условие перестаёт быть истинным.
+    const afterPrestige = { ...earned, runClicks: 0 };
+    const shadow = SHADOW_ACHIEVEMENTS.find((a) => a.id === 'shadow_purist_25k')!;
+    expect(shadow.check(afterPrestige)).toBe(false);
+    // Записанная тень не отнимается и не выдаётся заново.
+    expect(shadowEarned(afterPrestige)).toBe(shadowEarned(earned));
+    expect(awardShadowAchievements(afterPrestige).awarded).not.toContain('shadow_purist_25k');
+  });
+});
+
+describe('детерминированность', () => {
+  it('одинаковое состояние даёт одинаковый ответ', () => {
+    for (const s of probes()) {
+      const clone = JSON.parse(JSON.stringify(s)) as GameState;
+      const once = SHADOW_ACHIEVEMENTS.map((a) => a.check(s));
+      expect(SHADOW_ACHIEVEMENTS.map((a) => a.check(s))).toEqual(once);
+      expect(SHADOW_ACHIEVEMENTS.map((a) => a.check(clone))).toEqual(once);
+    }
+  });
+
+  it('не меняет состояние: на замороженном снимке все check возвращают boolean', () => {
+    for (const s of probes()) {
+      const before = JSON.stringify(s);
+      const frozen = JSON.parse(before) as GameState;
+      deepFreeze(frozen);
+      for (const a of SHADOW_ACHIEVEMENTS) expect(typeof a.check(frozen)).toBe('boolean');
+      expect(JSON.stringify(s)).toBe(before);
+    }
+  });
+
+  it('не читает Date.now и Math.random', () => {
+    const clock = Date.now;
+    const dice = Math.random;
+    const states = probes();
+    Date.now = () => {
+      throw new Error('check теней читает Date.now');
+    };
+    Math.random = () => {
+      throw new Error('check теней читает Math.random');
+    };
+    try {
+      for (const s of states) for (const a of SHADOW_ACHIEVEMENTS) a.check(s);
+    } finally {
+      Date.now = clock;
+      Math.random = dice;
+    }
+  });
+});

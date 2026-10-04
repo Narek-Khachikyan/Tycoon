@@ -84,7 +84,7 @@ const moteStyle = (i: number): React.CSSProperties =>
 
 export const OfficeColumn: React.FC = () => {
   const state = useGameStore((s) => s.state);
-  const triggerPrestige = useGameStore((s) => s.triggerPrestige);
+  const requestPrestige = useGameStore((s) => s.requestPrestige);
   const notation = state.settings.notation;
 
   const gen = CATALOG[state.generation];
@@ -154,7 +154,9 @@ export const OfficeColumn: React.FC = () => {
 
         {prestigeReady && !finale && (
           <button
-            onClick={triggerPrestige}
+            // Второй вход в тот же необратимый переход, поэтому идёт через окно
+            // подтверждения, а не напрямую: стереть Забег должен один путь.
+            onClick={requestPrestige}
             className="pixel-btn pixel-btn-gold"
             style={{ fontSize: '1rem', padding: '10px 16px' }}
           >

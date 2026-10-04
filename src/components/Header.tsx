@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { motionAllowed, useGameStore } from '../store/useGameStore';
 import { CATALOG } from '../economy/catalog';
-import { ACHIEVEMENTS } from '../economy/achievements';
+import { ACHIEVEMENTS, ordinaryEarned } from '../economy/achievements';
 import { formatNumber } from '../economy/format';
 
 interface HeaderProps {
@@ -21,7 +21,9 @@ export const Header: React.FC<HeaderProps> = ({
   const badgeRef = useRef<HTMLButtonElement>(null);
 
   const gen = CATALOG[state.generation];
-  const unlockedAchCount = state.achievements.length;
+  // Числитель — ordinaryEarned, а не achievements.length: тени лежат в том же списке, и
+  // прямой длиной счётчик шапал бы выше знаменателя. Знаменатель остаётся только обычный.
+  const unlockedAchCount = ordinaryEarned(state);
   const totalAchCount = ACHIEVEMENTS.length;
   const isMuted = state.settings.muted;
 
