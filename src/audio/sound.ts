@@ -139,3 +139,28 @@ export function playAchievementSound(muted: boolean): void {
     osc.stop(start + 0.15);
   });
 }
+
+// Отказ по недоступной покупке — низкий короткий buzz, а не высокий тик: высокий тик
+// совпал бы по тембру с покупкой и читался бы как подтверждение, а не как отказ.
+export function playDenySound(muted: boolean): void {
+  if (muted) return;
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  const now = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+
+  osc.type = 'square';
+  osc.frequency.setValueAtTime(140, now);
+  osc.frequency.exponentialRampToValueAtTime(90, now + 0.12);
+
+  gain.gain.setValueAtTime(0.1, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+
+  osc.start(now);
+  osc.stop(now + 0.12);
+}

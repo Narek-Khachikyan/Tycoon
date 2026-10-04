@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import { motionAllowed, reduceMotionMedia, useGameStore } from '../store/useGameStore';
-import { totalIncome, clickValue } from '../economy/engine';
-import { formatNumber } from '../economy/format';
+import { totalIncome, clickValue, nextAgentCost, shortfall } from '../economy/engine';
+import { formatCount, formatNumber } from '../economy/format';
 import { Num } from './Num';
 import { Icon } from './Icon';
 
@@ -122,7 +122,25 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
     const x = rect.left + rect.width / 2 + (Math.random() * 40 - 20);
     const y = rect.top + 10;
     clickPrompt(x, y);
+    // Перезапуск сквоша тем же сбросом, что у ModelRow: снятие класса и чтение ширины
+    // между снятием и возвратом, иначе быстрый повторный Клик не перезапустил бы анимацию.
+    const node = btnRef.current;
+    if (!node) return;
+    node.classList.remove('click-btn--squash');
+    void node.offsetWidth;
+    node.classList.add('click-btn--squash');
   };
+
+  // Снятие по концу анимации, а не по таймеру: таймеры в компонентах запрещены.
+  const handleSquashEnd = () => {
+    btnRef.current?.classList.remove('click-btn--squash');
+  };
+
+  // Прогресс до ближайшей покупки Агента: цена приходит из движка, компонент только делит.
+  const nextCost = nextAgentCost(state);
+  const missing = shortfall(nextCost, state.tokens);
+  const progress = nextCost > 0 ? Math.min(1, state.tokens / nextCost) : 0;
+  const canHire = nextCost > 0 && state.tokens >= nextCost;
 
   return (
     <div
@@ -182,12 +200,20 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
         >
           +<Num>{formatNumber(income, notation)}</Num> / сек
         </div>
+        {/* Подсказка при нулевом Доходе: игрок без Агентов иначе видит голый «+0/сек»
+            без следующего шага. Только текст, без анимаций. */}
+        {income === 0 && (
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+            Нанятый Агент приносит Доход сам — загляни в магазин
+          </div>
+        )}
       </div>
 
       {/* Большая кнопка Клика */}
       <button
         ref={btnRef}
         onClick={handleClick}
+        onAnimationEnd={handleSquashEnd}
         className="pixel-btn pixel-btn-accent pulse-glow"
         style={{
           width: '100%',
@@ -210,6 +236,47 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
           +<Num>{formatNumber(cVal, notation)}</Num> Токенов за клик
         </span>
       </button>
+
+      {/* Прогресс до ближайшей покупки Агента: сколько осталось до самой дешёвой Модели.
+          При пустом кошельке первого запуска полоска нулевая, но подсказка уже стоит —
+          пустой полоски без текста здесь не бывает. */}
+      <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        <div
+          role="progressbar"
+          aria-label="Прогресс до следующей покупки"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(progress * 100)}
+          style={{
+            width: '100%',
+            height: '8px',
+            backgroundColor: 'var(--bg-card)',
+            border: '1px solid var(--border)',
+            borderRadius: '4px',
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            style={{
+              width: `${progress * 100}%`,
+              height: '100%',
+              backgroundColor: 'var(--accent-color)',
+              // Переход ширины — не движение: при reducedMotion остаётся, тряски и сдвига тут нет.
+              transition: 'width 0.2s ease-out',
+            }}
+          />
+        </div>
+        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center' }}>
+          {canHire ? (
+            <>Можно нанять Агента — загляни в магазин</>
+          ) : (
+            <>
+              До следующей покупки: не хватает <Num>{formatNumber(missing, notation)}</Num>{' '}
+              {formatCount(Math.round(missing), 'Токен', 'Токена', 'Токенов')}
+            </>
+          )}
+        </div>
+      </div>
 
       {/* Чат-пузыри */}
       <div

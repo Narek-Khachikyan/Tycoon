@@ -20,6 +20,7 @@ import type { Notation } from '../economy/state';
 import { MascotSprite } from './MascotSprite';
 import { Num } from './Num';
 import { Icon } from './Icon';
+import { playDenySound } from '../audio/sound';
 
 // 8 искр из точки покупки. Радиус 14–26 px — чуть больше самой кнопки, поэтому жест читается
 // как отклик на нажатие, а не как залп.
@@ -40,23 +41,32 @@ let sparkCounter = 0;
  * прыгала бы по высоте на каждом тике, а с ней и кнопка под ней. aria-live не ставится — число
  * меняется двадцать раз в секунду и иначе читалось бы вслух.
  */
-const TokenDeficit: React.FC<{ amount: number; notation: Notation }> = ({ amount, notation }) => (
-  <div
-    style={{
-      minHeight: '1em',
-      fontSize: '0.75rem',
-      color: 'var(--text-muted)',
-      textAlign: 'right',
-    }}
-  >
-    {amount > 0 && (
-      <>
-        Не хватает <Num>{formatNumber(amount, notation)}</Num>{' '}
-        {formatCount(Math.round(amount), 'Токен', 'Токена', 'Токенов')}
-      </>
-    )}
-  </div>
-);
+const TokenDeficit: React.FC<{ amount: number; notation: Notation }> = ({ amount, notation }) => {
+  // Снятие deny-вспышки по концу анимации, а не по таймеру: таймеры в компонентах запрещены.
+  // Проверка цели не нужна — анимация висит только на этом узле, чужих animationend здесь нет.
+  const handleDenyEnd = (e: React.AnimationEvent<HTMLDivElement>) => {
+    e.currentTarget.classList.remove('deny-flash');
+  };
+  return (
+    <div
+      className="token-deficit"
+      onAnimationEnd={handleDenyEnd}
+      style={{
+        minHeight: '1em',
+        fontSize: '0.75rem',
+        color: 'var(--text-muted)',
+        textAlign: 'right',
+      }}
+    >
+      {amount > 0 && (
+        <>
+          Не хватает <Num>{formatNumber(amount, notation)}</Num>{' '}
+          {formatCount(Math.round(amount), 'Токен', 'Токена', 'Токенов')}
+        </>
+      )}
+    </div>
+  );
+};
 
 /**
  * Строка Модели. Владеет своим откликом на покупку: магазин перерисовывается каждый тик, и
@@ -65,10 +75,12 @@ const TokenDeficit: React.FC<{ amount: number; notation: Notation }> = ({ amount
 const ModelRow: React.FC<{
   owned: number;
   isFlagship: boolean;
+  canAfford: boolean;
   children: React.ReactNode;
-}> = ({ owned, isFlagship, children }) => {
+}> = ({ owned, isFlagship, canAfford, children }) => {
   const rowRef = useRef<HTMLDivElement>(null);
   const prevOwned = useRef(owned);
+  const prevAfford = useRef(canAfford);
   const [sparks, setSparks] = useState<{ id: number; x: number; y: number } | null>(null);
 
   useEffect(() => {
@@ -104,9 +116,32 @@ const ModelRow: React.FC<{
   // для их уборки в игре запрещены.
   const handleSparkEnd = () => setSparks(null);
 
+  // Вспышка разблокировки: переход disabled→enabled раньше был тихим, и игрок замечал
+  // доступную Модель только по кнопке. Начальное значение ref — текущее, поэтому монтирование
+  // со сразу доступной покупкой не мигает.
+  useEffect(() => {
+    const before = prevAfford.current;
+    prevAfford.current = canAfford;
+    if (before || !canAfford) return;
+    const node = rowRef.current;
+    if (!node) return;
+    // Тот же сброс, что у model-row--pop: иначе повторная разблокировка подряд не запустится.
+    node.classList.remove('model-row--unlock');
+    void node.offsetWidth;
+    node.classList.add('model-row--unlock');
+  }, [canAfford]);
+
+  // Снятие unlock по концу анимации. Страж цели обязателен: animationend искр всплывает
+  // до строки, а гасить чужую вспышку здесь нельзя.
+  const handleUnlockEnd = (e: React.AnimationEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget) return;
+    e.currentTarget.classList.remove('model-row--unlock');
+  };
+
   return (
     <div
       ref={rowRef}
+      onAnimationEnd={handleUnlockEnd}
       style={{
         position: 'relative',
         backgroundColor: 'var(--bg-card)',
@@ -171,9 +206,101 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   // навсегда, поэтому приглушение там не снимается.
   const prestigeLocked = finale || !prestigeReady;
 
+  // Двухшаговый Престиж: сброс Забега необратим, поэтому первый Клик только взводит
+  // кнопку, а второй в течение ARM_MS выполняет переход в новое Поколение. Звук живёт
+  // внутри triggerPrestige и на взводе молчит. Взвод держится локально в этом файле,
+  // общий компонент не выделяем — кнопки в проекте живут локально. Красная заливка —
+  // тот же знак необратимости, что у режима продажи.
+  const ARM_MS = 6000;
+  const [prestigeArmed, setPrestigeArmed] = useState(false);
+  const prestigeTimer = useRef<number | null>(null);
+  // Размонтирование гасит one-shot: иначе он сбросил бы подпись уже несуществующей кнопки.
+  useEffect(
+    () => () => {
+      if (prestigeTimer.current !== null) window.clearTimeout(prestigeTimer.current);
+    },
+    [],
+  );
+  // Взвод не переживает условия, при которых кнопку показали: недоступный Престиж
+  // или уход с вкладки снимают его вместе с таймером.
+  useEffect(() => {
+    if (prestigeLocked || tab !== 'perks') {
+      if (prestigeTimer.current !== null) {
+        window.clearTimeout(prestigeTimer.current);
+        prestigeTimer.current = null;
+      }
+      setPrestigeArmed(false);
+    }
+  }, [prestigeLocked, tab]);
+
+  const handlePrestige = () => {
+    if (!prestigeArmed) {
+      setPrestigeArmed(true);
+      prestigeTimer.current = window.setTimeout(() => {
+        prestigeTimer.current = null;
+        setPrestigeArmed(false);
+      }, ARM_MS);
+      return;
+    }
+    if (prestigeTimer.current !== null) {
+      window.clearTimeout(prestigeTimer.current);
+      prestigeTimer.current = null;
+    }
+    setPrestigeArmed(false);
+    triggerPrestige();
+  };
+
   const toggleAA = (id: string) => {
     setExpandedAA((prev) => ({ ...prev, [id]: !prev[id] }));
   };
+
+  const muted = state.settings.muted;
+
+  // Класс click-btn--squash переиспользован из ClickColumn для кнопки Перка: карточка
+  // Перка после покупки остаётся (меняется на «Куплено»), поэтому сквош успевает
+  // показаться — плюс уже существующий звук из стора. Перезапуск и снятие — тем же
+  // приёмом, что на кнопке Клика: сброс чтением ширины, снятие по onAnimationEnd,
+  // без таймеров.
+  const restartSquash = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const node = e.currentTarget;
+    node.classList.remove('click-btn--squash');
+    void node.offsetWidth;
+    node.classList.add('click-btn--squash');
+  };
+  const handleSquashEnd = (e: React.AnimationEvent<HTMLButtonElement>) => {
+    e.currentTarget.classList.remove('click-btn--squash');
+    // Снятие deny-вспышки по концу анимации, а не по таймеру: таймеры в компонентах запрещены.
+    // Сквош и deny на одной кнопке не совпадают (сквош — успешная покупка, deny — Клик по
+    // disabled), поэтому общее снятие чужую анимацию не обрезает.
+    e.currentTarget.classList.remove('deny-flash');
+  };
+
+  // Отказ по недоступной покупке: кнопка остаётся disabled (a11y не ломается), а Клик
+  // ловит обёртка на погружении и отвечает низким buzz плюс вспышкой строки дефицита.
+  const handleDeny =
+    (affordable: boolean) => (e: React.MouseEvent<HTMLDivElement>) => {
+      if (affordable) return;
+      playDenySound(muted);
+      const node = e.currentTarget.querySelector('.token-deficit');
+      if (!(node instanceof HTMLElement)) return;
+      node.classList.remove('deny-flash');
+      void node.offsetWidth;
+      node.classList.add('deny-flash');
+    };
+
+  // Отказ по недоступному Перку — тем же приёмом, что у Моделей/Апгрейдов, но вспышка висит
+  // на самой кнопке: строки дефицита у Перков нет и мигать рядом нечему. Купленный Перк —
+  // статус, а не ошибка, поэтому обёртка получает owned || canAfford и по «Куплено» молчит.
+  const handlePerkDeny =
+    (affordable: boolean) => (e: React.MouseEvent<HTMLDivElement>) => {
+      if (affordable) return;
+      playDenySound(muted);
+      const node = e.currentTarget.querySelector('.pixel-btn');
+      if (!(node instanceof HTMLElement)) return;
+      node.classList.remove('deny-flash');
+      void node.offsetWidth;
+      node.classList.add('deny-flash');
+    };
 
   return (
     <div
@@ -209,6 +336,8 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
           Апгрейды
           {upgrades.length > 0 && (
             <span
+              key={upgrades.length}
+              className="tab-badge--pulse"
               style={{
                 marginLeft: '4px',
                 backgroundColor: 'var(--red)',
@@ -308,8 +437,17 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
         </div>
       )}
 
-      {/* Контент активной вкладки */}
-      <div style={{ flex: 1, overflowY: 'auto', paddingRight: '4px' }}>
+      {/* Контент активной вкладки. key по вкладке: переключение даёт короткое появление
+          только через opacity toast-fade, состояние tab и expandedAA не трогаем. */}
+      <div
+        key={tab}
+        style={{
+          flex: 1,
+          overflowY: 'auto',
+          paddingRight: '4px',
+          animation: 'toast-fade 0.15s ease-out',
+        }}
+      >
         {/* ВКЛАДКА МОДЕЛЕЙ */}
         {tab === 'models' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -338,7 +476,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               const showsGain = sellMode ? owned > 0 : count > 0;
 
               return (
-                <ModelRow key={m.id} owned={owned} isFlagship={m.isFlagship}>
+                <ModelRow key={m.id} owned={owned} isFlagship={m.isFlagship} canAfford={canAfford}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <MascotSprite lab={m.lab} size={28} />
@@ -375,6 +513,21 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                     </div>
                   </div>
 
+                  {/* Обёртка ловит Клик по недоступной покупке на погружении: сама кнопка
+                      при этом остаётся disabled, поэтому a11y-контракт не ломается, а отказ
+                      отвечает звуком и вспышкой строки дефицита. Клик точно в disabled-кнопку
+                      браузер подавляет, поэтому недоступная кнопка прозрачна для указателя
+                      (pointer-events: none) и Клик падает на обёртку; курсор «нельзя» висит
+                      на обёртке, а не на кнопке. */}
+                  <div
+                    onClickCapture={handleDeny(canAfford)}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                      ...(canAfford ? undefined : { cursor: 'not-allowed' }),
+                    }}
+                  >
                   {/* Прирост Дохода и кнопка покупки/продажи. Цена живёт только здесь — на всех
                       вкладках магазина, чтобы её не приходилось искать в двух местах. */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -398,6 +551,9 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         fontSize: '0.85rem',
                         backgroundColor: sellMode && canAfford ? 'var(--red-solid)' : undefined,
                         borderColor: sellMode && canAfford ? 'var(--red)' : undefined,
+                        // Недоступная кнопка прозрачна для указателя: иначе браузер подавил бы
+                        // Клик точно в неё и deny-обёртка выше его бы не увидела.
+                        pointerEvents: canAfford ? undefined : 'none',
                       }}
                     >
                       {/* «Купить ×0» обещало бы покупку, которой не будет. */}
@@ -420,6 +576,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                   {/* Дефицит — отдельной строкой с зарезервированной высотой, поэтому ни размер
                       кнопки, ни высота карточки не прыгают на каждом тике. */}
                   <TokenDeficit amount={missing} notation={notation} />
+                  </div>
 
                   {/* Справка AA переключатель */}
                   {/* Волосяная линия остаётся литералом: 6% белого — это заведомо слабее
@@ -521,11 +678,29 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       {u.desc}
                     </div>
 
+                    {/* Отказ — той же обёрткой, что у Моделей: сквоша здесь нет, потому что
+                        карточка купленного Апгрейда размонтируется до кадра отрисовки и
+                        анимация на кнопке не успела бы показаться; подтверждением служат
+                        исчезновение карточки и звук из стора. */}
+                    <div
+                      onClickCapture={handleDeny(canAfford)}
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '6px',
+                        ...(canAfford ? undefined : { cursor: 'not-allowed' }),
+                      }}
+                    >
                     <button
                       onClick={() => buyUpgrade(u.id)}
                       disabled={!canAfford}
                       className="pixel-btn pixel-btn-accent"
-                      style={{ padding: '6px 10px', fontSize: '0.85rem', alignSelf: 'flex-end' }}
+                      style={{
+                        padding: '6px 10px',
+                        fontSize: '0.85rem',
+                        alignSelf: 'flex-end',
+                        pointerEvents: canAfford ? undefined : 'none',
+                      }}
                     >
                       {/* Цена живёт в кнопке на всех вкладках магазина: в шапке карточки её
                           больше нет, поэтому искать её приходилось в двух разных местах. */}
@@ -533,6 +708,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                     </button>
 
                     <TokenDeficit amount={missing} notation={notation} />
+                    </div>
                   </div>
                 );
               })
@@ -578,13 +754,54 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
 
               {!finale && (
                 <button
-                  onClick={triggerPrestige}
+                  onClick={handlePrestige}
                   disabled={!canPrestige(state)}
                   className="pixel-btn pixel-btn-gold"
-                  style={{ width: '100%', marginTop: '4px' }}
+                  style={{
+                    width: '100%',
+                    marginTop: '4px',
+                    ...(prestigeArmed
+                      ? { backgroundColor: 'var(--red-solid)', borderColor: 'var(--red)' }
+                      : undefined),
+                  }}
                 >
-                  {canPrestige(state) ? 'Сделать престиж!' : 'Нужен 1 агент флагмана'}
+                  {prestigeArmed
+                    ? 'Точно в новое Поколение? Забег сбросится — нажми ещё раз'
+                    : canPrestige(state)
+                      ? 'Сделать престиж!'
+                      : 'Нужен 1 агент флагмана'}
                 </button>
+              )}
+
+              {/* Финал контента: кнопка Престижа здесь скрыта навсегда, поэтому плашка без
+                  действия — тупик. CTA ведёт на вкладку «Модели» тем же локальным setTab,
+                  без новой навигации; текст не противоречит плашке Сцены в OfficeColumn. */}
+              {finale && (
+                <div
+                  style={{
+                    backgroundColor: 'var(--tint-strong)',
+                    padding: '8px',
+                    borderRadius: '4px',
+                    fontSize: '0.85rem',
+                    color: 'var(--text-muted)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px',
+                    animation: 'toast-fade 0.15s ease-out',
+                  }}
+                >
+                  <div>
+                    Ты дошёл до последнего Поколения — продолжение выйдет с новыми моделями. А
+                    пока закрой все Достижения и развей офис до максимума
+                  </div>
+                  <button
+                    onClick={() => setTab('models')}
+                    className="pixel-btn pixel-btn-accent"
+                    style={{ width: '100%' }}
+                  >
+                    К Моделям
+                  </button>
+                </div>
               )}
             </div>
 
@@ -620,14 +837,39 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         {p.desc}
                       </div>
 
+                      {/* Отказ — той же обёрткой, что у Моделей/Апгрейдов: кнопка остаётся
+                          disabled, Клик ловится на погружении, вспышка — на самой кнопке
+                          (строки дефицита здесь нет). По «Куплено» обёртка молчит: owned гасит
+                          и звук, и вспышку. */}
+                      <div
+                        onClickCapture={handlePerkDeny(owned || canAfford)}
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'flex-end',
+                          ...(owned || canAfford ? undefined : { cursor: 'not-allowed' }),
+                        }}
+                      >
                       <button
-                        onClick={() => buyPerk(p.id)}
+                        onClick={(e) => {
+                          restartSquash(e);
+                          buyPerk(p.id);
+                        }}
+                        onAnimationEnd={handleSquashEnd}
                         disabled={owned || !canAfford}
                         className={`pixel-btn ${owned ? '' : 'pixel-btn-gold'}`}
-                        style={{ padding: '6px 10px', fontSize: '0.85rem', alignSelf: 'flex-end' }}
+                        style={{
+                          padding: '6px 10px',
+                          fontSize: '0.85rem',
+                          alignSelf: 'flex-end',
+                          // Недоступная кнопка прозрачна для указателя: иначе браузер подавил бы
+                          // Клик точно в неё и deny-обёртка выше его бы не увидела.
+                          pointerEvents: owned || canAfford ? undefined : 'none',
+                        }}
                       >
                         {owned ? 'Куплено' : <>Купить перк (<Num>{p.cost}</Num> Compute)</>}
                       </button>
+                      </div>
                     </div>
                   );
                 })}
