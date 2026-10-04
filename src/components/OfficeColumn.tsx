@@ -2,8 +2,8 @@ import React, { useEffect } from 'react';
 import { useGameStore } from '../store/useGameStore';
 import { CATALOG } from '../economy/catalog';
 import { LABS, LAB_IDS } from '../data/labs';
-import { canPrestige, isContentFinale } from '../economy/engine';
-import { labAgents, SYNERGY_PER_AGENT, synergyUpgradeId } from '../economy/upgrades';
+import { canPrestige, isContentFinale, labIncomeShare } from '../economy/engine';
+import { labAgents, labWork, SYNERGY_PER_AGENT, synergyUpgradeId } from '../economy/upgrades';
 import { formatCount, formatNumber } from '../economy/format';
 import { MascotSprite } from './MascotSprite';
 
@@ -46,11 +46,16 @@ const SHADOW_CENTER_Y = MASCOT_SIZE * 0.83;
 // влезают в Сцену десктопа, поэтому там все восемь Лабораторий по-прежнему стоят в ряд.
 const MASCOT_COL_MIN = 64;
 
-// Пыль в воздухе Сцены: восемнадцать точек, которые делают кадр живым, а не статичным.
-// Таблица строится один раз на модуль: OfficeColumn перерисовывается каждый тик, и Math.random
-// в теле компонента перемешивал бы пыль двадцать раз в секунду.
-const MOTE_COUNT = 18;
-const MOTES = Array.from({ length: MOTE_COUNT }, (_, i) => {
+// Ниже этой доли процент не различает Лаборатории: на восьми такая метка повторялась бы
+// пять раз из восьми и читалась бы как «у всех всё одинаково».
+const SHARE_MIN = 0.01;
+
+// Пыль в воздухе Сцены: точки, которые делают кадр живым, а не статичным. Таблица строится
+// один раз на модуль и сразу на максимум точек: OfficeColumn перерисовывается каждый тик,
+// и Math.random в теле компонента перемешивал бы пыль двадцать раз в секунду.
+const MOTE_MIN = 18;
+const MOTE_MAX = 36;
+const MOTES = Array.from({ length: MOTE_MAX }, (_, i) => {
   // Золотое сечение по двум осям: ряд равномерный, но не в сетке — по сетке пыль читалась бы
   // как узор, а не как воздух.
   const x = ((i * 0.618034) % 1) * 96;
@@ -81,6 +86,14 @@ const moteStyle = (i: number): React.CSSProperties =>
     '--mote-dur': MOTES[i].dur,
     '--mote-delay': MOTES[i].delay,
   }) as React.CSSProperties;
+
+// Плотность пыли растёт вместе с офисом: пустой кадр не должен выглядеть гуще забитого.
+// Шкала логарифмическая, потому что Агентов бывает и тысяча, и 1e300, а длина округляется
+// до целого — иначе список узлов пересоздавался бы двадцать раз в секунду.
+const moteCount = (agents: number): number => {
+  const full = Math.min(Math.max(Math.log10(agents + 1) / 4, 0), 1);
+  return Math.round(MOTE_MIN + (MOTE_MAX - MOTE_MIN) * full);
+};
 
 export const OfficeColumn: React.FC = () => {
   const state = useGameStore((s) => s.state);
@@ -307,7 +320,7 @@ export const OfficeColumn: React.FC = () => {
             с полом, а не светится поверх затемнения. Держит порядок разметка: у пыли и у
             скрима одинаковый z-index 1, а при равном z-index рисуется тот, кто позже в DOM. */}
         <div className="scene__motes">
-          {MOTES.map((_, i) => (
+          {MOTES.slice(0, moteCount(totalAgents)).map((_, i) => (
             <span key={i} className="mote" style={moteStyle(i)} />
           ))}
         </div>
@@ -398,8 +411,13 @@ export const OfficeColumn: React.FC = () => {
               const count = labAgents(state, labId);
               const synergyPct = Math.round(count * SYNERGY_PER_AGENT * 100);
               const synergyOn = state.upgrades.includes(synergyUpgradeId(state.generation, labId));
+              const work = labWork(state, labId);
+              const share = labIncomeShare(state, labId);
               return (
-                <div key={labId} style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+                <div
+                  key={labId}
+                  style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap', rowGap: '2px' }}
+                >
                   {/* Цвет Лаборатории живёт только здесь: на --bg-card он не задаёт контраст
                       текста, а плашкой служит лишь ориентиром, у какой Маскот чья. */}
                   <span
@@ -413,10 +431,28 @@ export const OfficeColumn: React.FC = () => {
                     }}
                   />
                   <span style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>{lab.name}</span>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{lab.mascot}</span>
+                  {/* Имя Маскота не повторяется: он стоит в ленте прямо над ростером, и его
+                      счётчик подписан под ним. Счётчик Агентов здесь остаётся: на Сцене он
+                      мелкий и читается только вплотную, а в ростере это основное число строки,
+                      и без него карточка в свежем сохранении держит одно имя. */}
                   <span className="pixel-font" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                     ×{formatNumber(count, notation)} {formatCount(count, 'Агент', 'Агента', 'Агентов')}
                   </span>
+                  {/* Название работы приходит из MODEL_TIERS, а не пишется здесь строкой. */}
+                  {work !== '' && (
+                    <span className="pixel-font" style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      {work}
+                    </span>
+                  )}
+                  {/* Доля в Доходе — величина сравнительная, и читается она только когда
+                      различает: с одной Лабораторией она всегда 100%, а ниже процента
+                      неотличима от нуля. На восьми Лабораториях такая мелочь занимала бы
+                      пять строк из восьми и читалась как «у всех всё одинаково». */}
+                  {activeLabs.length > 1 && share >= SHARE_MIN && (
+                    <span className="pixel-font" style={{ fontSize: '0.8rem', color: 'var(--text-main)' }}>
+                      {Math.round(share * 100)}%
+                    </span>
+                  )}
                   {synergyOn && (
                     <span
                       className="pixel-font"
