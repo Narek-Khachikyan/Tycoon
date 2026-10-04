@@ -61,8 +61,10 @@ const AchievementRow: React.FC<{
         {unlocked ? (shadow ? '🌑' : '🏆') : '🔒'}
       </div>
       <div style={{ flex: 1 }}>
+        {/* Без pixel-font: название Достижения по-русски, а в Pixelify Sans нет
+            заглавных «О» и «П», и они молча уходили в фолбэк прямо посреди слова
+            («Промпт-джуниор»). Это ровно то, что ADR-0003 запрещает. */}
         <div
-          className="pixel-font"
           /* Светлее --green намеренно: так открытое Достижение читается ярче
              закрытой строки, а --green на подложке сравнялся бы с --text-muted
              соседнего описания. */
@@ -86,6 +88,9 @@ const AchievementRow: React.FC<{
 // (свёрнутая вкладка, снятый кадр), а висящее окно осталось бы в DOM навсегда.
 const MODAL_EXIT_MS = 150;
 const MODAL_EXIT_ANIMATION = 'toast-fade 0.15s ease-out reverse';
+// Вход совпадает с выходом без `reverse`, поэтому окно появляется и исчезает одним и тем же
+// кадром и не требует отдельного @keyframes.
+const MODAL_ENTER_ANIMATION = 'toast-fade 0.15s ease-out';
 
 // Отложенное размонтирование окна: запрос закрытия лишь взводит closing, а настоящий
 // onClose приходит по одному bounded one-shot таймеру. Очистка в эффекте обязательна —
@@ -868,7 +873,7 @@ export const PrestigeModal: React.FC = () => {
         justifyContent: 'center',
         zIndex: 60,
         padding: '16px',
-        animation: closing ? MODAL_EXIT_ANIMATION : undefined,
+        animation: closing ? MODAL_EXIT_ANIMATION : MODAL_ENTER_ANIMATION,
       }}
       onClick={requestClose}
     >
@@ -887,7 +892,9 @@ export const PrestigeModal: React.FC = () => {
           flexDirection: 'column',
           gap: '14px',
           border: '2px solid var(--gold)',
-          animation: closing ? MODAL_EXIT_ANIMATION : undefined,
+          // Вход — тот же toast-fade, что у соседних окон: только opacity, поэтому картина
+          // одинакова при полном и при выключенном движении. Выход переключает направление.
+          animation: closing ? MODAL_EXIT_ANIMATION : MODAL_ENTER_ANIMATION,
         }}
         onClick={(e) => e.stopPropagation()}
       >
