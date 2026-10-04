@@ -758,7 +758,19 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       gap: '6px',
                     }}
                   >
-                    <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{u.name}</span>
+                    {/* Заголовок с пиктограммой: спрайт 32×32 нельзя сжимать под narrower
+                        колонки, поэтому у него фиксированный размер и flexShrink: 0. */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <img
+                        src={`/sprites/upgrades/${u.sprite}.png`}
+                        width={32}
+                        height={32}
+                        alt=""
+                        aria-hidden="true"
+                        style={{ imageRendering: 'pixelated', flexShrink: 0 }}
+                      />
+                      <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{u.name}</span>
+                    </div>
 
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                       {u.desc}
