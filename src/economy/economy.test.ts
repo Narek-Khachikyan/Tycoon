@@ -337,12 +337,36 @@ describe('save', () => {
 });
 
 describe('format', () => {
-  it('uses short scale suffixes', () => {
+  it('uses short scale suffixes with a Russian decimal comma', () => {
     expect(formatNumber(999)).toBe('999');
-    expect(formatNumber(1500)).toBe('1.500 K');
-    expect(formatNumber(999999)).toBe('1.000 M');
-    expect(formatNumber(2.5e9)).toBe('2.500 B');
+    expect(formatNumber(0.5)).toBe('0,5');
+    expect(formatNumber(1500)).toBe('1,50 K');
+    expect(formatNumber(1729)).toBe('1,73 K');
+    expect(formatNumber(999999)).toBe('1,00 M');
+    expect(formatNumber(2.5e9)).toBe('2,50 B');
     expect(formatNumber(1.23e15, 'sci')).toBe('1.23e15');
+  });
+
+  it('keeps sci notation with a dot while short uses a comma', () => {
+    expect(formatNumber(1729, 'sci')).toBe('1.73e3');
+    expect(formatNumber(1500, 'sci')).toContain('.');
+    expect(formatNumber(1500)).not.toContain('.');
+    // Выход «меньше тысячи» стоит до ветвления по нотации, поэтому запятая не должна
+    // просачиваться в научную запись и на нём.
+    expect(formatNumber(0.5, 'sci')).toBe('0.5');
+    expect(formatNumber(0.5)).toBe('0,5');
+  });
+
+  it('never uses a dot as a decimal separator and keeps at most two decimals', () => {
+    // Значения внутри лестницы суффиксов: за её пределом формат возвращается к sci,
+    // где точка обязательна.
+    const values = [0.5, 9.9, 999, 1000, 1500, 1729, 12345, 999999, 2.5e9, 1.23e15, 1e27, 4.567e60];
+    for (const v of values) {
+      const out = formatNumber(v);
+      expect(out).not.toContain('.');
+      const frac = out.split(',')[1];
+      if (frac !== undefined) expect(frac.split(' ')[0].length).toBeLessThanOrEqual(2);
+    }
   });
 
   it('declines agent counts in Russian', () => {
