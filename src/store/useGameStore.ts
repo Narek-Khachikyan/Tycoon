@@ -20,6 +20,7 @@ import {
 } from '../economy/achievements';
 import { formatNumber } from '../economy/format';
 import { pickNews } from '../economy/news';
+import { availableUpgrades } from '../economy/upgrades';
 import { importSave, migrate, SAVE_KEY, serialize } from '../economy/save';
 import { newGame, type GameState, type Notation } from '../economy/state';
 import {
@@ -81,6 +82,27 @@ const PROMPT_TEMPLATES = [
   ['Как достичь AGI?', 'Нужно ещё больше чипов, кофе и токенов!'],
 ];
 
+/**
+ * Шаблон, который нельзя повторить дважды подряд.
+ *
+ * Один `Math.random` давал две одинаковые реплики подряд примерно в одном случае из
+ * восьми, и чат выглядел залипшим наглухо. Индекс живёт в UI-слое рядом со счётчиками и в
+ * GameState не попадает: это не часть сохранения, и его добавление не должно стоить миграции.
+ */
+let lastTemplateIndex = -1;
+const nextTemplateIndex = (): number => {
+  const len = PROMPT_TEMPLATES.length;
+  const i = Math.floor(Math.random() * len);
+  if (i !== lastTemplateIndex) {
+    lastTemplateIndex = i;
+    return i;
+  }
+  // Выбор из остальных: сдвиг на единицу давал бы заметный перекос в пользу следующего шаблона.
+  const j = (i + 1 + Math.floor(Math.random() * (len - 1))) % len;
+  lastTemplateIndex = j;
+  return j;
+};
+
 interface GameStore {
   state: GameState;
   news: string;
@@ -119,6 +141,11 @@ interface GameStore {
   setNotation: (notation: Notation) => void;
   toggleMute: () => void;
   setReducedMotion: (on: boolean) => void;
+  /** Пауза Новостной ленты: останавливает и движение строки, и смену новости. Живёт в UI-слое
+   *  и не сохраняется — персистентность означала бы новое поле в `GameState.settings` и правку
+   *  контракта сохранения ради одного переключателя. */
+  newsPaused: boolean;
+  setNewsPaused: (paused: boolean) => void;
   dismissOfflineReport: () => void;
   removeToast: (id: string) => void;
   importSaveData: (str: string) => boolean;
@@ -228,9 +255,9 @@ export const useGameStore = create<GameStore>((set, get) => {
     set((st) => ({
       toasts: [
         ...st.toasts,
-        ...ACHIEVEMENTS.filter((a) => won.has(a.id)).map((a) => ({
+...ACHIEVEMENTS.filter((a) => won.has(a.id)).map((a) => ({
           id: `${a.id}-${++toastCounter}`,
-          title: '🏆 Достижение разблокировано!',
+          title: 'Достижение разблокировано!',
           name: a.name,
           desc: a.desc,
         })),
@@ -254,7 +281,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       {
         id: 0,
         userPrompt: 'Запуск системы AI Tycoon...',
-        aiResponse: 'Добро пожаловать в эру искусственного интеллекта! Нажмите «Отправить промпт».',
+        aiResponse: 'Добро пожаловать в эру искусственного интеллекта! Нажми «Отправить промпт».',
       },
     ],
     burst: null,
@@ -297,7 +324,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       // Обновление чата раз в несколько кликов
       let newChat = chatHistory;
       if (clicked.clicks % 5 === 1) {
-        const pair = PROMPT_TEMPLATES[Math.floor(Math.random() * PROMPT_TEMPLATES.length)];
+        const pair = PROMPT_TEMPLATES[nextTemplateIndex()];
         chatCounter++;
         newChat = [
           { id: chatCounter, userPrompt: pair[0], aiResponse: pair[1] },
@@ -318,6 +345,15 @@ export const useGameStore = create<GameStore>((set, get) => {
       const next = engineBuyAgents(state, modelId, buyAmount);
       if (next !== state) {
         playBuySound(state.settings.muted);
+        // Покупка Агентов — единственный путь роста их числа: продажа и Престиж его только
+        // уменьшают, а тиканье Апгрейды не открывает. Поэтому появление Апгрейда ловим только здесь,
+        // сравнением до/после внутри экшена — без нового поля в GameState и без миграции.
+        // Звук покупки остаётся, а следом идёт уже знакомый playUpgradeSound (ассоциация
+        // «звук = Апгрейды» есть у покупки Апгрейда): два звука подряд — избыточное подтверждение
+        // готовности Апгрейда двумя каналами сразу, новый тембр не вводим.
+        if (availableUpgrades(next).length > availableUpgrades(state).length) {
+          playUpgradeSound(state.settings.muted);
+        }
         set({ state: awardEarned(next) });
       }
     },
@@ -390,6 +426,9 @@ export const useGameStore = create<GameStore>((set, get) => {
       set((s) => ({
         state: { ...s.state, settings: { ...s.state.settings, reducedMotion: on } },
       })),
+
+    newsPaused: false,
+    setNewsPaused: (paused: boolean) => set({ newsPaused: paused }),
 
     dismissOfflineReport: () => set({ offlineReport: null }),
 

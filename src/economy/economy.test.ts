@@ -2,20 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { buildCatalog, CATALOG, genScale, softMod, type Model } from './catalog';
 import {
   advance, advanceTime, applyOffline, bulkCost, buyAgents, buyPerk, buyUpgrade, canPrestige, click, clickValue,
-  discountMult, isContentFinale, labIncome, maxAffordable, modelIncome, prestige, prestigeGain, prestigePreview,
-  progressToNextAgent, sellAgents, totalIncome,
+discountMult, incomeGain, isContentFinale, labIncomeShare, maxAffordable, modelIncome, prestige, prestigeGain,
+  prestigePreview, progressToNextAgent, sellAgents, totalIncome,
 } from './engine';
 import { newGame, SAVE_VERSION, type GameState } from './state';
 import { exportSave, importSave, migrate } from './save';
 import { pickNews } from './news';
 import { ACHIEVEMENTS, awardAchievements, newlyEarned } from './achievements';
 import {
-  availableUpgrades,
-  clickUpgradeId,
-  labAgents,
-  modelUpgradeId,
-  SYNERGY_PER_AGENT,
-  synergyUpgradeId,
+availableUpgrades, clickUpgradeId, labAgents, labTopTier, labWork, modelUpgradeId, MODEL_TIERS,
+  SYNERGY_PER_AGENT, synergyUpgradeId,
 } from './upgrades';
 import { formatCount, formatNumber } from './format';
 import { GENERATIONS } from '../data/generations';
@@ -199,6 +195,42 @@ describe('income and click', () => {
     s = buyUpgrade(s, synergyUpgradeId(0, lab));
     expect(totalIncome(s)).toBeCloseTo(base * 1.2);
   });
+  it('reports the marginal income of a purchase as the total income it actually adds', () => {
+    const s = buyAgents(rich(newGame(T0)), first.id, 10);
+    const after = buyAgents(s, first.id, 5);
+    // Подпись обязана совпадать с тем, что сделает покупка, поэтому сверяем её с настоящей
+    // разницей общего Дохода, а не с отдельной формулой.
+    expect(incomeGain(s, first.id, 5)).toBeCloseTo(totalIncome(after) - totalIncome(s));
+  });
+  it('reports a marginal income that includes synergy across the whole lab', () => {
+    const lab = 'meta';
+    const metaModels = g0.models.filter((m) => m.lab === lab);
+    let s = buyAgents(rich(newGame(T0)), metaModels[0].id, 10);
+    s = buyAgents(s, metaModels[1].id, 10);
+    s = buyUpgrade(s, synergyUpgradeId(0, lab));
+    const after = buyAgents(s, metaModels[0].id, 5);
+    const gain = incomeGain(s, metaModels[0].id, 5);
+    expect(gain).toBeCloseTo(totalIncome(after) - totalIncome(s));
+    // Соседняя Модель той же Лаборатории тоже дорожает: её Доход умножается на общий счётчик
+    // Агентов, поэтому прирост больше вклада только купленных Агентов.
+    const own = modelIncome(after, metaModels[0]) - modelIncome(s, metaModels[0]);
+    expect(modelIncome(after, metaModels[1])).toBeGreaterThan(modelIncome(s, metaModels[1]));
+    expect(gain).toBeGreaterThan(own);
+  });
+  it('scales the marginal income with the purchase amount and ignores empty ones', () => {
+    const s = buyAgents(rich(newGame(T0)), first.id, 10);
+    expect(incomeGain(s, first.id, 10)).toBeCloseTo(10 * incomeGain(s, first.id, 1));
+    expect(incomeGain(s, first.id, 0)).toBe(0);
+    // Модель не из текущего Поколения в общий Доход не входит, поэтому и подписи у неё нет.
+    expect(incomeGain(s, CATALOG[1].models[0].id, 3)).toBe(0);
+    expect(incomeGain(s, 'no-such-model', 3)).toBe(0);
+  });
+  it('leaves the input state untouched when measuring a marginal income', () => {
+    const s = buyAgents(rich(newGame(T0)), first.id, 10);
+    const before = { ...s.agents };
+    incomeGain(s, first.id, 7);
+    expect(s.agents).toEqual(before);
+  });
   it('click gives 1 token in gen 1 and grows with click upgrades', () => {
     let s = newGame(T0);
     expect(clickValue(s)).toBe(1);
@@ -219,9 +251,11 @@ describe('income and click', () => {
   });
 });
 
-describe('lab income', () => {
+describe('lab readout', () => {
   it('splits total income across labs without losing a token to rounding', () => {
-    for (const gen of [0, 3, CATALOG.length - 1]) {
+    // Поколение 6 — единственное, где Модели есть у всех восьми Лабораторий, поэтому
+    // строка ростера не может показать Лабораторию, будто она не приносит Доход.
+    for (const gen of [0, 3, 5, CATALOG.length - 1]) {
       const s = loaded(gen);
       // Фикстура обязана реально нести множители, иначе сумма проверяет голый каталог.
       expect(s.upgrades.length).toBeGreaterThan(0);
@@ -230,37 +264,85 @@ describe('lab income', () => {
       expect(total).toBeGreaterThan(0);
       // Сумма долей обязана совпадать с начисляемым Доходом: расхождение означало бы,
       // что разбор Оффлайн-дохода считает по другой формуле, чем сам Доход.
-      const sum = LAB_IDS.reduce((acc, lab) => acc + labIncome(s, lab), 0);
-      expect(sum / total).toBeCloseTo(1, 12);
-      for (const lab of LAB_IDS) expect(labIncome(s, lab)).toBeGreaterThanOrEqual(0);
+      const sum = LAB_IDS.reduce((acc, lab) => acc + labIncomeShare(s, lab), 0);
+      expect(sum).toBeCloseTo(1, 12);
+      for (const lab of LAB_IDS) expect(labIncomeShare(s, lab)).toBeGreaterThanOrEqual(0);
     }
   });
 
-  it('is zero, not NaN, before the first agent is hired and for labs absent from the generation', () => {
+  it('reads a lab without agents as zero rather than NaN', () => {
     const empty = newGame(T0);
-    for (const lab of LAB_IDS) expect(labIncome(empty, lab)).toBe(0);
-    // xai появляется только со второго Поколения, meta — исчезает в последнем.
+    for (const lab of LAB_IDS) {
+      expect(labIncomeShare(empty, lab)).toBe(0);
+      expect(Number.isNaN(labIncomeShare(empty, lab))).toBe(false);
+    }
+    // Лаборатория, которой в Поколении нет, тоже читается как ноль, а не как доля от
+    // чужого Дохода: meta исчезает в последнем Поколении.
     const late = loaded(CATALOG.length - 1);
-    expect(labIncome(late, 'meta')).toBe(0);
+    expect(labIncomeShare(late, 'meta')).toBe(0);
     expect(CATALOG[late.generation].models.some((m) => m.lab === 'meta')).toBe(false);
-    expect(labIncome(late, 'anthropic')).toBeGreaterThan(0);
+    expect(labIncomeShare(late, 'anthropic')).toBeGreaterThan(0);
   });
 
   it('attributes income to the lab of the model that earns it', () => {
     const s = buyAgents(rich(newGame(T0), 1e30), first.id, 10);
-    expect(labIncome(s, first.lab)).toBeCloseTo(first.baseIncome * 10);
-    for (const lab of LAB_IDS) if (lab !== first.lab) expect(labIncome(s, lab)).toBe(0);
+    expect(labIncomeShare(s, first.lab)).toBeCloseTo((first.baseIncome * 10) / totalIncome(s));
+    for (const lab of LAB_IDS) if (lab !== first.lab) expect(labIncomeShare(s, lab)).toBe(0);
   });
 
   it('carries the lab synergy into the split and matches the per-model sum', () => {
-    const lab = 'anthropic';
-    const models = g0.models.filter((m) => m.lab === lab);
-    let s = buyAgents(rich(newGame(T0), 1e30), models[0].id, 20);
-    const withoutSynergy = labIncome(s, lab);
-    s = buyUpgrade(s, synergyUpgradeId(0, lab));
-    expect(labAgents(s, lab)).toBe(20);
-    expect(labIncome(s, lab)).toBeCloseTo(withoutSynergy * (1 + SYNERGY_PER_AGENT * 20));
-    expect(labIncome(s, lab)).toBeCloseTo(models.reduce((sum, m) => sum + modelIncome(s, m), 0));
+    // Доля Лаборатории — отношение к общему Доходу, поэтому Синергия двигает и числитель,
+    // и знаменатель. Утверждать «доля выросла ровно на SYNERGY_PER_AGENT × Агенты» здесь
+    // неверно: оно прошло бы только на состоянии, где вторая Лаборатория не приносит
+    // ничего. Поэтому сравниваются две Лаборатории — у одной Синергия, у другой нет.
+    const labs = [...new Set(g0.models.map((m) => m.lab))].slice(0, 2);
+    expect(labs.length).toBe(2);
+    const [boosted, plain] = labs;
+    let s = rich(newGame(T0), 1e30);
+    for (const m of g0.models.filter((x) => x.lab === boosted || x.lab === plain)) s = buyAgents(s, m.id, 20);
+
+    const before = { boosted: labIncomeShare(s, boosted), plain: labIncomeShare(s, plain) };
+    expect(before.boosted + before.plain).toBeCloseTo(1, 12);
+    // Проверка, что множитель Синергии вообще включён в этот сценарий, иначе сравнение
+    // долей ниже прошло бы на состоянии без Синергии.
+    expect(SYNERGY_PER_AGENT).toBeGreaterThan(0);
+
+    s = buyUpgrade(s, synergyUpgradeId(0, boosted));
+    // Синергия считается по всем Агентам Лаборатории, а не по одной Модели, поэтому
+    // ожидаемое число берётся из каталога, а не пишется руками.
+    const boostedAgents = g0.models.filter((m) => m.lab === boosted).length * 20;
+    expect(labAgents(s, boosted)).toBe(boostedAgents);
+    // Синергия подняла именно свою Лабораторию: её доля выросла, а у соседней упала,
+    // и сумма долей по-прежнему даёт единицу.
+    expect(labIncomeShare(s, boosted)).toBeGreaterThan(before.boosted);
+    expect(labIncomeShare(s, plain)).toBeLessThan(before.plain);
+    expect(LAB_IDS.reduce((acc, lab) => acc + labIncomeShare(s, lab), 0)).toBeCloseTo(1, 12);
+
+    // Определение доли: сумма Дохода Моделей Лаборатории делённая на общий Доход.
+    for (const lab of labs) {
+      const models = g0.models.filter((m) => m.lab === lab);
+      expect(labIncomeShare(s, lab)).toBeCloseTo(
+        models.reduce((sum, m) => sum + modelIncome(s, m), 0) / totalIncome(s),
+      );
+    }
+  });
+
+  it('reports the highest model upgrade bought in a lab', () => {
+    const meta = g0.models.filter((m) => m.lab === 'meta');
+    let s = buyAgents(rich(newGame(T0)), meta[0].id, 5);
+    s = buyAgents(s, meta[1].id, 5);
+    // Агенты есть, но Апгрейда Модели ещё нет: работа Лаборатории не начата.
+    expect(labTopTier(s, 'meta')).toBe(-1);
+    expect(labWork(s, 'meta')).toBe('');
+    s = buyUpgrade(s, modelUpgradeId(meta[0].id, 0));
+    s = buyUpgrade(s, modelUpgradeId(meta[1].id, 1));
+    expect(labTopTier(s, 'meta')).toBe(1);
+    expect(labWork(s, 'meta')).toBe(MODEL_TIERS[1].name);
+    // Агенты без Апгрейда Модели остаются без работы.
+    const google = g0.models.find((m) => m.lab === 'google')!;
+    s = buyAgents(s, google.id, 3);
+    expect(labTopTier(s, 'google')).toBe(-1);
+    expect(labWork(s, 'google')).toBe('');
   });
 });
 
@@ -501,12 +583,36 @@ describe('save', () => {
 });
 
 describe('format', () => {
-  it('uses short scale suffixes', () => {
+  it('uses short scale suffixes with a Russian decimal comma', () => {
     expect(formatNumber(999)).toBe('999');
-    expect(formatNumber(1500)).toBe('1.500 K');
-    expect(formatNumber(999999)).toBe('1.000 M');
-    expect(formatNumber(2.5e9)).toBe('2.500 B');
+    expect(formatNumber(0.5)).toBe('0,5');
+    expect(formatNumber(1500)).toBe('1,50 K');
+    expect(formatNumber(1729)).toBe('1,73 K');
+    expect(formatNumber(999999)).toBe('1,00 M');
+    expect(formatNumber(2.5e9)).toBe('2,50 B');
     expect(formatNumber(1.23e15, 'sci')).toBe('1.23e15');
+  });
+
+  it('keeps sci notation with a dot while short uses a comma', () => {
+    expect(formatNumber(1729, 'sci')).toBe('1.73e3');
+    expect(formatNumber(1500, 'sci')).toContain('.');
+    expect(formatNumber(1500)).not.toContain('.');
+    // Выход «меньше тысячи» стоит до ветвления по нотации, поэтому запятая не должна
+    // просачиваться в научную запись и на нём.
+    expect(formatNumber(0.5, 'sci')).toBe('0.5');
+    expect(formatNumber(0.5)).toBe('0,5');
+  });
+
+  it('never uses a dot as a decimal separator and keeps at most two decimals', () => {
+    // Значения внутри лестницы суффиксов: за её пределом формат возвращается к sci,
+    // где точка обязательна.
+    const values = [0.5, 9.9, 999, 1000, 1500, 1729, 12345, 999999, 2.5e9, 1.23e15, 1e27, 4.567e60];
+    for (const v of values) {
+      const out = formatNumber(v);
+      expect(out).not.toContain('.');
+      const frac = out.split(',')[1];
+      if (frac !== undefined) expect(frac.split(' ')[0].length).toBeLessThanOrEqual(2);
+    }
   });
 
   it('declines agent counts in Russian', () => {

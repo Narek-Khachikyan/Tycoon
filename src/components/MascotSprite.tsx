@@ -168,6 +168,10 @@ export const MascotSprite: React.FC<MascotProps> = ({
       height={size}
       viewBox="0 0 24 24"
       className={`${animClass} ${className}`.trim()}
+      // Маскот всегда стоит рядом с названием Лаборатории, поэтому картинка декоративная:
+      // без aria-hidden озвучка читала бы «изображение» перед именем.
+      aria-hidden="true"
+      focusable="false"
       style={{ imageRendering: 'pixelated' }}
     >
       {renderGraphic()}

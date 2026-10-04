@@ -11,12 +11,12 @@ export const MODEL_TIERS = [
 ] as const;
 
 export const CLICK_UPGRADES = [
-  { units: 100, kind: 'x2', name: 'Prompt engineering', desc: 'Клик ×2' },
-  { units: 500, kind: 'x2', name: 'System prompt', desc: 'Клик ×2' },
-  { units: 10_000, kind: 'x2', name: 'Few-shot примеры', desc: 'Клик ×2' },
-  { units: 100_000, kind: 'pct', name: 'Вайб-кодинг', desc: '+1% Дохода за Клик' },
-  { units: 10_000_000, kind: 'pct', name: 'Мультиагентный промпт', desc: '+1% Дохода за Клик' },
-  { units: 1_000_000_000, kind: 'pct', name: 'Промпт-оркестратор', desc: '+1% Дохода за Клик' },
+  { units: 100, kind: 'x2', name: 'Prompt engineering', desc: 'клик ×2' },
+  { units: 500, kind: 'x2', name: 'System prompt', desc: 'клик ×2' },
+  { units: 10_000, kind: 'x2', name: 'Few-shot примеры', desc: 'клик ×2' },
+  { units: 100_000, kind: 'pct', name: 'Вайб-кодинг', desc: '+1% дохода за клик' },
+  { units: 10_000_000, kind: 'pct', name: 'Мультиагентный промпт', desc: '+1% дохода за клик' },
+  { units: 1_000_000_000, kind: 'pct', name: 'Промпт-оркестратор', desc: '+1% дохода за клик' },
 ] as const;
 
 export const SYNERGY_MIN_AGENTS = 15;
@@ -39,7 +39,7 @@ export function upgradesFor(gen: Generation): Upgrade[] {
         id: modelUpgradeId(m.id, tier),
         kind: 'model',
         name: `${m.name}: ${t.name}`,
-        desc: `Доход ${m.name} ×2`,
+        desc: `доход ${m.name} ×2`,
         cost: m.baseCost * t.costMult,
         modelId: m.id,
         tier,
@@ -63,7 +63,7 @@ export function upgradesFor(gen: Generation): Upgrade[] {
       id: synergyUpgradeId(gen.index, lab),
       kind: 'synergy',
       name: `Общий датасет ${LABS[lab].name}`,
-      desc: `Каждый Агент ${LABS[lab].name} даёт +1% Дохода всем Моделям ${LABS[lab].name}`,
+      desc: `Каждый агент ${LABS[lab].name} даёт +1% дохода всем моделям ${LABS[lab].name}`,
       cost: labModels[0].baseCost * 1000,
       lab,
     });
@@ -80,6 +80,26 @@ export function labAgents(state: GameState, lab: LabId): number {
   return CATALOG[state.generation].models
     .filter((m) => m.lab === lab)
     .reduce((s, m) => s + (state.agents[m.id] ?? 0), 0);
+}
+
+/** Высший Апгрейд Модели, купленный хотя бы у одной Модели Лаборатории, или -1, пока не куплен
+ *  ни один: Апгрейды Моделей покупаются поштучно, и у Лаборатории их столько же, сколько Моделей. */
+export function labTopTier(state: GameState, lab: LabId): number {
+  let top = -1;
+  for (const m of CATALOG[state.generation].models) {
+    if (m.lab !== lab) continue;
+    for (let tier = 0; tier < MODEL_TIERS.length; tier++) {
+      if (state.upgrades.includes(modelUpgradeId(m.id, tier))) top = Math.max(top, tier);
+    }
+  }
+  return top;
+}
+
+/** Название работы, которой занята Лаборатория, по её высшему Апгрейду; пусто, пока их нет.
+ *  Строка уже игровая, поэтому интерфейс не дублирует названия тиров. */
+export function labWork(state: GameState, lab: LabId): string {
+  const top = labTopTier(state, lab);
+  return top >= 0 ? MODEL_TIERS[top].name : '';
 }
 
 /** Апгрейд появляется в магазине, когда выполнено его условие открытия. */

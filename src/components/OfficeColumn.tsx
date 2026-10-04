@@ -1,11 +1,13 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '../store/useGameStore';
 import { CATALOG } from '../economy/catalog';
-import { LABS, LAB_IDS } from '../data/labs';
-import { canPrestige, isContentFinale } from '../economy/engine';
-import { labAgents, SYNERGY_PER_AGENT, synergyUpgradeId } from '../economy/upgrades';
+import { LABS, LAB_IDS, type LabId } from '../data/labs';
+import { canPrestige, isContentFinale, labIncomeShare } from '../economy/engine';
+import { labAgents, labWork, SYNERGY_PER_AGENT, synergyUpgradeId } from '../economy/upgrades';
 import { formatCount, formatNumber } from '../economy/format';
 import { MascotSprite } from './MascotSprite';
+import { Num } from './Num';
+import { OFFICE_COL_MIN } from '../layout';
 
 // Сцен четыре, по две эпохи Поколения на каждую (ADR-0002), поэтому индекс Сцены —
 // floor(Поколение / 2). Список имён выводится из количества, а не дублируется руками:
@@ -46,11 +48,16 @@ const SHADOW_CENTER_Y = MASCOT_SIZE * 0.83;
 // влезают в Сцену десктопа, поэтому там все восемь Лабораторий по-прежнему стоят в ряд.
 const MASCOT_COL_MIN = 64;
 
-// Пыль в воздухе Сцены: восемнадцать точек, которые делают кадр живым, а не статичным.
-// Таблица строится один раз на модуль: OfficeColumn перерисовывается каждый тик, и Math.random
-// в теле компонента перемешивал бы пыль двадцать раз в секунду.
-const MOTE_COUNT = 18;
-const MOTES = Array.from({ length: MOTE_COUNT }, (_, i) => {
+// Ниже этой доли процент не различает Лаборатории: на восьми такая метка повторялась бы
+// пять раз из восьми и читалась бы как «у всех всё одинаково».
+const SHARE_MIN = 0.01;
+
+// Пыль в воздухе Сцены: точки, которые делают кадр живым, а не статичным. Таблица строится
+// один раз на модуль и сразу на максимум точек: OfficeColumn перерисовывается каждый тик,
+// и Math.random в теле компонента перемешивал бы пыль двадцать раз в секунду.
+const MOTE_MIN = 18;
+const MOTE_MAX = 36;
+const MOTES = Array.from({ length: MOTE_MAX }, (_, i) => {
   // Золотое сечение по двум осям: ряд равномерный, но не в сетке — по сетке пыль читалась бы
   // как узор, а не как воздух.
   const x = ((i * 0.618034) % 1) * 96;
@@ -82,7 +89,15 @@ const moteStyle = (i: number): React.CSSProperties =>
     '--mote-delay': MOTES[i].delay,
   }) as React.CSSProperties;
 
-export const OfficeColumn: React.FC = () => {
+// Плотность пыли растёт вместе с офисом: пустой кадр не должен выглядеть гуще забитого.
+// Шкала логарифмическая, потому что Агентов бывает и тысяча, и 1e300, а длина округляется
+// до целого — иначе список узлов пересоздавался бы двадцать раз в секунду.
+const moteCount = (agents: number): number => {
+  const full = Math.min(Math.max(Math.log10(agents + 1) / 4, 0), 1);
+  return Math.round(MOTE_MIN + (MOTE_MAX - MOTE_MIN) * full);
+};
+
+export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const state = useGameStore((s) => s.state);
   const requestPrestige = useGameStore((s) => s.requestPrestige);
   const notation = state.settings.notation;
@@ -95,18 +110,81 @@ export const OfficeColumn: React.FC = () => {
 
   const sceneIndex = Math.min(Math.floor(state.generation / 2), SCENE_COUNT - 1);
 
-  // Прогрев следующей Сцены: без неё Престиж на секунду показывает пустой кадр, потому что
-  // картинка начинает грузиться только когда src уже назначен. Обход массива тут же зациклился
-  // бы на последнем индексе, поэтому сосед отсекается по SCENE_COUNT.
+  // Кроссфейд Сцены: предыдущий кадр лежит под новым, входящий проявляется
+  // opacity 0→1 за 0.4s (класс scene-crossfade--in, только opacity — разрешена
+  // и при reducedMotion). Предыдущий убирается по onAnimationEnd входящего,
+  // таймеров нет. Пара {prev, curr}, а не очередь: Сцена меняется не чаще,
+  // чем игрок жмёт Престиж.
+  const [sceneShown, setSceneShown] = useState({ prev: -1, curr: sceneIndex });
   useEffect(() => {
-    const next = sceneIndex + 1;
-    if (next >= SCENE_COUNT) return;
-    const preload = new Image();
-    preload.src = SCENE_SRC[next];
+    setSceneShown((s) => (s.curr === sceneIndex ? s : { prev: s.curr, curr: sceneIndex }));
+  }, [sceneIndex]);
+
+  // Престиж открывает окно подтверждения, а не выполняется здесь: сброс Забега необратим,
+  // и игрок должен увидеть, сколько Compute начислит, что сгорит и в какое Поколение он
+  // попадёт. Один путь на обе колонки — свой взвод здесь означал бы два разных подтверждения
+  // одного и того же действия. Сам переход живёт в triggerPrestige, его зовёт окно.
+
+  // Прогрев соседних Сцен: без неё Престиж на секунду показывает пустой кадр, потому что
+  // картинка начинает грузиться только когда src уже назначен. Вперёд — для следующего
+  // Престижа, назад — для возврата взглядом: раньше обратного прелоада не было (аудит).
+  // Края массива отсекаются по SCENE_COUNT, чтобы не зациклиться.
+  useEffect(() => {
+    for (const i of [sceneIndex + 1, sceneIndex - 1]) {
+      if (i < 0 || i >= SCENE_COUNT) continue;
+      const preload = new Image();
+      preload.src = SCENE_SRC[i];
+    }
   }, [sceneIndex]);
 
   const activeLabs = LAB_IDS.filter((l) => labAgents(state, l) > 0);
   const totalAgents = activeLabs.reduce((sum, l) => sum + labAgents(state, l), 0);
+
+  // Прыжок Маскота при покупке Агента его Лаборатории. Предыдущие числа — в ref, как
+  // prevOwned в ModelRow: магазин перерисовывается каждый тик, и отмечать покупку в сторе
+  // значило бы гонять эффект по всей колонке двадцать раз в секунду. Сравнение идёт по всем
+  // LAB_IDS, а не по activeLabs: иначе появление первой покупки новой Лаборатории (0 → 1)
+  // не отличить от первого рендера, и Маскот либо не прыгнул бы, либо прыгнули бы все сразу.
+  const prevLabCounts = useRef<Partial<Record<LabId, number>>>({});
+  const hopNodes = useRef(new Map<LabId, HTMLDivElement>());
+  const [hoppingLabId, setHoppingLabId] = useState<LabId | null>(null);
+
+  useEffect(() => {
+    const prev = prevLabCounts.current;
+    // Первый замер только запоминает числа: иначе все Маскоты с Агентами прыгнули бы
+    // на загрузке сохранения. LAB_IDS статичен, поэтому пустой ref — это ровно первый замер.
+    let known = false;
+    for (const labId of LAB_IDS) {
+      if (prev[labId] !== undefined) {
+        known = true;
+        break;
+      }
+    }
+    if (!known) {
+      for (const labId of LAB_IDS) prev[labId] = labAgents(state, labId);
+      return;
+    }
+    // Покупка растит ровно одну Лабораторию, поэтому прыгает первая выросшая; импорт
+    // сохранения может вырастить несколько сразу — там прыжка одной достаточно, это редкий
+    // путь, а не игровой отклик.
+    for (const labId of LAB_IDS) {
+      const before = prev[labId] ?? 0;
+      const now = labAgents(state, labId);
+      prev[labId] = now;
+      if (now <= before) continue;
+      setHoppingLabId(labId);
+      const node = hopNodes.current.get(labId);
+      if (!node) continue;
+      // Чтение ширины между снятием и возвратом класса — обязательный сброс анимации:
+      // иначе быстрая повторная покупка той же Лаборатории не перезапустила бы прыжок,
+      // класс ведь не менялся. Тот же приём, что у model-row--pop.
+      node.classList.remove('mascot-hop');
+      void node.offsetWidth;
+      node.classList.add('mascot-hop');
+      break;
+    }
+  }, [state.agents]);
+
   const synergyLabs = activeLabs.filter((l) =>
     state.upgrades.includes(synergyUpgradeId(state.generation, l))
   );
@@ -115,6 +193,10 @@ export const OfficeColumn: React.FC = () => {
     <div
       style={{
         flex: 1,
+        // Офис — единственная растягиваемая колонка. Её минимум держит офис читаемым в сетке
+        // из трёх колонок, а в одноколоночном режиме он снимается: иначе на узком экране колонка
+        // не влезла бы и обёртка пустила горизонтальную прокрутку.
+        minWidth: full ? 0 : OFFICE_COL_MIN,
         display: 'flex',
         flexDirection: 'column',
         backgroundColor: 'var(--bg-primary)',
@@ -124,8 +206,11 @@ export const OfficeColumn: React.FC = () => {
         gap: '16px',
       }}
     >
-      {/* Баннер Поколения и Флагмана */}
+      {/* Баннер Поколения и Флагмана. key пересоздаёт карточку на смене Поколения
+          или финала, поэтому появление через существующий toast-fade (только opacity,
+          без движения) проигрывается один раз на смену текста. */}
       <div
+        key={`${state.generation}-${finale ? 'finale' : 'goal'}`}
         className="pixel-card"
         style={{
           flexShrink: 0,
@@ -136,27 +221,26 @@ export const OfficeColumn: React.FC = () => {
           alignItems: 'center',
           flexWrap: 'wrap',
           gap: '12px',
+          animation: 'toast-fade 0.15s ease-out',
         }}
       >
         <div>
           <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
             ЦЕЛЬ ПОКОЛЕНИЯ
           </div>
-          <div className="pixel-font" style={{ fontSize: '1.25rem', color: 'var(--text-main)', marginTop: '2px' }}>
+          <div style={{ fontSize: '1.25rem', color: 'var(--text-main)', marginTop: '2px' }}>
             Флагман: <span style={{ color: 'var(--gold)' }}>{flagship.name}</span> ({LABS[flagship.lab].name})
           </div>
           <div style={{ fontSize: '0.85rem', color: flagshipOwned ? 'var(--green)' : 'var(--text-muted)', marginTop: '4px' }}>
             {flagshipOwned
-              ? '✅ Флагман нанят! Престиж в следующее Поколение разблокирован.'
-              : '🔒 Наймите хотя бы 1 Агента флагмана, чтобы открыть Престиж.'}
+              ? 'Флагман нанят! Престиж в следующее поколение разблокирован.'
+              : 'Найми хотя бы 1 агента флагмана, чтобы открыть престиж.'}
           </div>
         </div>
 
         {prestigeReady && !finale && (
           <button
-            // Второй вход в тот же необратимый переход, поэтому идёт через окно
-            // подтверждения, а не напрямую: стереть Забег должен один путь.
-            onClick={requestPrestige}
+onClick={requestPrestige}
             className="pixel-btn pixel-btn-gold"
             style={{ fontSize: '1rem', padding: '10px 16px' }}
           >
@@ -174,11 +258,9 @@ export const OfficeColumn: React.FC = () => {
               textAlign: 'center',
             }}
           >
-            <div className="pixel-font" style={{ color: 'var(--gold)', fontSize: '1rem' }}>
-              🌟 Финал контента MVP!
-            </div>
+            <div style={{ color: 'var(--gold)', fontSize: '1rem' }}>Финал контента MVP!</div>
             <div style={{ fontSize: '0.8rem', color: 'var(--gold)' }}>
-              Вы на острие ИИ! Ждите новые реальные модели в будущих апдейтах.
+              Ты на острие ИИ! Жди новые реальные модели в будущих апдейтах.
             </div>
           </div>
         )}
@@ -199,24 +281,74 @@ export const OfficeColumn: React.FC = () => {
           backgroundColor: 'var(--bg-void)',
         }}
       >
-        <img
-          className="scene__img"
-          src={SCENE_SRC[sceneIndex]}
-          alt=""
-          draggable={false}
-          style={{
-            position: 'absolute',
-            inset: 0,
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-            objectPosition: 'center',
-            display: 'block',
-            // Арт 384×256 и растягивается нецелым кратным: без этого он читался бы как мыло.
-            imageRendering: 'pixelated',
-            userSelect: 'none',
-          }}
-        />
+        {/* Кроссфейд: предыдущий кадр лежит нижним слоем, новый проявляется поверх
+            (класс scene-crossfade--in, только opacity). Предыдущий убирается по концу
+            входящей анимации — таймеров нет, текст и HUD-полосы вне картинки (ADR-0002). */}
+        {sceneShown.prev >= 0 && sceneShown.prev !== sceneShown.curr ? (
+          <>
+            <img
+              className="scene__img"
+              src={SCENE_SRC[sceneShown.prev]}
+              alt=""
+              draggable={false}
+              aria-hidden="true"
+              style={{
+                position: 'absolute',
+                inset: 0,
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                objectPosition: 'center',
+                display: 'block',
+                // Арт 384×256 и растягивается нецелым кратным: без этого он читался бы как мыло.
+                imageRendering: 'pixelated',
+                userSelect: 'none',
+              }}
+            />
+            <img
+              className="scene__img scene-crossfade--in"
+              src={SCENE_SRC[sceneShown.curr]}
+              alt=""
+              draggable={false}
+              onAnimationEnd={(e) => {
+                // Конец здесь — это конец входящего кроссфейда: событие всплывает от
+                // потомков Сцены, поэтому чужое имя игнорируется.
+                if (e.animationName !== 'scene-crossfade-in') return;
+                setSceneShown((s) => (s.prev < 0 ? s : { prev: -1, curr: s.curr }));
+              }}
+              style={{
+                position: 'absolute',
+                inset: 0,
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                objectPosition: 'center',
+                display: 'block',
+                imageRendering: 'pixelated',
+                userSelect: 'none',
+              }}
+            />
+          </>
+        ) : (
+          <img
+            className="scene__img"
+            src={SCENE_SRC[sceneShown.curr]}
+            alt=""
+            draggable={false}
+            style={{
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              objectPosition: 'center',
+              display: 'block',
+              // Арт 384×256 и растягивается нецелым кратным: без этого он читался бы как мыло.
+              imageRendering: 'pixelated',
+              userSelect: 'none',
+            }}
+          />
+        )}
 
         {/* HUD-полоса: собственный скрим, поэтому читаемость подписи не зависит от того,
             что нарисовала машина (ADR-0002). */}
@@ -236,11 +368,9 @@ export const OfficeColumn: React.FC = () => {
             background: 'linear-gradient(to bottom, var(--bg-scrim) 0%, var(--bg-scrim) 55%, transparent 100%)',
           }}
         >
-          <span className="pixel-font" style={{ fontSize: '1rem', color: 'var(--text-main)' }}>
-            🏢 ОФИС АГЕНТОВ
-          </span>
-          <span className="pixel-font" style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>
-            {formatNumber(totalAgents, notation)}{' '}
+          <span style={{ fontSize: '1rem', color: 'var(--text-main)' }}>ОФИС АГЕНТОВ</span>
+          <span style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>
+            <Num>{formatNumber(totalAgents, notation)}</Num>{' '}
             {formatCount(totalAgents, 'Агент', 'Агента', 'Агентов')}
           </span>
         </div>
@@ -291,15 +421,32 @@ export const OfficeColumn: React.FC = () => {
                     pointerEvents: 'none',
                   }}
                 />
-                <div style={{ position: 'relative', zIndex: 1, lineHeight: 0 }}>
+                {/* Прыжок висит на родителе узла покачивания, а не на нём самом: animation на том
+                    же узле перезаписала бы бесконечное mascot-bob, а вложенный transform
+                    складывается с ним — прыжок идёт поверх покачивания, не вместо него. Тень
+                    остаётся на полу: прыгает только Маскот, а не его контакт с полом. */}
+                <div
+                  ref={(node) => {
+                    if (node) hopNodes.current.set(labId, node);
+                    else hopNodes.current.delete(labId);
+                  }}
+                  className={hoppingLabId === labId ? 'mascot-hop' : undefined}
+                  onAnimationEnd={(e) => {
+                    // Покачивание бесконечно и конца не даёт, поэтому конец здесь — это конец
+                    // прыжка. Таймеров в игре нет, снятие только по событию анимации.
+                    if (e.animationName !== 'mascot-hop') return;
+                    e.currentTarget.classList.remove('mascot-hop');
+                    setHoppingLabId((cur) => (cur === labId ? null : cur));
+                  }}
+                  style={{ position: 'relative', zIndex: 1, lineHeight: 0 }}
+                >
                   <MascotSprite lab={labId} size={MASCOT_SIZE} animated />
                 </div>
               </div>
               <span
-                className="pixel-font"
                 style={{ fontSize: '0.8rem', color: 'var(--text-main)', textShadow: BADGE_OUTLINE }}
               >
-                ×{formatNumber(labAgents(state, labId), notation)}
+                ×<Num>{formatNumber(labAgents(state, labId), notation)}</Num>
               </span>
             </div>
           ))}
@@ -309,7 +456,7 @@ export const OfficeColumn: React.FC = () => {
             с полом, а не светится поверх затемнения. Держит порядок разметка: у пыли и у
             скрима одинаковый z-index 1, а при равном z-index рисуется тот, кто позже в DOM. */}
         <div className="scene__motes">
-          {MOTES.map((_, i) => (
+          {MOTES.slice(0, moteCount(totalAgents)).map((_, i) => (
             <span key={i} className="mote" style={moteStyle(i)} />
           ))}
         </div>
@@ -352,12 +499,9 @@ export const OfficeColumn: React.FC = () => {
                 textAlign: 'center',
               }}
             >
-              <div style={{ fontSize: '2.5rem', marginBottom: '8px' }}>🏢💤</div>
-              <div className="pixel-font" style={{ fontSize: '1.1rem', color: 'var(--text-main)' }}>
-                Офис пока пуст
-              </div>
+              <div style={{ fontSize: '1.1rem', color: 'var(--text-main)' }}>Офис пока пуст</div>
               <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: '6px' }}>
-                Наймите своего первого ИИ-Агента в магазине справа!
+                Найми своего первого ИИ-агента в магазине справа!
               </div>
             </div>
           </div>
@@ -380,9 +524,7 @@ export const OfficeColumn: React.FC = () => {
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' }}>
-          <span className="pixel-font" style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>
-            РОСТЕР ЛАБОРАТОРИЙ
-          </span>
+          <span style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>СОСТАВ ЛАБОРАТОРИЙ</span>
           <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
             {activeLabs.length}{' '}
             {formatCount(activeLabs.length, 'Лаборатория', 'Лаборатории', 'Лабораторий')} в офисе
@@ -391,7 +533,7 @@ export const OfficeColumn: React.FC = () => {
 
         {activeLabs.length === 0 ? (
           <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-            Пока никто не нанят — Сцена ждёт первого Агента.
+            Пока никто не нанят — Сцена ждёт первого агента.
           </div>
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px' }}>
@@ -400,8 +542,13 @@ export const OfficeColumn: React.FC = () => {
               const count = labAgents(state, labId);
               const synergyPct = Math.round(count * SYNERGY_PER_AGENT * 100);
               const synergyOn = state.upgrades.includes(synergyUpgradeId(state.generation, labId));
+              const work = labWork(state, labId);
+              const share = labIncomeShare(state, labId);
               return (
-                <div key={labId} style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+                <div
+                  key={labId}
+                  style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap', rowGap: '2px' }}
+                >
                   {/* Цвет Лаборатории живёт только здесь: на --bg-card он не задаёт контраст
                       текста, а плашкой служит лишь ориентиром, у какой Маскот чья. */}
                   <span
@@ -415,17 +562,37 @@ export const OfficeColumn: React.FC = () => {
                     }}
                   />
                   <span style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>{lab.name}</span>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{lab.mascot}</span>
-                  <span className="pixel-font" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                    ×{formatNumber(count, notation)} {formatCount(count, 'Агент', 'Агента', 'Агентов')}
+                  {/* Имя Маскота не повторяется: он стоит в ленте прямо над ростером, и его
+                      счётчик подписан под ним. Счётчик Агентов здесь остаётся: на Сцене он
+                      мелкий и читается только вплотную, а в ростере это основное число строки,
+                      и без него карточка в свежем сохранении держит одно имя. */}
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    ×<Num>{formatNumber(count, notation)}</Num>{' '}
+                    {formatCount(count, 'Агент', 'Агента', 'Агентов')}
                   </span>
+                  {/* Название работы приходит из MODEL_TIERS, а не пишется здесь строкой.
+                      Без пиксельного шрифта: среди тиров есть «1M контекст», а строка с
+                      кириллицей набирается Nunito (ADR-0003). */}
+                  {work !== '' && (
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      {work}
+                    </span>
+                  )}
+                  {/* Доля в Доходе — величина сравнительная, и читается она только когда
+                      различает: с одной Лабораторией она всегда 100%, а ниже процента
+                      неотличима от нуля. На восьми Лабораториях такая мелочь занимала бы
+                      пять строк из восьми и читалась как «у всех всё одинаково». */}
+                  {activeLabs.length > 1 && share >= SHARE_MIN && (
+                    <span className="pixel-font" style={{ fontSize: '0.8rem', color: 'var(--text-main)' }}>
+                      {Math.round(share * 100)}%
+                    </span>
+                  )}
                   {synergyOn && (
                     <span
-                      className="pixel-font"
-                      title={`Синергия: +${synergyPct}% к Доходу всех Моделей ${lab.name}`}
+                      title={`Синергия: +${synergyPct}% к доходу всех моделей ${lab.name}`}
                       style={{ fontSize: '0.75rem', color: 'var(--gold)' }}
                     >
-                      +{synergyPct}%
+                      +<Num>{synergyPct}</Num>%
                     </span>
                   )}
                 </div>
@@ -436,7 +603,7 @@ export const OfficeColumn: React.FC = () => {
 
         {synergyLabs.length > 0 && (
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            Синергия: каждый Агент Лаборатории добавляет Доход всем её Моделям (Апгрейд «Общий датасет»).
+            Синергия: каждый агент Лаборатории добавляет доход всем её моделям (апгрейд «Общий датасет»).
           </div>
         )}
       </div>

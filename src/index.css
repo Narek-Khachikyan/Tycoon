@@ -96,8 +96,15 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Пиксельный шрифт — только логотип и строки, которые целиком являются числом (ADR-0003).
+   В самом Pixelify Sans нет заглавных «О» и «П», поэтому любая кириллица на пиксельном
+   начертании молча уходит в фолбэк — и причём разный в заголовке и на кнопке.
+
+   Фолбэк-цепочка сужена намеренно: `cursive` подменял отсутствующий глиф каллиграфией, а
+   моноширинный `monospace` при незагруженном Nunito делает кириллицу заметно шире и ломает
+   вёрстку сильнее обычного `sans-serif`. */
 .pixel-font {
-  font-family: 'Pixelify Sans', cursive, monospace;
+  font-family: 'Pixelify Sans', 'Nunito', sans-serif;
 }
 
 /* font-variant-numeric: tabular-nums у счётчика Токенов нет намеренно: в Pixelify Sans
@@ -157,6 +164,125 @@ body {
 }
 
 .model-row--pop {
+}
+
+/* Сквош кнопки Клика. Площадь сохраняется: 1.06 × 0.94 ≈ 1.0, поэтому кнопка читается
+   как нажатая, а не раздутая — тот же приём, что у .pixel-btn:active. Вспышка яркости
+   идёт через opacity, а не filter: анимируются только transform и opacity. */
+@keyframes click-squash {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  40% {
+    transform: scale(1.06, 0.94);
+    opacity: 0.82;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Та же вспышка без сдвига и масштаба: при выключенном движении кнопка только мигает. */
+@keyframes click-fade {
+  0% {
+    opacity: 1;
+  }
+  40% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.click-btn--squash {
+}
+
+/* Вспышка разблокировки Модели. Анимируются только background-color и opacity:
+   transform здесь ни к чему — строка не нажималась, ей не за что «прыгать».
+   background-color в keyframes — не вестибулярный триггер, в отличие от
+   сдвига/масштаба/тряски. */
+@keyframes unlock-flash {
+  0% {
+    background-color: var(--bg-card);
+    opacity: 1;
+  }
+  40% {
+    background-color: var(--bg-raised);
+    opacity: 0.85;
+  }
+  100% {
+    background-color: var(--bg-card);
+    opacity: 1;
+  }
+}
+
+/* Тот же переход без краски: при выключенном движении строка только мигает. */
+@keyframes unlock-fade {
+  0% {
+    opacity: 1;
+  }
+  40% {
+    opacity: 0.75;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.model-row--unlock {
+}
+
+/* Отказ по недоступной покупке. Только opacity — вспышка и так вестибулярно
+   нейтральна, поэтому отдельный reduced-вариант ей не нужен. */
+@keyframes deny-flash {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.deny-flash {
+}
+
+/* Сигнал «появился доступный Апгрейд» на бейдже вкладки. Перезапускается через
+   key={count}: смена числа монтирует узел заново и проигрывает вспышку один раз. */
+@keyframes tab-badge-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  40% {
+    transform: scale(1.35);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Та же вспышка без масштаба: при выключенном движении бейдж только мигает. */
+@keyframes tab-badge-fade {
+  0% {
+    opacity: 1;
+  }
+  40% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.tab-badge--pulse {
 }
 
 @keyframes spark-fly {
@@ -341,9 +467,11 @@ body {
 }
 
 /* Живой фон Сцены. Пыль держится на 50% непрозрачности и дрейфует вверх на 6–9 с: медленнее
-   примерно в шесть раз, чем граница частоты мерцания, поэтому ряд из восемнадцати точек
-   не читается как мигание. Пик подобран по самой светлой подложке под пылью — это жёлтый
-   пол Сцены (L≈0.90), а не белый: на 16% точка давала контраст 1.15:1 и не была видна вовсе. */
+   примерно в шесть раз, чем граница частоты мерцания, поэтому ряд точек не читается как
+   мигание. Точек 18–36, и число растёт вместе с офисом, но период у каждой точки один и тот
+   же: мерцание задаёт он, а не их количество. Пик подобран по самой светлой подложке под
+   пылью — это жёлтый пол Сцены (L≈0.90), а не белый: на 16% точка давала контраст 1.15:1 и
+   не была видна вовсе. */
 @keyframes mote-drift {
   0%,
   100% {
@@ -399,7 +527,10 @@ body {
 
 /* Pixel buttons */
 .pixel-btn {
-  font-family: 'Pixelify Sans', monospace;
+  /* Кнопка набирается Nunito целиком (ADR-0003): в пиксельном шрифте живут только числа, а
+     подпись кнопки — это слово плюс цена. `inherit` обязателен, потому что кнопка по
+     умолчанию берёт шрифт пользовательского агента, а не шрифт body. */
+  font-family: inherit;
   font-size: 1rem;
   letter-spacing: 0.5px;
   background: var(--bg-card);
@@ -430,14 +561,53 @@ body {
   border-color: var(--accent-color);
 }
 
+/* Видимый фокус: в проекте не было ни одного правила фокуса, поэтому кнопка, выбранная с
+   клавиатуры, выглядела ровно как кнопка под мышью. Контур акцентом со смещением читается на
+   тёмных карточках и не наезжает на соседей, как это делает outline-offset: 0.
+   :focus-visible, а не :focus — иначе рамка появлялась бы и после клика мышью. */
+.pixel-btn:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
 /* Отклик на нажатие без движения живёт в разделе «Движение» в конце файла: там он стоит
    после всех .pixel-btn-*:hover, а их `background` — шорткат, и шорткат сбрасывает
    background-image, если встретится позже. Подъём и вдавливание — там же, в медиазапросе. */
 
+/* Неактивная кнопка не прячет то, ради чего существует: цена и условие («Нужен 1 Агент
+   флагмана») лежат именно на ней, и игрок обязан их прочитать. Поэтому приглушается
+   поверхность, а не текст.
+
+   Замеры против --bg-void: --text-muted держит 7.10:1, --border-strong 2.56:1. Прежние
+   `opacity: 0.5` и обесцвечивание роняли текст до ~3.5:1, а тонирование акцентом — до 4.57:1
+   при 12% и 3.95:1 при 20%, то есть обе ветки пробивали пол 4.5:1. Ветка @supports с
+   color-mix и отдельный литерал для Поколения 1 здесь не нужны.
+
+   Тени, подъёма и вдавливания нет намеренно: неактивная кнопка не должна выглядеть
+   нажимаемой. */
 .pixel-btn:disabled {
-  opacity: 0.5;
+  background: var(--bg-void);
+  border: 2px dashed var(--border-strong);
+  color: var(--text-muted);
+  box-shadow: none;
   cursor: not-allowed;
-  filter: grayscale(0.8);
+}
+
+/* Выбранное состояние переключателя — заливка плюс рамка, а не только цвет текста: раньше
+   выбранный ×1 был окрашен в акцент, а невыбранные ×10 и ×100 стояли текстом светлее, то есть
+   выбранный читался слабее соседей. Единый паттерн на aria-pressed, поэтому и переключатель
+   режима, и множитель покупки выглядят одинаково. */
+.pixel-btn[aria-pressed='true'] {
+  background: var(--bg-raised);
+  border-color: var(--accent-color);
+  color: var(--text-main);
+}
+
+/* Красная заливка остаётся за режимом продажи: красный в игре означает необратимость, и
+   делить его ещё с чем-то нельзя. */
+.pixel-btn-sell[aria-pressed='true'] {
+  background: var(--red-solid);
+  border-color: var(--red);
 }
 
 .pixel-btn-accent {
@@ -497,7 +667,7 @@ body {
   pointer-events: none;
   animation: float-fade 0.9s ease-out forwards;
   color: var(--accent-color);
-  font-family: 'Pixelify Sans', monospace;
+  font-family: 'Pixelify Sans', 'Nunito', sans-serif;
   font-size: 1.5rem;
   font-weight: 700;
   /* Ореол держит цвет текста, поэтому и живёт в .app-root, а не в палитре панели. */
@@ -591,6 +761,25 @@ body {
      только в @media (prefers-reduced-motion: no-preference) в конце файла. */
 }
 
+/* Прыжок при покупке Агента его Лаборатории. Только transform: прыжок идёт поверх
+   покачивания (класс вешается на родителя узла .animate-mascot-bob, а не на него — animation
+   на том же узле перезаписала бы бесконечное mascot-bob), поэтому вложенные translateY
+   складываются. Середина на 45%: та же асимметрия, что у model-row-pop. */
+@keyframes mascot-hop {
+  0% {
+    transform: translateY(0);
+  }
+  45% {
+    transform: translateY(-10px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+.mascot-hop {
+}
+
 /* Ореол живёт на ::after, а не на самой кнопке. box-shadow — свойство краски, и пульс на нём
    полностью затирал жёсткую нижнюю тень .pixel-btn-accent: кнопка Клика не показывала её ни
    одного мгновения. Здесь анимируются только opacity и transform — они идут через композитор,
@@ -677,6 +866,44 @@ body {
   display: none;
 }
 
+/* Кнопки ленты. Отступ от края полосы не задаётся здесь: их две, и они стоят вровень с
+   золотым заголовком, поэтому flex-раскладка полосы ими и управляет. */
+.news-ticker__btn {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  padding: 2px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.08s ease-in-out, border-color 0.08s ease-in-out;
+}
+
+.news-ticker__btn:hover {
+  color: var(--accent-color);
+  border-color: var(--accent-color);
+}
+
+/* Выбранное состояние паузы — то же, что у переключателей магазина: заливка плюс рамка. */
+.news-ticker__btn[aria-pressed='true'] {
+  background: var(--bg-raised);
+  border-color: var(--accent-color);
+  color: var(--accent-color);
+}
+
+.news-ticker__btn:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+/* Пауза останавливает и смену текста, и саму строку: animation-play-state висит вне
+   медиазапроса движения, потому что без анимации свойство просто ничего не делает. */
+.news-ticker--paused .news-ticker-track {
+  animation-play-state: paused;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
@@ -751,6 +978,27 @@ body {
     animation: model-row-pop 0.26s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
 
+/* Сквош перезапускается классом из ClickColumn: снятие по onAnimationEnd, сброс чтением
+     ширины между снятием и возвратом — иначе спам Кликов не перезапустил бы анимацию. */
+  .click-btn--squash {
+    animation: click-squash 0.13s ease-out;
+  }
+
+  /* Вспышка разблокировки Модели: переход disabled→enabled, который раньше был тихим. */
+  .model-row--unlock {
+    animation: unlock-flash 0.5s ease-out;
+  }
+
+  /* Отказ по недоступной покупке: мигает строка дефицита под кнопкой. */
+  .deny-flash {
+    animation: deny-flash 0.2s ease-out;
+  }
+
+  /* Сигнал доступного Апгрейда: вспышка бейджа на вкладке, один раз на появление. */
+  .tab-badge--pulse {
+    animation: tab-badge-pulse 0.5s ease-out;
+  }
+
   /* Слой вспышки создаётся здесь, а не в базовых правилах: при выключенном движении его не
      должно существовать вовсе, иначе это был бы ещё один слой в каждой карточке магазина,
      существующий ради прозрачности.
@@ -800,6 +1048,13 @@ body {
 
   .animate-mascot-bob {
     animation: mascot-bob 1.8s ease-in-out infinite;
+  }
+
+  /* Прыжок перезапускается классом из OfficeColumn: снятие по onAnimationEnd, сброс чтением
+     ширины между снятием и возвратом — иначе быстрая повторная покупка той же Лаборатории
+     не перезапустила бы анимацию, класс ведь не менялся. */
+  .mascot-hop {
+    animation: mascot-hop 0.35s ease-out;
   }
 
   .pulse-glow::after {
@@ -857,6 +1112,22 @@ body {
   animation: none;
 }
 
+[data-motion='reduced'] .click-btn--squash {
+  animation: click-fade 0.13s ease-out;
+}
+
+[data-motion='reduced'] .model-row--unlock {
+  animation: unlock-fade 0.5s ease-out;
+}
+
+[data-motion='reduced'] .deny-flash {
+  animation: deny-flash 0.2s ease-out;
+}
+
+[data-motion='reduced'] .tab-badge--pulse {
+  animation: tab-badge-fade 0.5s ease-out;
+}
+
 /* Вспышка полосы снимается настройкой игрока точно так же, как и хлопок строки: класс
    магазин снимает по-прежнему, поэтому прозрачному слою не нужно ни таймера, ни
    animationcancel — в отличие от частиц, его незачем убирать из DOM. */
@@ -901,6 +1172,12 @@ body {
   animation: none;
 }
 
+/* Без движения Маскот просто стоит: прыжка нет, а opacity-мигания нет намеренно — Маскот
+   не кнопка и нажатие подтверждать ему нечем, мигание читалось бы как сбой спрайта. */
+[data-motion='reduced'] .mascot-hop {
+  animation: none;
+}
+
 [data-motion='reduced'] .pulse-glow::after {
   animation: pulse-fade 2s infinite ease-in-out;
 }
@@ -913,4 +1190,32 @@ body {
 [data-motion='reduced'] .news-ticker-copy--dup,
 [data-motion='reduced'] .news-ticker-sep {
   display: none;
+}
+
+/* Кроссфейд Сцены: единственный новый keyframes в задаче, только opacity 0→1 —
+   вестибулярно нейтрален, поэтому живёт вне блоков движения и работает одинаково
+   при полном и при выключенном движении. Входящий слой лежит поверх предыдущего
+   (позже в DOM) и проявляется за 0.4s; предыдущий убирается по onAnimationEnd. */
+@keyframes scene-crossfade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.scene-crossfade--in {
+  animation: scene-crossfade-in 0.4s ease-out;
+}
+
+/* Ссылка Artificial Analysis в футере мёртвой не выглядит: hover — только цвет, без
+   движения и сдвига раскладки. Переход цвета — не движение, при reducedMotion остаётся. */
+.footer-aa-link {
+  color: var(--accent-color);
+  transition: color 0.08s ease-in-out;
+}
+
+.footer-aa-link:hover {
+  color: var(--accent-hover);
 }

@@ -1,22 +1,25 @@
-import React, { useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useGameStore } from '../store/useGameStore';
 import { ACHIEVEMENTS, ordinaryEarned, shadowEarned } from '../economy/achievements';
 import { SHADOW_ACHIEVEMENTS } from '../economy/shadow';
+import { GLOSSARY } from '../data/glossary';
 import { PERKS } from '../economy/perks';
 import { exportSave } from '../economy/save';
 import { formatCount, formatDuration, formatNumber } from '../economy/format';
 import {
   discountMult,
   isContentFinale,
-  labIncome,
+  labIncomeShare,
   maxAffordable,
   prestigePreview,
-  totalIncome,
 } from '../economy/engine';
 import { availableUpgrades } from '../economy/upgrades';
 import { CATALOG } from '../economy/catalog';
 import { LABS, LAB_IDS } from '../data/labs';
 import { MascotSprite } from './MascotSprite';
+import { Icon } from './Icon';
+import { Num } from './Num';
+import { useDialogFocus } from './useDialogFocus';
 
 interface ModalProps {
   isOpen: boolean;
@@ -54,7 +57,7 @@ const AchievementRow: React.FC<{
         gap: '12px',
       }}
     >
-      <div style={{ fontSize: '1.5rem', opacity: shadow ? 0.7 : 1 }}>
+      <div aria-hidden="true" style={{ fontSize: '1.5rem', opacity: shadow ? 0.7 : 1 }}>
         {unlocked ? (shadow ? '🌑' : '🏆') : '🔒'}
       </div>
       <div style={{ flex: 1 }}>
@@ -76,8 +79,55 @@ const AchievementRow: React.FC<{
   );
 };
 
+// Выход модалок — реверс существующего toast-fade (только opacity, поэтому картина
+// одинакова при полном и при выключенном движении, нового CSS ноль). Входные
+// длительности уже в коде (0.18s / 0.2s), выход везде 0.15s, таймер равен длительности
+// выхода. Снятие по таймеру, а не по onAnimationEnd: конец анимации может не наступить
+// (свёрнутая вкладка, снятый кадр), а висящее окно осталось бы в DOM навсегда.
+const MODAL_EXIT_MS = 150;
+const MODAL_EXIT_ANIMATION = 'toast-fade 0.15s ease-out reverse';
+
+// Отложенное размонтирование окна: запрос закрытия лишь взводит closing, а настоящий
+// onClose приходит по одному bounded one-shot таймеру. Очистка в эффекте обязательна —
+// иначе размонтирование с висящим таймером дёрнуло бы onClose уже снятого окна.
+// Повторный запрос во время выхода — игнор: иначе спам ✕ перезапускал бы выход.
+// Открытие (open поменялся) сбрасывает closing, иначе повторное открытие показало бы
+// выходной кадр вместо окна. Один вызов хука — одно окно, один таймер.
+function useModalExit(
+  open: boolean,
+  onClose: () => void,
+): { closing: boolean; requestClose: () => void } {
+  const [closing, setClosing] = useState(false);
+  // onClose в рефе, а не в зависимостях таймера: стрелка из оболочки пересоздаётся на
+  // каждом рендере, и с ней в зависимостях таймер перезапускался бы, растягивая выход.
+  const closeRef = useRef(onClose);
+  useEffect(() => {
+    closeRef.current = onClose;
+  }, [onClose]);
+  // Сброс closing — layout-эффектом, до кадра: иначе при повторном открытии виден
+  // один кадр выходной анимации (пассивный эффект срабатывает уже после отрисовки).
+  useLayoutEffect(() => {
+    if (open) setClosing(false);
+  }, [open]);
+  useEffect(() => {
+    if (!closing) return;
+    const timer = setTimeout(() => closeRef.current(), MODAL_EXIT_MS);
+    return () => clearTimeout(timer);
+  }, [closing]);
+  const requestClose = (): void => {
+    if (closing) return;
+    setClosing(true);
+  };
+  return { closing, requestClose };
+}
+
 export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   const state = useGameStore((s) => s.state);
+  // Все пути закрытия (скрим, ✕, Esc из хука) идут через один запрос: мгновенного
+  // onClose больше нет ни на одном пути.
+  const { closing, requestClose } = useModalExit(isOpen, onClose);
+  // Хук обязан стоять до раннего выхода: иначе окно то открывалось бы с ловушкой, то без неё.
+  const cardRef = useDialogFocus<HTMLDivElement>(isOpen, requestClose);
   if (!isOpen) return null;
 
   const unlockedSet = new Set(state.achievements);
@@ -93,10 +143,17 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
         justifyContent: 'center',
         zIndex: 50,
         padding: '16px',
+        // Вход — существующий toast-fade, выход — тот же кадр в реверсе (только opacity,
+        // поэтому при reducedMotion картина та же, нового CSS ноль).
+        animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.18s ease-out',
       }}
-      onClick={onClose}
+      onClick={requestClose}
     >
       <div
+        ref={cardRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="achievements-title"
         className="pixel-card"
         style={{
           width: '100%',
@@ -106,16 +163,24 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
           flexDirection: 'column',
           padding: '20px',
           gap: '14px',
+          // Карточка ходит тем же кадром, что и скрим: вход — прямо, выход — в реверсе.
+          animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.18s ease-out',
         }}
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 className="pixel-font" style={{ fontSize: '1.3rem', color: 'var(--gold)' }}>
+<h2 id="achievements-title" style={{ fontSize: '1.3rem', color: 'var(--gold)' }}>
             {/* Числитель — ordinaryEarned, а не achievements.length: id теней лежат в том же
                 списке, и прямой длиной счётчик шапал бы выше знаменателя. */}
-            🏆 ДОСТИЖЕНИЯ ({ordinaryEarned(state)} / {ACHIEVEMENTS.length})
+            <Icon name="trophy" /> ДОСТИЖЕНИЯ ({ordinaryEarned(state)} / {ACHIEVEMENTS.length})
           </h2>
-          <button className="pixel-btn" onClick={onClose} style={{ padding: '4px 10px' }}>
+          <button
+            className="pixel-btn"
+            onClick={requestClose}
+            aria-label="Закрыть"
+            title="Закрыть"
+            style={{ padding: '4px 10px' }}
+          >
             ✕
           </button>
         </div>
@@ -144,9 +209,12 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
               borderTop: '1px solid var(--border)',
             }}
           >
-            <span className="pixel-font" style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>
-              🌑 ТЕНЕВЫЕ ДОСТИЖЕНИЯ
+            {/* Без pixel-font: в строке есть кириллица, а по ADR-0003 пиксельный шрифт
+                допустим только там, где её нет. */}
+            <span style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>
+              <span aria-hidden="true">🌑</span> Теневые Достижения
             </span>
+            {/* Счётчик — строка из одного числа, пиксельный шрифт тут разрешён. */}
             <span className="pixel-font" style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>
               {shadowEarned(state)} / {SHADOW_ACHIEVEMENTS.length}
             </span>
@@ -172,6 +240,10 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
 
 export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   const state = useGameStore((s) => s.state);
+  // Все пути закрытия (скрим, ✕, Esc из хука) идут через один запрос: мгновенного
+  // onClose больше нет ни на одном пути.
+  const { closing, requestClose } = useModalExit(isOpen, onClose);
+  const cardRef = useDialogFocus<HTMLDivElement>(isOpen, requestClose);
   if (!isOpen) return null;
 
   const now = Date.now();
@@ -180,18 +252,25 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   const notation = state.settings.notation;
   const totalAgents = Object.values(state.agents).reduce((a, b) => a + b, 0);
 
-  const statRows = [
-    ['Токенов сейчас', formatNumber(state.tokens, notation)],
-    ['Токенов за текущий Забег', formatNumber(state.runTokens, notation)],
-    ['Токенов за всё время', formatNumber(state.totalTokens, notation)],
+  // Значение-узел, а не строка: строка целиком из числа остаётся пиксельной (ADR-0003), а
+  // строка со словом («3 ч 12 мин», «1: Рассвет») набирается Nunito.
+  const statRows: [string, React.ReactNode][] = [
+    ['Токенов сейчас', <Num key="tokens">{formatNumber(state.tokens, notation)}</Num>],
+    ['Токенов за текущий Забег', <Num key="runTokens">{formatNumber(state.runTokens, notation)}</Num>],
+    ['Токенов за всё время', <Num key="totalTokens">{formatNumber(state.totalTokens, notation)}</Num>],
     ['Кликов за Забег', state.runClicks.toLocaleString('ru-RU')],
     ['Кликов за всё время', state.clicks.toLocaleString('ru-RU')],
-    ['Агентов в текущем офисе', totalAgents.toString()],
-    ['Апгрейдов куплено', state.upgrades.length.toString()],
+    ['Агентов в текущем офисе', <Num key="agents">{totalAgents}</Num>],
+    ['Апгрейдов куплено', <Num key="upgrades">{state.upgrades.length}</Num>],
     ['Текущее Поколение', `${CATALOG[state.generation].id}: ${CATALOG[state.generation].name}`],
     ['Максимальное Поколение', `${CATALOG[state.maxGeneration].id}: ${CATALOG[state.maxGeneration].name}`],
-    ['Престижей совершено', state.prestiges.toString()],
-    ['Всего Compute', `${state.compute} (+${state.compute}% к доходу)`],
+    ['Престижей совершено', <Num key="prestiges">{state.prestiges}</Num>],
+    [
+      'Всего Compute',
+      <>
+        <Num key="compute">{state.compute}</Num> (+<Num>{state.compute}</Num>% к доходу)
+      </>,
+    ],
     ['Перков открыто', `${state.perks.length} / ${PERKS.length}`],
     ['Время в текущем Забеге', formatDuration(runTimeSec)],
     ['Время за всё время игры', formatDuration(playTimeSec)],
@@ -208,10 +287,17 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
         justifyContent: 'center',
         zIndex: 50,
         padding: '16px',
+        // Вход — существующий toast-fade, выход — тот же кадр в реверсе (только opacity,
+        // поэтому при reducedMotion картина та же, нового CSS ноль).
+        animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.18s ease-out',
       }}
-      onClick={onClose}
+      onClick={requestClose}
     >
       <div
+        ref={cardRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="stats-title"
         className="pixel-card"
         style={{
           width: '100%',
@@ -221,14 +307,21 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
           flexDirection: 'column',
           padding: '20px',
           gap: '14px',
+          animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.18s ease-out',
         }}
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 className="pixel-font" style={{ fontSize: '1.3rem', color: 'var(--accent-color)' }}>
-            📊 СТАТИСТИКА
+          <h2 id="stats-title" style={{ fontSize: '1.3rem', color: 'var(--accent-color)' }}>
+            <Icon name="info" /> СТАТИСТИКА
           </h2>
-          <button className="pixel-btn" onClick={onClose} style={{ padding: '4px 10px' }}>
+          <button
+            className="pixel-btn"
+            onClick={requestClose}
+            aria-label="Закрыть"
+            title="Закрыть"
+            style={{ padding: '4px 10px' }}
+          >
             ✕
           </button>
         </div>
@@ -247,11 +340,34 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
               }}
             >
               <span style={{ color: 'var(--text-muted)' }}>{label}</span>
-              <span className="pixel-font" style={{ color: 'var(--text-main)', fontWeight: 600 }}>
-                {val}
-              </span>
+              <span style={{ color: 'var(--text-main)', fontWeight: 600 }}>{val}</span>
             </div>
           ))}
+
+          {/* Справка по словарю игры. Формулировки сверены с CONTEXT.md — он источник
+              правды для словаря, а не этот файл. Живёт в том же прокручиваемом теле,
+              чтобы окно не переполнялось на маленьком экране. */}
+          <div style={{ marginTop: '8px' }}>
+            <div style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: '6px' }}>
+              СПРАВКА
+            </div>
+            <dl style={{ display: 'flex', flexDirection: 'column', gap: '6px', margin: 0 }}>
+              {GLOSSARY.map((g) => (
+                <div
+                  key={g.term}
+                  style={{
+                    padding: '6px 8px',
+                    backgroundColor: 'var(--bg-card)',
+                    borderRadius: '4px',
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  <dt style={{ color: 'var(--text-main)', fontWeight: 600 }}>{g.term}</dt>
+                  <dd style={{ color: 'var(--text-muted)', margin: '2px 0 0' }}>{g.text}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
         </div>
       </div>
     </div>
@@ -265,6 +381,10 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   const setReducedMotion = useGameStore((s) => s.setReducedMotion);
   const importSaveData = useGameStore((s) => s.importSaveData);
   const resetGame = useGameStore((s) => s.resetGame);
+  // Все пути закрытия (скрим, ✕, Esc из хука, удачные импорт/сброс) идут через один
+  // запрос: мгновенного onClose больше нет ни на одном пути.
+  const { closing, requestClose } = useModalExit(isOpen, onClose);
+  const cardRef = useDialogFocus<HTMLDivElement>(isOpen, requestClose);
 
   const [importCode, setImportCode] = useState('');
   const [copyStatus, setCopyStatus] = useState(false);
@@ -286,16 +406,18 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
     const ok = importSaveData(importCode.trim());
     if (ok) {
       setImportCode('');
-      onClose();
+      requestClose();
     } else {
       setErrorMsg('Неверный код сохранения!');
     }
   };
 
   const handleReset = () => {
-    if (window.confirm('Вы уверены, что хотите сбросить весь прогресс игры? Это действие необратимо!')) {
+    if (window.confirm(
+        'Сбросить весь прогресс? Токены, агенты, апгрейды и Compute пропадут навсегда. Отменить это нельзя.',
+      )) {
       resetGame();
-      onClose();
+      requestClose();
     }
   };
 
@@ -310,10 +432,17 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
         justifyContent: 'center',
         zIndex: 50,
         padding: '16px',
+        // Вход — существующий toast-fade, выход — тот же кадр в реверсе (только opacity,
+        // поэтому при reducedMotion картина та же, нового CSS ноль).
+        animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.18s ease-out',
       }}
-      onClick={onClose}
+      onClick={requestClose}
     >
       <div
+        ref={cardRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
         className="pixel-card"
         style={{
           width: '100%',
@@ -323,14 +452,21 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
           flexDirection: 'column',
           padding: '20px',
           gap: '16px',
+          animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.18s ease-out',
         }}
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 className="pixel-font" style={{ fontSize: '1.3rem', color: 'var(--text-main)' }}>
-            ⚙️ НАСТРОЙКИ
+          <h2 id="settings-title" style={{ fontSize: '1.3rem', color: 'var(--text-main)' }}>
+            <Icon name="settings" /> НАСТРОЙКИ
           </h2>
-          <button className="pixel-btn" onClick={onClose} style={{ padding: '4px 10px' }}>
+          <button
+            className="pixel-btn"
+            onClick={requestClose}
+            aria-label="Закрыть"
+            title="Закрыть"
+            style={{ padding: '4px 10px' }}
+          >
             ✕
           </button>
         </div>
@@ -340,7 +476,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
           <div>
             <div style={{ fontWeight: 600 }}>Формат больших чисел</div>
             <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-              1.23 M или 1.23e6
+              1,23 M или 1.23e6
             </div>
           </div>
           <div style={{ display: 'flex', gap: '6px' }}>
@@ -374,7 +510,8 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
             className={`pixel-btn ${!state.settings.muted ? 'pixel-btn-accent' : ''}`}
             style={{ padding: '6px 12px', fontSize: '0.85rem' }}
           >
-            {state.settings.muted ? 'Выключен 🔇' : 'Включен 🔊'}
+            <Icon name={state.settings.muted ? 'sound-off' : 'sound-on'} />{' '}
+            {state.settings.muted ? 'выключен' : 'включен'}
           </button>
         </div>
 
@@ -400,13 +537,13 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
           <div style={{ fontWeight: 600 }}>Сохранение данных</div>
 
           <button onClick={handleExport} className="pixel-btn" style={{ width: '100%' }}>
-            {copyStatus ? '✅ Скопировано в буфер!' : '📋 Скопировать сохранение в буфер'}
+            {copyStatus ? 'Скопировано в буфер!' : 'Скопировать сохранение в буфер'}
           </button>
 
           <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
             <input
               type="text"
-              placeholder="Вставьте код сохранения..."
+              placeholder="Вставь код сохранения..."
               value={importCode}
               onChange={(e) => setImportCode(e.target.value)}
               style={{
@@ -444,7 +581,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
               color: '#fca5a5',
             }}
           >
-            🗑️ Сбросить весь прогресс
+            Сбросить весь прогресс
           </button>
         </div>
       </div>
@@ -455,21 +592,25 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
 export const OfflineModal: React.FC = () => {
   const offlineReport = useGameStore((s) => s.offlineReport);
   const dismiss = useGameStore((s) => s.dismissOfflineReport);
-  const state = useGameStore((s) => s.state);
+const state = useGameStore((s) => s.state);
+  const notation = state.settings.notation;
+  // Esc здесь не закрывает: игрок должен забрать начисленное и увидеть сумму, поэтому окно
+  // закрывается только своей кнопкой. Кнопка идёт через тот же closing-путь, что и
+  // остальные окна: мгновенного dismiss больше нет.
+  const { closing, requestClose } = useModalExit(offlineReport !== null, dismiss);
+  const cardRef = useDialogFocus<HTMLDivElement>(offlineReport !== null, requestClose, false);
 
   if (!offlineReport) return null;
 
-  const notation = state.settings.notation;
   const gen = CATALOG[state.generation];
 
   // Разбор по Лабораториям делит уже начисленную сумму на доли Лабораторий в общем Доходе.
   // Сырые секунды простоя не пересчитываются: их вместе с капом уже учёл applyOffline, и своя
-  // формула здесь дала бы расхождение с числом выше. Сумма долей равна единице, поэтому части
-  // в сумме дают ровно эту же сумму. Лаборатории без Агентов отфильтрованы — нулевой строкой
-  // в отчёте смотреть не на что.
-  const income = totalIncome(state);
+  // формула здесь дала бы расхождение с числом выше. Доля считается в движке, а не делением
+  // здесь, иначе пустой общий Доход дал бы NaN прямо на экране. Лаборатории без Агентов
+  // отфильтрованы — нулевой строкой в отчёте смотреть не на что.
   const labRows = LAB_IDS.map((lab) => {
-    const share = labIncome(state, lab) / income;
+    const share = labIncomeShare(state, lab);
     return { lab, share, earned: offlineReport.earned * share };
   })
     .filter((row) => row.share > 0)
@@ -502,9 +643,16 @@ export const OfflineModal: React.FC = () => {
         justifyContent: 'center',
         zIndex: 60,
         padding: '16px',
+        // Вход — существующий toast-fade, выход — тот же кадр в реверсе (только opacity,
+        // поэтому при reducedMotion картина та же, нового CSS ноль).
+        animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.2s ease-out',
       }}
     >
       <div
+        ref={cardRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="offline-title"
         className="pixel-card"
         style={{
           width: '100%',
@@ -517,23 +665,25 @@ export const OfflineModal: React.FC = () => {
           textAlign: 'center',
           gap: '14px',
           border: '2px solid var(--accent-color)',
+          animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.2s ease-out',
         }}
       >
-        <div style={{ fontSize: '3rem' }}>🌙⚡</div>
-        <h2 className="pixel-font" style={{ fontSize: '1.4rem', color: 'var(--accent-color)' }}>
+        <div style={{ fontSize: '3rem', lineHeight: 1 }}>
+          <Icon name="bolt" size={40} />
+        </div>
+        <h2 id="offline-title" style={{ fontSize: '1.4rem', color: 'var(--accent-color)' }}>
           С ВОЗВРАЩЕНИЕМ!
         </h2>
 
         <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>
-          Пока вы отдыхали (
+          Пока ты отдыхал (
           <span style={{ color: 'var(--gold)', fontWeight: 700 }}>
             {formatDuration(offlineReport.seconds)}
           </span>
-          ), ваши ИИ-Агенты усердно трудились и заработали:
+          ), твои ИИ-Агенты усердно трудились и заработали:
         </div>
 
         <div
-          className="pixel-font"
           style={{
             fontSize: '2rem',
             color: 'var(--green)',
@@ -541,7 +691,7 @@ export const OfflineModal: React.FC = () => {
             textShadow: '0 0 10px rgba(74, 222, 128, 0.5)',
           }}
         >
-          +{formatNumber(offlineReport.earned, notation)} Токенов
+          +<Num>{formatNumber(offlineReport.earned, notation)}</Num> Токенов
         </div>
 
         <div
@@ -652,7 +802,7 @@ export const OfflineModal: React.FC = () => {
         </div>
 
         <button
-          onClick={dismiss}
+          onClick={requestClose}
           className="pixel-btn pixel-btn-accent"
           style={{ width: '100%', padding: '12px', fontSize: '1.1rem', marginTop: '6px', flexShrink: 0 }}
         >
@@ -670,6 +820,11 @@ export const PrestigeModal: React.FC = () => {
   const dismiss = useGameStore((s) => s.dismissPrestigePrompt);
   const triggerPrestige = useGameStore((s) => s.triggerPrestige);
   const state = useGameStore((s) => s.state);
+  // Хуки стоят до раннего выхода, иначе окно то ловило бы Esc, то нет. Выход — тем же
+  // closing-путём, что и у остальных окон: мгновенный dismiss возвращал бы карточку в DOM
+  // без последнего кадра анимации.
+  const { closing, requestClose } = useModalExit(isOpen, dismiss);
+  const cardRef = useDialogFocus<HTMLDivElement>(isOpen, requestClose);
   if (!isOpen) return null;
 
   const preview = prestigePreview(state);
@@ -681,7 +836,7 @@ export const PrestigeModal: React.FC = () => {
 
   const blocked = finale
     ? `Финал контента: Поколение ${gen.id} — последнее. Продолжение выйдет с новыми реальными Моделями.`
-    : `Нужен 1 Агент Флагмана — ${flagship.name} (${LABS[flagship.lab].name}). Купите первого Агента, и Престиж откроется.`;
+    : `Нужен 1 Агент Флагмана — ${flagship.name} (${LABS[flagship.lab].name}). Найми первого Агента, и Престиж откроется.`;
 
   const burns = [
     [
@@ -713,10 +868,15 @@ export const PrestigeModal: React.FC = () => {
         justifyContent: 'center',
         zIndex: 60,
         padding: '16px',
+        animation: closing ? MODAL_EXIT_ANIMATION : undefined,
       }}
-      onClick={dismiss}
+      onClick={requestClose}
     >
       <div
+        ref={cardRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="prestige-title"
         className="pixel-card"
         style={{
           width: '100%',
@@ -727,6 +887,7 @@ export const PrestigeModal: React.FC = () => {
           flexDirection: 'column',
           gap: '14px',
           border: '2px solid var(--gold)',
+          animation: closing ? MODAL_EXIT_ANIMATION : undefined,
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -738,10 +899,18 @@ export const PrestigeModal: React.FC = () => {
             flexShrink: 0,
           }}
         >
-          <h2 className="pixel-font" style={{ fontSize: '1.3rem', color: 'var(--gold)' }}>
-            🚀 ПРЕСТИЖ
+          {/* Без pixel-font: в заголовке есть кириллица, а по ADR-0003 пиксельный шрифт
+              допустим только на строках без неё. */}
+          <h2 id="prestige-title" style={{ fontSize: '1.3rem', color: 'var(--gold)' }}>
+            <span aria-hidden="true">🚀</span> Престиж
           </h2>
-          <button className="pixel-btn" onClick={dismiss} style={{ padding: '4px 10px' }}>
+          <button
+            className="pixel-btn"
+            onClick={requestClose}
+            aria-label="Закрыть"
+            title="Закрыть"
+            style={{ padding: '4px 10px' }}
+          >
             ✕
           </button>
         </div>
@@ -761,7 +930,7 @@ export const PrestigeModal: React.FC = () => {
           <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>
             Сейчас Поколение {gen.id}: {gen.name}.
             {!preview.blocked && (
-              <> Престиж завершит Забег и перенесёт вас в Поколение {nextGen.id}: {nextGen.name}.</>
+              <> Престиж завершит Забег и перенесёт тебя в Поколение {nextGen.id}: {nextGen.name}.</>
             )}
           </div>
 
@@ -821,9 +990,9 @@ export const PrestigeModal: React.FC = () => {
                     }}
                   >
                     <span style={{ color: 'var(--text-muted)' }}>{label}</span>
-                    <span className="pixel-font" style={{ color: 'var(--text-main)', fontWeight: 600 }}>
-                      {value}
-                    </span>
+                    {/* Без pixel-font: значение склеено со словом («65 Агентов»), а по ADR-0003
+                        пиксельный шрифт допустим только на строках без кириллицы. */}
+                    <span style={{ color: 'var(--text-main)', fontWeight: 600 }}>{value}</span>
                   </div>
                 ))}
               </div>
@@ -836,7 +1005,7 @@ export const PrestigeModal: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
-          <button className="pixel-btn" onClick={dismiss} style={{ flex: 1, padding: '12px' }}>
+          <button className="pixel-btn" onClick={requestClose} style={{ flex: 1, padding: '12px' }}>
             Отмена
           </button>
           <button
@@ -847,8 +1016,8 @@ export const PrestigeModal: React.FC = () => {
           >
             {preview.blocked
               ? finale
-                ? '🔒 Финал контента'
-                : '🔒 Нужен Агент Флагмана'
+                ? 'Финал контента'
+                : 'Нужен Агент Флагмана'
               : 'Сделать Престиж!'}
           </button>
         </div>

@@ -10,7 +10,10 @@ export function formatNumber(n: number, notation: Notation = 'short'): string {
   const sign = n < 0 ? '-' : '';
   const a = Math.abs(n);
   if (a < 1000) {
-    return sign + (a < 10 && a % 1 !== 0 ? a.toFixed(1) : Math.floor(a).toString());
+    const body = a < 10 && a % 1 !== 0 ? a.toFixed(1) : Math.floor(a).toString();
+    // Разделитель выбирает запись, а не функция: короткая печатает по-русски, научная — с
+    // точкой. Раньше этот выход стоял до ветвления по нотации, и запятая просачивалась в sci.
+    return notation === 'sci' ? sign + body : sign + body.replace('.', ',');
   }
   const exp = Math.floor(Math.log10(a));
   if (notation === 'sci') return `${sign}${(a / Math.pow(10, exp)).toFixed(2)}e${exp}`;
@@ -21,8 +24,9 @@ export function formatNumber(n: number, notation: Notation = 'short'): string {
     scaled /= 1000;
   }
   if (tier >= SUFFIXES.length) return `${sign}${(a / Math.pow(10, exp)).toFixed(2)}e${exp}`;
-  const digits = scaled >= 100 ? 1 : scaled >= 10 ? 2 : 3;
-  return `${sign}${scaled.toFixed(digits)} ${SUFFIXES[tier]}`;
+  // Не больше двух знаков после запятой: третий в этой игре — шум, а не точность.
+  const digits = scaled >= 100 ? 1 : 2;
+  return `${sign}${scaled.toFixed(digits).replace('.', ',')} ${SUFFIXES[tier]}`;
 }
 
 /**

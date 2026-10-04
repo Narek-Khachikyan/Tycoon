@@ -20,15 +20,15 @@ export interface Perk {
 export const START_TOKENS_UNITS = 1000;
 
 export const PERKS: Perk[] = [
-  { id: 'click_x2', name: 'Промпт-инженер', desc: 'Клик ×2 навсегда', cost: 3, effect: { kind: 'clickMult', mult: 2 } },
-  { id: 'start_tokens', name: 'Посевной раунд', desc: 'Начинай каждый Забег с 1 000 Токенов (×масштаб Поколения)', cost: 5, effect: { kind: 'startTokens' } },
-  { id: 'offline_24h', name: 'Ночная смена', desc: 'Лимит Оффлайн-дохода 8ч → 24ч', cost: 10, effect: { kind: 'offlineCap', hours: 24 } },
-  { id: 'discount', name: 'Оптовые GPU', desc: 'Агенты дешевле на 5%', cost: 20, effect: { kind: 'discount', pct: 0.05 } },
-  { id: 'autoclick', name: 'Скрипт-автокликер', desc: '1 Клик в секунду автоматически', cost: 25, effect: { kind: 'autoclick', perSecond: 1 } },
+  { id: 'click_x2', name: 'Промпт-инженер', desc: 'клик ×2 навсегда', cost: 3, effect: { kind: 'clickMult', mult: 2 } },
+  { id: 'start_tokens', name: 'Посевной раунд', desc: 'Начинай каждый забег с 1 000 токенов (× масштаб поколения)', cost: 5, effect: { kind: 'startTokens' } },
+  { id: 'offline_24h', name: 'Ночная смена', desc: 'Лимит оффлайн-дохода 8ч → 24ч', cost: 10, effect: { kind: 'offlineCap', hours: 24 } },
+  { id: 'discount', name: 'Оптовые GPU', desc: 'агенты дешевле на 5%', cost: 20, effect: { kind: 'discount', pct: 0.05 } },
+  { id: 'autoclick', name: 'Скрипт-автокликер', desc: '1 клик в секунду автоматически', cost: 25, effect: { kind: 'autoclick', perSecond: 1 } },
   ...LAB_IDS.map<Perk>((lab) => ({
     id: `lab_${lab}`,
     name: `Партнёрство с ${LABS[lab].name}`,
-    desc: `+10% к Доходу всех Моделей ${LABS[lab].name}`,
+    desc: `+10% к доходу всех моделей ${LABS[lab].name}`,
     cost: 15,
     effect: { kind: 'labBoost', lab, mult: 1.1 },
   })),

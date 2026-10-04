@@ -18,11 +18,14 @@ export const Footer: React.FC = () => {
     >
       <span>
         Данные бенчмарков, задержек и цен предоставлены{' '}
+        {/* Цвет ссылки живёт в классе footer-aa-link, а не в inline: иначе inline-цвет
+            перебил бы hover. Hover — только цвет, без движения. */}
         <a
           href="https://artificialanalysis.ai"
           target="_blank"
           rel="noopener noreferrer"
-          style={{ color: 'var(--accent-color)', textDecoration: 'none', fontWeight: 600 }}
+          className="footer-aa-link"
+          style={{ textDecoration: 'none', fontWeight: 600 }}
         >
           Artificial Analysis ↗
         </a>

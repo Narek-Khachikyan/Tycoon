@@ -48,13 +48,42 @@ export function sellRefund(model: Model, owned: number, n: number, discount = 1)
 }
 
 /**
+ * Сколько Токенов не хватает до покупки: цена минус кошелёк, но не ниже нуля.
+ *
+ * Живёт здесь, а не в компоненте, потому что это деньги — цена и кошелёк числа движка, и
+ * магазин не должен вычитать их сам. Ноль означает «хватает»: отрицательный дефицит показал бы
+ * игроку, что он богаче, чем нужно.
+ */
+export function shortfall(cost: number, tokens: number): number {
+  return Math.max(0, cost - tokens);
+}
+
+/**
+ * Цена ближайшей покупки Агента: минимум цены одного Агента по всем Моделям текущего
+ * Поколения. Живёт здесь, а не в компоненте, потому что это деньги — цена считается
+ * движком через bulkCost со скидкой, и компонент не должен складывать её сам.
+ */
+export function nextAgentCost(state: GameState): number {
+  const d = discountMult(state);
+  let min = Infinity;
+  for (const m of CATALOG[state.generation].models) {
+    const cost = bulkCost(m, state.agents[m.id] ?? 0, 1, d);
+    if (cost < min) min = cost;
+  }
+  return min === Infinity ? 0 : min;
+}
+
+/**
  * Доля `[0, 1]` того, сколько Токенов ещё не хватает до следующего Агента `model`:
  * `0` — Агент доступен прямо сейчас, `1` — не хватает всего.
  *
- * Цена берётся из `bulkCost` с Перком-скидкой, как в `buyAgents`: своя формула цены
- * в UI разошлась бы с той, по которой Агент реально покупается. Деление возможно
- * только когда `tokens < cost`; верхняя граница защищает долю от Токенов ниже нуля,
- * которые `migrate` из повреждённого сохранения не отсекает.
+ * Не то же самое, что `nextAgentCost`: там минимальная цена по Поколению для одной строки
+ * «сколько не хватает», здесь доля по конкретной Модели, чтобы полоса цели была у каждой
+ * карточки своей. Обе величины считаются через `bulkCost` со скидкой, иначе полоса и кнопка
+ * покупки разошлись бы по цене.
+ *
+ * Верхняя граница защищает долю от Токенов ниже нуля, которые `migrate` из повреждённого
+ * сохранения не отсекает.
  */
 export function progressToNextAgent(state: GameState, model: Model): number {
   const cost = bulkCost(model, state.agents[model.id] ?? 0, 1, discountMult(state));
@@ -89,16 +118,40 @@ export function totalIncome(state: GameState): number {
 }
 
 /**
- * Доход всех Моделей Лаборатории — доля `totalIncome` для разбора Оффлайн-дохода.
+/**
+ * На сколько вырос бы общий Доход от покупки `n` Агентов Модели.
  *
- * Считается суммой `modelIncome`, а не своей формулой: Апгрейды Модели, Синергия,
- * Перк на Лабораторию и Compute уже учтены внутри, и любой новый множитель обязан
- * попасть в обе суммы сразу, иначе доли не будут сходиться к начисленному Доходу.
+ * Ответ собирается тем же `totalIncome`, что и тик: покупка подставляется в состояние, Доход
+ * пересчитывается, подпись — разница. Отдельная формула разошлась бы с настоящей экономикой на
+ * первом же Перке или Синергии, то есть ровно там, где подпись в магазине нужнее всего.
+ *
+ * Кошелёк не спрашивается намеренно: вопрос «на сколько вырастет, если купить» и вопрос «хватает
+ * ли сейчас» — разные, и магазин показывает оба.
  */
-export function labIncome(state: GameState, lab: LabId): number {
+export function incomeGain(state: GameState, modelId: string, n: number): number {
+  if (n <= 0) return 0;
+  const model = MODEL_BY_ID[modelId];
+  if (!model || model.generation !== state.generation) return 0;
+  const hired: GameState = {
+    ...state,
+    agents: { ...state.agents, [modelId]: (state.agents[modelId] ?? 0) + n },
+  };
+  return totalIncome(hired) - totalIncome(state);
+}
+
+/** Доход Лаборатории: сумма Дохода её Моделей. Каждая Модель принадлежит ровно одной
+ *  Лаборатории, поэтому доли всех Лабораторий в сумме дают единицу. */
+function labIncome(state: GameState, lab: LabId): number {
   return CATALOG[state.generation].models
     .filter((m) => m.lab === lab)
     .reduce((s, m) => s + modelIncome(state, m), 0);
+}
+
+/** Доля Лаборатории в общем Доходе. Пока Агентов нет, общий Доход нулевой, и деление
+ *  выдало бы NaN прямо на экране, поэтому такая Лаборатория читается как ноль. */
+export function labIncomeShare(state: GameState, lab: LabId): number {
+  const total = totalIncome(state);
+  return total === 0 ? 0 : labIncome(state, lab) / total;
 }
 
 export function clickValue(state: GameState, income = totalIncome(state)): number {

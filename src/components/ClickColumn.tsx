@@ -1,19 +1,28 @@
-import React, { useLayoutEffect, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import { motionAllowed, reduceMotionMedia, useGameStore } from '../store/useGameStore';
-import { totalIncome, clickValue } from '../economy/engine';
-import { formatNumber } from '../economy/format';
+import { totalIncome, clickValue, nextAgentCost, shortfall } from '../economy/engine';
+import { formatCount, formatNumber } from '../economy/format';
+import { Num } from './Num';
+import { Icon } from './Icon';
 
 /** За сколько миллисекунд счётчик съедает 63% расстояния до цели: каждый кадр отнимает
  *  долю dt / APPROACH_MS остатка, поэтому число тормозит, а не разгоняется, и скорость
  *  не зависит от частоты кадров. */
 const APPROACH_MS = 55;
 
-export const ClickColumn: React.FC = () => {
+export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const state = useGameStore((s) => s.state);
   const clickPrompt = useGameStore((s) => s.clickPrompt);
   const floaters = useGameStore((s) => s.floaters);
   const chatHistory = useGameStore((s) => s.chatHistory);
   const btnRef = useRef<HTMLButtonElement>(null);
+  const chatRef = useRef<HTMLDivElement>(null);
+
+  // Свежая пара лежит первой, поэтому якорь — это ноль прокрутки, а не конец списка.
+  const newestReplyId = chatHistory[0]?.id;
+  useEffect(() => {
+    chatRef.current?.scrollTo({ top: 0 });
+  }, [newestReplyId]);
 
   const income = totalIncome(state);
   const cVal = clickValue(state, income);
@@ -113,7 +122,25 @@ export const ClickColumn: React.FC = () => {
     const x = rect.left + rect.width / 2 + (Math.random() * 40 - 20);
     const y = rect.top + 10;
     clickPrompt(x, y);
+    // Перезапуск сквоша тем же сбросом, что у ModelRow: снятие класса и чтение ширины
+    // между снятием и возвратом, иначе быстрый повторный Клик не перезапустил бы анимацию.
+    const node = btnRef.current;
+    if (!node) return;
+    node.classList.remove('click-btn--squash');
+    void node.offsetWidth;
+    node.classList.add('click-btn--squash');
   };
+
+  // Снятие по концу анимации, а не по таймеру: таймеры в компонентах запрещены.
+  const handleSquashEnd = () => {
+    btnRef.current?.classList.remove('click-btn--squash');
+  };
+
+  // Прогресс до ближайшей покупки Агента: цена приходит из движка, компонент только делит.
+  const nextCost = nextAgentCost(state);
+  const missing = shortfall(nextCost, state.tokens);
+  const progress = nextCost > 0 ? Math.min(1, state.tokens / nextCost) : 0;
+  const canHire = nextCost > 0 && state.tokens >= nextCost;
 
   return (
     <div
@@ -124,9 +151,11 @@ export const ClickColumn: React.FC = () => {
         padding: '20px 16px',
         backgroundColor: 'var(--bg-panel)',
         borderRight: '2px solid var(--border)',
-        // Не даём колонке стать шире контейнера: на мобильном экране это обрезало бы правую часть.
-        minWidth: 'min(320px, 100%)',
-        maxWidth: '380px',
+        // Базис приходит из модуля раскладки, а не из содержимого колонки: раньше ширина была
+        // min/max по содержимому, и переключение вкладки магазина дёргало всю сетку.
+        // В одноколоночном режиме колонка единственная и занимает всю ширину.
+        flex: full ? '1 1 auto' : '0 0 var(--col-click)',
+        minWidth: 0,
         gap: '18px',
         height: '100%',
         overflowY: 'auto',
@@ -162,7 +191,6 @@ export const ClickColumn: React.FC = () => {
           Токенов
         </div>
         <div
-          className="pixel-font"
           style={{
             fontSize: '1.1rem',
             color: 'var(--green)',
@@ -170,14 +198,22 @@ export const ClickColumn: React.FC = () => {
             fontWeight: 600,
           }}
         >
-          +{formatNumber(income, notation)} / сек
+          +<Num>{formatNumber(income, notation)}</Num> / сек
         </div>
+        {/* Подсказка при нулевом Доходе: игрок без Агентов иначе видит голый «+0/сек»
+            без следующего шага. Только текст, без анимаций. */}
+        {income === 0 && (
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+            Нанятый Агент приносит Доход сам — загляни в магазин
+          </div>
+        )}
       </div>
 
       {/* Большая кнопка Клика */}
       <button
         ref={btnRef}
         onClick={handleClick}
+        onAnimationEnd={handleSquashEnd}
         className="pixel-btn pixel-btn-accent pulse-glow"
         style={{
           width: '100%',
@@ -188,19 +224,59 @@ export const ClickColumn: React.FC = () => {
           gap: '8px',
         }}
       >
-        <span style={{ fontSize: '2rem' }}>💬</span>
+        <Icon name="chat" size={30} />
         <span>Отправить промпт</span>
         <span
           style={{
             fontSize: '0.85rem',
             color: 'var(--text-main)',
             fontWeight: 400,
-            fontFamily: 'Nunito',
           }}
         >
-          +{formatNumber(cVal, notation)} Токенов за клик
+          +<Num>{formatNumber(cVal, notation)}</Num> Токенов за клик
         </span>
       </button>
+
+      {/* Прогресс до ближайшей покупки Агента: сколько осталось до самой дешёвой Модели.
+          При пустом кошельке первого запуска полоска нулевая, но подсказка уже стоит —
+          пустой полоски без текста здесь не бывает. */}
+      <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        <div
+          role="progressbar"
+          aria-label="Прогресс до следующей покупки"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(progress * 100)}
+          style={{
+            width: '100%',
+            height: '8px',
+            backgroundColor: 'var(--bg-card)',
+            border: '1px solid var(--border)',
+            borderRadius: '4px',
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            style={{
+              width: `${progress * 100}%`,
+              height: '100%',
+              backgroundColor: 'var(--accent-color)',
+              // Переход ширины — не движение: при reducedMotion остаётся, тряски и сдвига тут нет.
+              transition: 'width 0.2s ease-out',
+            }}
+          />
+        </div>
+        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center' }}>
+          {canHire ? (
+            <>Можно нанять Агента — загляни в магазин</>
+          ) : (
+            <>
+              До следующей покупки: не хватает <Num>{formatNumber(missing, notation)}</Num>{' '}
+              {formatCount(Math.round(missing), 'Токен', 'Токена', 'Токенов')}
+            </>
+          )}
+        </div>
+      </div>
 
       {/* Чат-пузыри */}
       <div
@@ -213,14 +289,14 @@ export const ClickColumn: React.FC = () => {
           flex: 1,
         }}
       >
-        <div
-          className="pixel-font"
-          style={{ fontSize: '0.95rem', color: 'var(--text-muted)' }}
-        >
-          Диалог с моделью:
-        </div>
+        <div style={{ fontSize: '0.95rem', color: 'var(--text-muted)' }}>Диалог с моделью:</div>
 
+        {/* Якорь на свежую реплику. Свежая пара кладётся сверху, поэтому после прихода она
+            выталкивает прочитанное вниз и без якоря игрок вынужден искать её прокруткой.
+            Ставится ровно на смену верхней пары: пока игрок читает старую, лента не дёргается
+            под ногами. */}
         <div
+          ref={chatRef}
           style={{
             display: 'flex',
             flexDirection: 'column',

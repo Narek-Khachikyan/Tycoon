@@ -3,6 +3,8 @@ import { motionAllowed, useGameStore } from '../store/useGameStore';
 import { CATALOG } from '../economy/catalog';
 import { ACHIEVEMENTS, ordinaryEarned } from '../economy/achievements';
 import { formatNumber } from '../economy/format';
+import { Num } from './Num';
+import { Icon } from './Icon';
 
 interface HeaderProps {
   onOpenAchievements: () => void;
@@ -55,25 +57,31 @@ export const Header: React.FC<HeaderProps> = ({
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        {/* Логотип — единственное место, где пиксельный шрифт законен на словах (ADR-0003). */}
         <h1 className="pixel-font" style={{ fontSize: '1.4rem', color: 'var(--accent-color)', letterSpacing: '1px' }}>
-          ⚡ AI TYCOON
+          AI TYCOON
         </h1>
+        {/* Бейдж Поколения: key пересоздаёт узел на смене Поколения, появление — только
+            opacity через toast-fade, а пульс — классом tab-badge--pulse (scale при движении,
+            мигание при reducedMotion), перезапуск тем же перемонтированием. */}
         <span
-          className="pixel-font"
+          key={state.generation}
           style={{
             fontSize: '0.85rem',
             backgroundColor: 'var(--tint-accent)',
-            border: '1px solid var(--accent-color)',
-            color: 'var(--accent-hover)',
+            border: '1px solid var(--border-strong)',
+            color: 'var(--text-main)',
             padding: '2px 8px',
             borderRadius: '4px',
+            animation: 'toast-fade 0.15s ease-out',
           }}
         >
-          Поколение {gen.id}: {gen.name} ({gen.period})
+          <span className="tab-badge--pulse" style={{ display: 'inline-block' }}>
+            Поколение {gen.id}: {gen.name} ({gen.period})
+          </span>
         </span>
         {state.compute > 0 && (
           <span
-            className="pixel-font"
             style={{
               fontSize: '0.85rem',
               backgroundColor: 'var(--tint-gold)',
@@ -81,47 +89,59 @@ export const Header: React.FC<HeaderProps> = ({
               color: 'var(--gold)',
               padding: '2px 8px',
               borderRadius: '4px',
+              // Появление при монтировании — только opacity через toast-fade: бейдж
+              // возникает один раз, пульс ему не нужен.
+              animation: 'toast-fade 0.15s ease-out',
             }}
             title="Бонус к доходу от Compute"
           >
-            🧠 {formatNumber(state.compute)} Compute (+{state.compute}%)
+            <Num>{formatNumber(state.compute)}</Num> Compute (+<Num>{state.compute}</Num>%)
           </span>
         )}
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        {/* Иконочные кнопки получают имя из aria-label: картинка помечена декоративной, и
+            без подписи озвучка прочитала бы пустую кнопку. */}
         <button
           className="pixel-btn"
           onClick={toggleMute}
           title={isMuted ? 'Включить звук' : 'Выключить звук'}
+          aria-label={isMuted ? 'Включить звук' : 'Выключить звук'}
           style={{ padding: '6px 10px', fontSize: '0.9rem' }}
         >
-          {isMuted ? '🔇' : '🔊'}
+          <Icon name={isMuted ? 'sound-off' : 'sound-on'} />
         </button>
 
         <button
           ref={badgeRef}
           className="pixel-btn ach-badge"
           onClick={onOpenAchievements}
+          title="Достижения"
           style={{ padding: '6px 12px', fontSize: '0.9rem' }}
         >
-          🏆 {unlockedAchCount}/{totalAchCount}
+          <Icon name="trophy" />
+          <Num>{unlockedAchCount}</Num>/<Num>{totalAchCount}</Num>
         </button>
 
         <button
           className="pixel-btn"
           onClick={onOpenStats}
+          title="Инфо"
           style={{ padding: '6px 12px', fontSize: '0.9rem' }}
         >
-          📊 Инфо
+          <Icon name="info" />
+          Инфо
         </button>
 
         <button
           className="pixel-btn"
           onClick={onOpenSettings}
+          title="Настройки"
+          aria-label="Настройки"
           style={{ padding: '6px 12px', fontSize: '0.9rem' }}
         >
-          ⚙️
+          <Icon name="settings" />
         </button>
       </div>
     </header>
