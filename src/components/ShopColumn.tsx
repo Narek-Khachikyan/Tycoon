@@ -194,7 +194,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const sellAgents = useGameStore((s) => s.sellAgents);
   const buyUpgrade = useGameStore((s) => s.buyUpgrade);
   const buyPerk = useGameStore((s) => s.buyPerk);
-  const triggerPrestige = useGameStore((s) => s.triggerPrestige);
+  const requestPrestige = useGameStore((s) => s.requestPrestige);
 
   const gen = CATALOG[state.generation];
   const notation = state.settings.notation;
@@ -220,49 +220,10 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const boughtGenPerks = countGenPerks(state.perks);
   const nextGenPerkCost = genPerkCost(state.perks);
 
-  // Двухшаговый Престиж: сброс Забега необратим, поэтому первый Клик только взводит
-  // кнопку, а второй в течение ARM_MS выполняет переход в новое Поколение. Звук живёт
-  // внутри triggerPrestige и на взводе молчит. Взвод держится локально в этом файле,
-  // общий компонент не выделяем — кнопки в проекте живут локально. Красная заливка —
-  // тот же знак необратимости, что у режима продажи.
-  const ARM_MS = 6000;
-  const [prestigeArmed, setPrestigeArmed] = useState(false);
-  const prestigeTimer = useRef<number | null>(null);
-  // Размонтирование гасит one-shot: иначе он сбросил бы подпись уже несуществующей кнопки.
-  useEffect(
-    () => () => {
-      if (prestigeTimer.current !== null) window.clearTimeout(prestigeTimer.current);
-    },
-    [],
-  );
-  // Взвод не переживает условия, при которых кнопку показали: недоступный Престиж
-  // или уход с вкладки снимают его вместе с таймером.
-  useEffect(() => {
-    if (prestigeLocked || tab !== 'perks') {
-      if (prestigeTimer.current !== null) {
-        window.clearTimeout(prestigeTimer.current);
-        prestigeTimer.current = null;
-      }
-      setPrestigeArmed(false);
-    }
-  }, [prestigeLocked, tab]);
-
-  const handlePrestige = () => {
-    if (!prestigeArmed) {
-      setPrestigeArmed(true);
-      prestigeTimer.current = window.setTimeout(() => {
-        prestigeTimer.current = null;
-        setPrestigeArmed(false);
-      }, ARM_MS);
-      return;
-    }
-    if (prestigeTimer.current !== null) {
-      window.clearTimeout(prestigeTimer.current);
-      prestigeTimer.current = null;
-    }
-    setPrestigeArmed(false);
-    triggerPrestige();
-  };
+  // Престиж открывает окно подтверждения, а не выполняется здесь: сброс Забега необратим,
+  // и игрок должен увидеть, сколько Compute начислит, что сгорит и в какое Поколение он
+  // попадёт. Один путь на обе колонки — свой взвод здесь означал бы два разных подтверждения
+  // одного и того же действия. Сам переход живёт в triggerPrestige, его зовёт окно.
 
   const toggleAA = (id: string) => {
     setExpandedAA((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -864,44 +825,45 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                 Сбросит текущий забег (токены, агенты, апгрейды) и перенесёт тебя в следующее поколение.
               </div>
 
-              <div
-                style={{
-                  backgroundColor: 'var(--tint-strong)',
-                  padding: '8px',
-                  borderRadius: '4px',
-                  fontSize: '0.85rem',
-                }}
-              >
-                <div>
-                  Получишь Compute: <Num>{prestigeGain(state)}</Num>
-                </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                  (Каждая единица Compute даёт постоянный бонус +1% к доходу)
-                </div>
-              </div>
-
               {!finale && (
-                <button
-                  onClick={handlePrestige}
-                  disabled={!canPrestige(state)}
-                  className="pixel-btn pixel-btn-gold"
+                <div
                   style={{
-                    width: '100%',
-                    marginTop: '4px',
-                    ...(prestigeArmed
-                      ? { backgroundColor: 'var(--red-solid)', borderColor: 'var(--red)' }
-                      : undefined),
+                    backgroundColor: 'var(--tint-strong)',
+                    padding: '8px',
+                    borderRadius: '4px',
+                    fontSize: '0.85rem',
                   }}
                 >
-                  {prestigeArmed
-                    ? 'Точно в новое Поколение? Забег сбросится — нажми ещё раз'
-                    : canPrestige(state)
-                      ? 'Сделать престиж!'
-                      : 'Нужен 1 агент флагмана'}
-                </button>
+                  <div>
+                    Получишь Compute:{' '}
+                    {/* Через formatNumber, иначе в поздней игре это число с пятнадцатью
+                        значащими цифрами: `Num` только набирает пиксельным шрифтом (ADR-0003)
+                        и ничего не форматирует. То же число показывает окно подтверждения,
+                        и расходиться они не должны. */}
+                    <Num>+{formatNumber(prestigeGain(state), notation)}</Num>
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    (Каждая единица Compute даёт постоянный бонус +1% к Доходу)
+                  </div>
+                </div>
               )}
 
-              {/* Финал контента: кнопка Престижа здесь скрыта навсегда, поэтому плашка без
+              {/* Кнопка не гаснет, даже когда Престиж невозможен: погашенная кнопка молчит о
+                  причине, а окно подтверждения её объясняет и отказывает тем же переходом,
+                  который проверяет стор. */}
+              <button
+                onClick={requestPrestige}
+                className="pixel-btn pixel-btn-gold"
+                style={{ width: '100%', marginTop: '4px' }}
+              >
+                {finale
+                  ? 'Финал контента'
+                  : canPrestige(state)
+                    ? 'Сделать Престиж!'
+                    : 'Нужен 1 Агент Флагмана'}
+              </button>
+
+              {/* Финал контента: кнопка Престижа выше ничего не выполнит, поэтому плашка без
                   действия — тупик. CTA ведёт на вкладку «Модели» тем же локальным setTab,
                   без новой навигации; текст не противоречит плашке Сцены в OfficeColumn. */}
               {finale && (

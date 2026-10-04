@@ -343,6 +343,37 @@ export function startingTokens(state: GameState, generation: number): number {
     : 0;
 }
 
+export interface PrestigePreview {
+  /** Compute, который начислит Престиж. */
+  gain: number;
+  agentsLost: number;
+  upgradesLost: number;
+  tokensLost: number;
+  /** Поколение, в которое игрок перейдёт. */
+  generation: number;
+  /** Престиж сейчас невозможен: нет Флагмана или это финал контента. */
+  blocked: boolean;
+}
+
+/**
+ * Разбор Престижа для модалки подтверждения: что игрок получит и что сгорит.
+ *
+ * `gain` — это ровно `prestigeGain(state)`, а не вторая формула: модалка и кнопка
+ * обязаны показывать одно число, иначе Compute, начисленный переходом, разойдётся
+ * с обещанным. `blocked` повторяет условия отказа самого `prestige` (нет Флагмана
+ * либо финал контента), чтобы UI объяснил причину, а не просто погасил кнопку.
+ */
+export function prestigePreview(state: GameState): PrestigePreview {
+  return {
+    gain: prestigeGain(state),
+    agentsLost: Object.values(state.agents).reduce((s, n) => s + n, 0),
+    upgradesLost: state.upgrades.length,
+    tokensLost: state.tokens,
+    generation: Math.min(state.generation + 1, LAST_GENERATION),
+    blocked: !canPrestige(state) || isContentFinale(state),
+  };
+}
+
 export function prestige(state: GameState, now: number): GameState {
   // На финальном Поколении перехода дальше нет: обнулять забег без нового Поколения нельзя.
   if (!canPrestige(state) || isContentFinale(state)) return state;

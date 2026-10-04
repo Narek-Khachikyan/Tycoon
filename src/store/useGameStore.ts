@@ -112,6 +112,11 @@ interface GameStore {
   state: GameState;
   news: string;
   offlineReport: OfflineReport | null;
+  /** Открыто ли окно подтверждения Престижа. Намеренно вне GameState, как burst: Престиж —
+   *  единственный необратимый переход в игре, и стирать Забег одним кликом без вопроса нельзя.
+   *  Кнопки обеих колонок открывают окно (requestPrestige), а переход выполняет triggerPrestige —
+   *  условия отказа живут там, а не в окне. */
+  prestigePrompt: boolean;
   activeTab: ActiveTab;
   buyAmount: BuyAmount;
   sellMode: boolean;
@@ -131,6 +136,8 @@ interface GameStore {
   sellAgents: (modelId: string) => void;
   buyUpgrade: (upgradeId: string) => void;
   buyPerk: (perkId: string) => void;
+  requestPrestige: () => void;
+  dismissPrestigePrompt: () => void;
   triggerPrestige: () => void;
 
   setBuyAmount: (amt: BuyAmount) => void;
@@ -271,6 +278,7 @@ export const useGameStore = create<GameStore>((set, get) => {
     state: initial.state,
     news: pickNews(initial.state),
     offlineReport: initial.offline,
+    prestigePrompt: false,
     activeTab: 'click',
     buyAmount: 1,
     sellMode: false,
@@ -384,6 +392,13 @@ export const useGameStore = create<GameStore>((set, get) => {
         set({ state: awardEarned(next) });
       }
     },
+
+    // Пара «просьба / переход» вместо одного действия: пока кнопки колонок звали
+    // triggerPrestige напрямую, один клик стирал Забег без вопроса. Проверок здесь нет
+    // намеренно — условия отказа живут в triggerPrestige, а вторая проверка в окне
+    // разошлась бы с переходом.
+    requestPrestige: () => set({ prestigePrompt: true }),
+    dismissPrestigePrompt: () => set({ prestigePrompt: false }),
 
     triggerPrestige: () => {
       const { state } = get();
