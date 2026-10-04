@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildCatalog, CATALOG, genScale, softMod } from './catalog';
 import {
   advance, advanceTime, applyOffline, bulkCost, buyAgents, buyPerk, buyUpgrade, canPrestige, click, clickValue,
-  isContentFinale, labIncomeShare, maxAffordable, prestige, prestigeGain, sellAgents, totalIncome,
+  incomeGain, isContentFinale, labIncomeShare, maxAffordable, modelIncome, prestige, prestigeGain, sellAgents, totalIncome,
 } from './engine';
 import { newGame, SAVE_VERSION, type GameState } from './state';
 import { exportSave, importSave, migrate } from './save';
@@ -106,6 +106,42 @@ describe('income and click', () => {
     const base = totalIncome(s);
     s = buyUpgrade(s, synergyUpgradeId(0, lab));
     expect(totalIncome(s)).toBeCloseTo(base * 1.2);
+  });
+  it('reports the marginal income of a purchase as the total income it actually adds', () => {
+    const s = buyAgents(rich(newGame(T0)), first.id, 10);
+    const after = buyAgents(s, first.id, 5);
+    // Подпись обязана совпадать с тем, что сделает покупка, поэтому сверяем её с настоящей
+    // разницей общего Дохода, а не с отдельной формулой.
+    expect(incomeGain(s, first.id, 5)).toBeCloseTo(totalIncome(after) - totalIncome(s));
+  });
+  it('reports a marginal income that includes synergy across the whole lab', () => {
+    const lab = 'meta';
+    const metaModels = g0.models.filter((m) => m.lab === lab);
+    let s = buyAgents(rich(newGame(T0)), metaModels[0].id, 10);
+    s = buyAgents(s, metaModels[1].id, 10);
+    s = buyUpgrade(s, synergyUpgradeId(0, lab));
+    const after = buyAgents(s, metaModels[0].id, 5);
+    const gain = incomeGain(s, metaModels[0].id, 5);
+    expect(gain).toBeCloseTo(totalIncome(after) - totalIncome(s));
+    // Соседняя Модель той же Лаборатории тоже дорожает: её Доход умножается на общий счётчик
+    // Агентов, поэтому прирост больше вклада только купленных Агентов.
+    const own = modelIncome(after, metaModels[0]) - modelIncome(s, metaModels[0]);
+    expect(modelIncome(after, metaModels[1])).toBeGreaterThan(modelIncome(s, metaModels[1]));
+    expect(gain).toBeGreaterThan(own);
+  });
+  it('scales the marginal income with the purchase amount and ignores empty ones', () => {
+    const s = buyAgents(rich(newGame(T0)), first.id, 10);
+    expect(incomeGain(s, first.id, 10)).toBeCloseTo(10 * incomeGain(s, first.id, 1));
+    expect(incomeGain(s, first.id, 0)).toBe(0);
+    // Модель не из текущего Поколения в общий Доход не входит, поэтому и подписи у неё нет.
+    expect(incomeGain(s, CATALOG[1].models[0].id, 3)).toBe(0);
+    expect(incomeGain(s, 'no-such-model', 3)).toBe(0);
+  });
+  it('leaves the input state untouched when measuring a marginal income', () => {
+    const s = buyAgents(rich(newGame(T0)), first.id, 10);
+    const before = { ...s.agents };
+    incomeGain(s, first.id, 7);
+    expect(s.agents).toEqual(before);
   });
   it('click gives 1 token in gen 1 and grows with click upgrades', () => {
     let s = newGame(T0);
@@ -340,12 +376,36 @@ describe('save', () => {
 });
 
 describe('format', () => {
-  it('uses short scale suffixes', () => {
+  it('uses short scale suffixes with a Russian decimal comma', () => {
     expect(formatNumber(999)).toBe('999');
-    expect(formatNumber(1500)).toBe('1.500 K');
-    expect(formatNumber(999999)).toBe('1.000 M');
-    expect(formatNumber(2.5e9)).toBe('2.500 B');
+    expect(formatNumber(0.5)).toBe('0,5');
+    expect(formatNumber(1500)).toBe('1,50 K');
+    expect(formatNumber(1729)).toBe('1,73 K');
+    expect(formatNumber(999999)).toBe('1,00 M');
+    expect(formatNumber(2.5e9)).toBe('2,50 B');
     expect(formatNumber(1.23e15, 'sci')).toBe('1.23e15');
+  });
+
+  it('keeps sci notation with a dot while short uses a comma', () => {
+    expect(formatNumber(1729, 'sci')).toBe('1.73e3');
+    expect(formatNumber(1500, 'sci')).toContain('.');
+    expect(formatNumber(1500)).not.toContain('.');
+    // Выход «меньше тысячи» стоит до ветвления по нотации, поэтому запятая не должна
+    // просачиваться в научную запись и на нём.
+    expect(formatNumber(0.5, 'sci')).toBe('0.5');
+    expect(formatNumber(0.5)).toBe('0,5');
+  });
+
+  it('never uses a dot as a decimal separator and keeps at most two decimals', () => {
+    // Значения внутри лестницы суффиксов: за её пределом формат возвращается к sci,
+    // где точка обязательна.
+    const values = [0.5, 9.9, 999, 1000, 1500, 1729, 12345, 999999, 2.5e9, 1.23e15, 1e27, 4.567e60];
+    for (const v of values) {
+      const out = formatNumber(v);
+      expect(out).not.toContain('.');
+      const frac = out.split(',')[1];
+      if (frac !== undefined) expect(frac.split(' ')[0].length).toBeLessThanOrEqual(2);
+    }
   });
 
   it('declines agent counts in Russian', () => {

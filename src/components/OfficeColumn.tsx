@@ -6,6 +6,8 @@ import { canPrestige, isContentFinale, labIncomeShare } from '../economy/engine'
 import { labAgents, labWork, SYNERGY_PER_AGENT, synergyUpgradeId } from '../economy/upgrades';
 import { formatCount, formatNumber } from '../economy/format';
 import { MascotSprite } from './MascotSprite';
+import { Num } from './Num';
+import { OFFICE_COL_MIN } from '../layout';
 
 // Сцен четыре, по две эпохи Поколения на каждую (ADR-0002), поэтому индекс Сцены —
 // floor(Поколение / 2). Список имён выводится из количества, а не дублируется руками:
@@ -95,7 +97,7 @@ const moteCount = (agents: number): number => {
   return Math.round(MOTE_MIN + (MOTE_MAX - MOTE_MIN) * full);
 };
 
-export const OfficeColumn: React.FC = () => {
+export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const state = useGameStore((s) => s.state);
   const triggerPrestige = useGameStore((s) => s.triggerPrestige);
   const notation = state.settings.notation;
@@ -128,6 +130,10 @@ export const OfficeColumn: React.FC = () => {
     <div
       style={{
         flex: 1,
+        // Офис — единственная растягиваемая колонка. Её минимум держит офис читаемым в сетке
+        // из трёх колонок, а в одноколоночном режиме он снимается: иначе на узком экране колонка
+        // не влезла бы и обёртка пустила горизонтальную прокрутку.
+        minWidth: full ? 0 : OFFICE_COL_MIN,
         display: 'flex',
         flexDirection: 'column',
         backgroundColor: 'var(--bg-primary)',
@@ -155,13 +161,13 @@ export const OfficeColumn: React.FC = () => {
           <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
             ЦЕЛЬ ПОКОЛЕНИЯ
           </div>
-          <div className="pixel-font" style={{ fontSize: '1.25rem', color: 'var(--text-main)', marginTop: '2px' }}>
+          <div style={{ fontSize: '1.25rem', color: 'var(--text-main)', marginTop: '2px' }}>
             Флагман: <span style={{ color: 'var(--gold)' }}>{flagship.name}</span> ({LABS[flagship.lab].name})
           </div>
           <div style={{ fontSize: '0.85rem', color: flagshipOwned ? 'var(--green)' : 'var(--text-muted)', marginTop: '4px' }}>
             {flagshipOwned
-              ? '✅ Флагман нанят! Престиж в следующее Поколение разблокирован.'
-              : '🔒 Наймите хотя бы 1 Агента флагмана, чтобы открыть Престиж.'}
+              ? 'Флагман нанят! Престиж в следующее поколение разблокирован.'
+              : 'Найми хотя бы 1 агента флагмана, чтобы открыть престиж.'}
           </div>
         </div>
 
@@ -171,7 +177,7 @@ export const OfficeColumn: React.FC = () => {
             className="pixel-btn pixel-btn-gold"
             style={{ fontSize: '1rem', padding: '10px 16px' }}
           >
-            🚀 Совершить Престиж
+            Совершить престиж
           </button>
         )}
 
@@ -185,11 +191,9 @@ export const OfficeColumn: React.FC = () => {
               textAlign: 'center',
             }}
           >
-            <div className="pixel-font" style={{ color: 'var(--gold)', fontSize: '1rem' }}>
-              🌟 Финал контента MVP!
-            </div>
+            <div style={{ color: 'var(--gold)', fontSize: '1rem' }}>Финал контента MVP!</div>
             <div style={{ fontSize: '0.8rem', color: 'var(--gold)' }}>
-              Вы на острие ИИ! Ждите новые реальные модели в будущих апдейтах.
+              Ты на острие ИИ! Жди новые реальные модели в будущих апдейтах.
             </div>
           </div>
         )}
@@ -247,11 +251,9 @@ export const OfficeColumn: React.FC = () => {
             background: 'linear-gradient(to bottom, var(--bg-scrim) 0%, var(--bg-scrim) 55%, transparent 100%)',
           }}
         >
-          <span className="pixel-font" style={{ fontSize: '1rem', color: 'var(--text-main)' }}>
-            🏢 ОФИС АГЕНТОВ
-          </span>
-          <span className="pixel-font" style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>
-            {formatNumber(totalAgents, notation)}{' '}
+          <span style={{ fontSize: '1rem', color: 'var(--text-main)' }}>ОФИС АГЕНТОВ</span>
+          <span style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>
+            <Num>{formatNumber(totalAgents, notation)}</Num>{' '}
             {formatCount(totalAgents, 'Агент', 'Агента', 'Агентов')}
           </span>
         </div>
@@ -307,10 +309,9 @@ export const OfficeColumn: React.FC = () => {
                 </div>
               </div>
               <span
-                className="pixel-font"
                 style={{ fontSize: '0.8rem', color: 'var(--text-main)', textShadow: BADGE_OUTLINE }}
               >
-                ×{formatNumber(labAgents(state, labId), notation)}
+                ×<Num>{formatNumber(labAgents(state, labId), notation)}</Num>
               </span>
             </div>
           ))}
@@ -363,12 +364,9 @@ export const OfficeColumn: React.FC = () => {
                 textAlign: 'center',
               }}
             >
-              <div style={{ fontSize: '2.5rem', marginBottom: '8px' }}>🏢💤</div>
-              <div className="pixel-font" style={{ fontSize: '1.1rem', color: 'var(--text-main)' }}>
-                Офис пока пуст
-              </div>
+              <div style={{ fontSize: '1.1rem', color: 'var(--text-main)' }}>Офис пока пуст</div>
               <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: '6px' }}>
-                Наймите своего первого ИИ-Агента в магазине справа!
+                Найми своего первого ИИ-агента в магазине справа!
               </div>
             </div>
           </div>
@@ -391,9 +389,7 @@ export const OfficeColumn: React.FC = () => {
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' }}>
-          <span className="pixel-font" style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>
-            РОСТЕР ЛАБОРАТОРИЙ
-          </span>
+          <span style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>СОСТАВ ЛАБОРАТОРИЙ</span>
           <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
             {activeLabs.length}{' '}
             {formatCount(activeLabs.length, 'Лаборатория', 'Лаборатории', 'Лабораторий')} в офисе
@@ -402,7 +398,7 @@ export const OfficeColumn: React.FC = () => {
 
         {activeLabs.length === 0 ? (
           <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-            Пока никто не нанят — Сцена ждёт первого Агента.
+            Пока никто не нанят — Сцена ждёт первого агента.
           </div>
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px' }}>
@@ -435,12 +431,15 @@ export const OfficeColumn: React.FC = () => {
                       счётчик подписан под ним. Счётчик Агентов здесь остаётся: на Сцене он
                       мелкий и читается только вплотную, а в ростере это основное число строки,
                       и без него карточка в свежем сохранении держит одно имя. */}
-                  <span className="pixel-font" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                    ×{formatNumber(count, notation)} {formatCount(count, 'Агент', 'Агента', 'Агентов')}
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    ×<Num>{formatNumber(count, notation)}</Num>{' '}
+                    {formatCount(count, 'Агент', 'Агента', 'Агентов')}
                   </span>
-                  {/* Название работы приходит из MODEL_TIERS, а не пишется здесь строкой. */}
+                  {/* Название работы приходит из MODEL_TIERS, а не пишется здесь строкой.
+                      Без пиксельного шрифта: среди тиров есть «1M контекст», а строка с
+                      кириллицей набирается Nunito (ADR-0003). */}
                   {work !== '' && (
-                    <span className="pixel-font" style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                       {work}
                     </span>
                   )}
@@ -455,11 +454,10 @@ export const OfficeColumn: React.FC = () => {
                   )}
                   {synergyOn && (
                     <span
-                      className="pixel-font"
-                      title={`Синергия: +${synergyPct}% к Доходу всех Моделей ${lab.name}`}
+                      title={`Синергия: +${synergyPct}% к доходу всех моделей ${lab.name}`}
                       style={{ fontSize: '0.75rem', color: 'var(--gold)' }}
                     >
-                      +{synergyPct}%
+                      +<Num>{synergyPct}</Num>%
                     </span>
                   )}
                 </div>
@@ -470,7 +468,7 @@ export const OfficeColumn: React.FC = () => {
 
         {synergyLabs.length > 0 && (
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            Синергия: каждый Агент Лаборатории добавляет Доход всем её Моделям (Апгрейд «Общий датасет»).
+            Синергия: каждый агент Лаборатории добавляет доход всем её моделям (апгрейд «Общий датасет»).
           </div>
         )}
       </div>

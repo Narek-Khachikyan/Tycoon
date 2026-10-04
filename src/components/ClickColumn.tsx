@@ -1,19 +1,28 @@
-import React, { useLayoutEffect, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import { motionAllowed, reduceMotionMedia, useGameStore } from '../store/useGameStore';
 import { totalIncome, clickValue } from '../economy/engine';
 import { formatNumber } from '../economy/format';
+import { Num } from './Num';
+import { Icon } from './Icon';
 
 /** За сколько миллисекунд счётчик съедает 63% расстояния до цели: каждый кадр отнимает
  *  долю dt / APPROACH_MS остатка, поэтому число тормозит, а не разгоняется, и скорость
  *  не зависит от частоты кадров. */
 const APPROACH_MS = 55;
 
-export const ClickColumn: React.FC = () => {
+export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const state = useGameStore((s) => s.state);
   const clickPrompt = useGameStore((s) => s.clickPrompt);
   const floaters = useGameStore((s) => s.floaters);
   const chatHistory = useGameStore((s) => s.chatHistory);
   const btnRef = useRef<HTMLButtonElement>(null);
+  const chatRef = useRef<HTMLDivElement>(null);
+
+  // Свежая пара лежит первой, поэтому якорь — это ноль прокрутки, а не конец списка.
+  const newestReplyId = chatHistory[0]?.id;
+  useEffect(() => {
+    chatRef.current?.scrollTo({ top: 0 });
+  }, [newestReplyId]);
 
   const income = totalIncome(state);
   const cVal = clickValue(state, income);
@@ -124,9 +133,11 @@ export const ClickColumn: React.FC = () => {
         padding: '20px 16px',
         backgroundColor: 'var(--bg-panel)',
         borderRight: '2px solid var(--border)',
-        // Не даём колонке стать шире контейнера: на мобильном экране это обрезало бы правую часть.
-        minWidth: 'min(320px, 100%)',
-        maxWidth: '380px',
+        // Базис приходит из модуля раскладки, а не из содержимого колонки: раньше ширина была
+        // min/max по содержимому, и переключение вкладки магазина дёргало всю сетку.
+        // В одноколоночном режиме колонка единственная и занимает всю ширину.
+        flex: full ? '1 1 auto' : '0 0 var(--col-click)',
+        minWidth: 0,
         gap: '18px',
         height: '100%',
         overflowY: 'auto',
@@ -162,7 +173,6 @@ export const ClickColumn: React.FC = () => {
           Токенов
         </div>
         <div
-          className="pixel-font"
           style={{
             fontSize: '1.1rem',
             color: 'var(--green)',
@@ -170,7 +180,7 @@ export const ClickColumn: React.FC = () => {
             fontWeight: 600,
           }}
         >
-          +{formatNumber(income, notation)} / сек
+          +<Num>{formatNumber(income, notation)}</Num> / сек
         </div>
       </div>
 
@@ -188,17 +198,16 @@ export const ClickColumn: React.FC = () => {
           gap: '8px',
         }}
       >
-        <span style={{ fontSize: '2rem' }}>💬</span>
+        <Icon name="chat" size={30} />
         <span>Отправить промпт</span>
         <span
           style={{
             fontSize: '0.85rem',
             color: 'var(--text-main)',
             fontWeight: 400,
-            fontFamily: 'Nunito',
           }}
         >
-          +{formatNumber(cVal, notation)} Токенов за клик
+          +<Num>{formatNumber(cVal, notation)}</Num> Токенов за клик
         </span>
       </button>
 
@@ -213,14 +222,14 @@ export const ClickColumn: React.FC = () => {
           flex: 1,
         }}
       >
-        <div
-          className="pixel-font"
-          style={{ fontSize: '0.95rem', color: 'var(--text-muted)' }}
-        >
-          Диалог с моделью:
-        </div>
+        <div style={{ fontSize: '0.95rem', color: 'var(--text-muted)' }}>Диалог с моделью:</div>
 
+        {/* Якорь на свежую реплику. Свежая пара кладётся сверху, поэтому после прихода она
+            выталкивает прочитанное вниз и без якоря игрок вынужден искать её прокруткой.
+            Ставится ровно на смену верхней пары: пока игрок читает старую, лента не дёргается
+            под ногами. */}
         <div
+          ref={chatRef}
           style={{
             display: 'flex',
             flexDirection: 'column',

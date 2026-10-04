@@ -47,6 +47,17 @@ export function sellRefund(model: Model, owned: number, n: number, discount = 1)
   return bulkCost(model, owned - k, k, discount) * SELL_REFUND;
 }
 
+/**
+ * Сколько Токенов не хватает до покупки: цена минус кошелёк, но не ниже нуля.
+ *
+ * Живёт здесь, а не в компоненте, потому что это деньги — цена и кошелёк числа движка, и
+ * магазин не должен вычитать их сам. Ноль означает «хватает»: отрицательный дефицит показал бы
+ * игроку, что он богаче, чем нужно.
+ */
+export function shortfall(cost: number, tokens: number): number {
+  return Math.max(0, cost - tokens);
+}
+
 // ---------- Доход ----------
 
 export function globalMult(state: GameState): number {
@@ -71,6 +82,27 @@ export function modelIncome(state: GameState, model: Model): number {
 
 export function totalIncome(state: GameState): number {
   return CATALOG[state.generation].models.reduce((s, m) => s + modelIncome(state, m), 0);
+}
+
+/**
+ * На сколько вырос бы общий Доход от покупки `n` Агентов Модели.
+ *
+ * Ответ собирается тем же `totalIncome`, что и тик: покупка подставляется в состояние, Доход
+ * пересчитывается, подпись — разница. Отдельная формула разошлась бы с настоящей экономикой на
+ * первом же Перке или Синергии, то есть ровно там, где подпись в магазине нужнее всего.
+ *
+ * Кошелёк не спрашивается намеренно: вопрос «на сколько вырастет, если купить» и вопрос «хватает
+ * ли сейчас» — разные, и магазин показывает оба.
+ */
+export function incomeGain(state: GameState, modelId: string, n: number): number {
+  if (n <= 0) return 0;
+  const model = MODEL_BY_ID[modelId];
+  if (!model || model.generation !== state.generation) return 0;
+  const hired: GameState = {
+    ...state,
+    agents: { ...state.agents, [modelId]: (state.agents[modelId] ?? 0) + n },
+  };
+  return totalIncome(hired) - totalIncome(state);
 }
 
 /** Доход Лаборатории: сумма Дохода её Моделей. Каждая Модель принадлежит ровно одной

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { motionAllowed, useGameStore, type ToastMessage } from '../store/useGameStore';
 import { ACHIEVEMENTS } from '../economy/achievements';
+import { Icon } from './Icon';
 
 const TOAST_MS = 4000;
 
@@ -108,18 +109,30 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void 
         maxWidth: '320px',
       }}
     >
-      <div style={{ fontSize: '1.6rem' }}>🏆</div>
-      <div>
-        <div className="pixel-font" style={{ fontSize: '0.85rem', color: 'var(--gold)' }}>
-          {toast.title}
-        </div>
+      <Icon name="trophy" size={22} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: '0.85rem', color: 'var(--gold)' }}>{toast.title}</div>
         <div style={{ fontSize: '0.8rem', color: 'var(--text-main)', fontWeight: 600 }}>
           {ach?.name ?? toast.desc}
         </div>
-        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-          {ach?.desc}
-        </div>
+        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{ach?.desc}</div>
       </div>
+      {/* Видимая кнопка закрытия: автозакрытие и клик по карточке остаются, но ждать четыре
+          секунды, чтобы убрать тост, игрок не обязан. stopPropagation обязателен — иначе нажатие
+          дополнительно уйдёт в обработчик карточки и уведёт её на выход кадром, который
+          никто не запускал. */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          dismiss();
+        }}
+        className="pixel-btn"
+        aria-label="Закрыть уведомление"
+        title="Закрыть"
+        style={{ padding: '2px 6px', fontSize: '0.8rem', flexShrink: 0 }}
+      >
+        ✕
+      </button>
     </div>
   );
 };
@@ -154,12 +167,18 @@ export const Toasts: React.FC = () => {
 
   return (
     <>
+      {/* Стопка переехала в левый нижний угол: правый нижний закрывал карточки магазина —
+          то самое место, ради которого игрок смотрит на тост. Слева внизу у колонки Клика
+          живёт только чат, а интерактивных элементов там нет.
+
+          Отступ снизу перекрывает нижнюю панель навигации в одноколоночном режиме: иначе тост
+          ложился бы прямо на кнопку активной вкладки. */}
       <div
         ref={stackRef}
         style={{
           position: 'fixed',
-          bottom: '20px',
-          right: '20px',
+          bottom: '72px',
+          left: '20px',
           display: 'flex',
           flexDirection: 'column',
           gap: '8px',

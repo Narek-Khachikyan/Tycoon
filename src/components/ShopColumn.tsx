@@ -6,16 +6,20 @@ import {
   bulkCost,
   canPrestige,
   discountMult,
+  incomeGain,
   isContentFinale,
   maxAffordable,
-  modelIncome,
   prestigeGain,
   sellRefund,
+  shortfall,
 } from '../economy/engine';
 import { availableUpgrades } from '../economy/upgrades';
 import { PERKS } from '../economy/perks';
-import { formatNumber } from '../economy/format';
+import { formatCount, formatNumber } from '../economy/format';
+import type { Notation } from '../economy/state';
 import { MascotSprite } from './MascotSprite';
+import { Num } from './Num';
+import { Icon } from './Icon';
 
 // 8 искр из точки покупки. Радиус 14–26 px — чуть больше самой кнопки, поэтому жест читается
 // как отклик на нажатие, а не как залп.
@@ -28,6 +32,31 @@ const SPARK = Array.from({ length: SPARK_COUNT }, (_, i) => {
 });
 
 let sparkCounter = 0;
+
+/**
+ * Строка «Не хватает N Токенов».
+ *
+ * Живёт под кнопкой покупки и всегда занимает строку, даже когда дефицита нет: иначе карточка
+ * прыгала бы по высоте на каждом тике, а с ней и кнопка под ней. aria-live не ставится — число
+ * меняется двадцать раз в секунду и иначе читалось бы вслух.
+ */
+const TokenDeficit: React.FC<{ amount: number; notation: Notation }> = ({ amount, notation }) => (
+  <div
+    style={{
+      minHeight: '1em',
+      fontSize: '0.75rem',
+      color: 'var(--text-muted)',
+      textAlign: 'right',
+    }}
+  >
+    {amount > 0 && (
+      <>
+        Не хватает <Num>{formatNumber(amount, notation)}</Num>{' '}
+        {formatCount(Math.round(amount), 'Токен', 'Токена', 'Токенов')}
+      </>
+    )}
+  </div>
+);
 
 /**
  * Строка Модели. Владеет своим откликом на покупку: магазин перерисовывается каждый тик, и
@@ -115,7 +144,7 @@ const ModelRow: React.FC<{
   );
 };
 
-export const ShopColumn: React.FC = () => {
+export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const [tab, setTab] = useState<'models' | 'upgrades' | 'perks'>('models');
   const [expandedAA, setExpandedAA] = useState<Record<string, boolean>>({});
 
@@ -136,6 +165,11 @@ export const ShopColumn: React.FC = () => {
   const upgrades = availableUpgrades(state);
   const unspentCompute = state.compute - state.computeSpent;
   const finale = isContentFinale(state);
+  const prestigeReady = canPrestige(state);
+  // Вкладка приглушена, а не скрыта: скрытая вкладка — дверь в одну сторону, и игрок
+  // не узнал бы, что Престиж вообще существует. На финале контента Престиж недоступен
+  // навсегда, поэтому приглушение там не снимается.
+  const prestigeLocked = finale || !prestigeReady;
 
   const toggleAA = (id: string) => {
     setExpandedAA((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -149,9 +183,11 @@ export const ShopColumn: React.FC = () => {
         padding: '16px',
         backgroundColor: 'var(--bg-panel)',
         borderLeft: '2px solid var(--border)',
-        // Не даём колонке стать шире контейнера: на мобильном экране это обрезало бы правую часть.
-        minWidth: 'min(360px, 100%)',
-        maxWidth: '440px',
+        // Базис приходит из модуля раскладки: раньше ширина считалась по содержимому вкладки,
+        // и переход «Модели» → «Апгрейды» сужал колонку примерно на 18%, а офис вбирал разницу.
+        // В одноколоночном режиме колонка единственная и занимает всю ширину.
+        flex: full ? '1 1 auto' : '0 0 var(--col-shop)',
+        minWidth: 0,
         height: '100%',
         overflowY: 'hidden',
       }}
@@ -191,7 +227,21 @@ export const ShopColumn: React.FC = () => {
         <button
           onClick={() => setTab('perks')}
           className={`pixel-btn ${tab === 'perks' ? 'pixel-btn-accent' : ''}`}
-          style={{ flex: 1, padding: '8px 4px', fontSize: '0.9rem' }}
+          title={
+            finale
+              ? 'Ты дошёл до последнего поколения — дальше престиж недоступен'
+              : prestigeReady
+                ? undefined
+                : 'Найми 1 агента флагмана, чтобы разблокировать престиж'
+          }
+          style={{
+            flex: 1,
+            padding: '8px 4px',
+            fontSize: '0.9rem',
+            ...(prestigeLocked
+              ? { color: 'var(--text-muted)', borderColor: 'var(--border)' }
+              : undefined),
+          }}
         >
           Престиж
         </button>
@@ -211,31 +261,25 @@ export const ShopColumn: React.FC = () => {
             border: '1px solid var(--border)',
           }}
         >
-          {/* Режим покупки / продажи */}
+          {/* Режим покупки / продажи. Оформление выбранного состояния живёт в index.css и
+              держится на aria-pressed, поэтому здесь нет inline-заливок: они перебили бы
+              общий паттерн и разошлись бы с множителем покупки. */}
           <div style={{ display: 'flex', gap: '4px' }}>
             <button
               onClick={() => setSellMode(false)}
               className="pixel-btn"
-              style={{
-                padding: '4px 8px',
-                fontSize: '0.8rem',
-                backgroundColor: !sellMode ? 'var(--accent-solid)' : 'transparent',
-                borderColor: !sellMode ? 'var(--accent-color)' : 'var(--border)',
-              }}
+              aria-pressed={!sellMode}
+              style={{ padding: '4px 8px', fontSize: '0.8rem' }}
             >
               Купить
             </button>
             <button
               onClick={() => setSellMode(true)}
-              className="pixel-btn"
-              style={{
-                padding: '4px 8px',
-                fontSize: '0.8rem',
-                backgroundColor: sellMode ? 'var(--red-solid)' : 'transparent',
-                borderColor: sellMode ? 'var(--red)' : 'var(--border)',
-              }}
+              className="pixel-btn pixel-btn-sell"
+              aria-pressed={sellMode}
+              style={{ padding: '4px 8px', fontSize: '0.8rem' }}
             >
-              Продать (25%)
+              Продать
             </button>
           </div>
 
@@ -246,17 +290,21 @@ export const ShopColumn: React.FC = () => {
                 key={amt}
                 onClick={() => setBuyAmount(amt)}
                 className="pixel-btn"
-                style={{
-                  padding: '4px 7px',
-                  fontSize: '0.8rem',
-                  backgroundColor: buyAmount === amt ? 'var(--border)' : 'transparent',
-                  color: buyAmount === amt ? 'var(--accent-color)' : 'var(--text-main)',
-                }}
+                aria-pressed={buyAmount === amt}
+                style={{ padding: '4px 7px', fontSize: '0.8rem' }}
               >
-                {amt === 'max' ? 'Max' : `×${amt}`}
+                {amt === 'max' ? 'Max' : <>&times;<Num>{amt}</Num></>}
               </button>
             ))}
           </div>
+
+          {/* Строка про возврат живёт только в режиме продажи: в режиме покупки её нечего
+              читать, а возврат и так назван прямо на кнопке карточки. */}
+          {sellMode && (
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', flexShrink: 0 }}>
+              Возврат 25% от цены
+            </div>
+          )}
         </div>
       )}
 
@@ -271,9 +319,23 @@ export const ShopColumn: React.FC = () => {
               const cost = bulkCost(m, owned, count, d);
               const refund = sellRefund(m, owned, count, d);
               const canAfford = !sellMode ? count > 0 && cost <= state.tokens : owned >= count && count > 0;
-              const mIncome = modelIncome(state, m);
+              // Прирост общего Дохода именно от этой покупки, посчитанный движком. Отдельная
+              // формула в компоненте разошлась бы с экономикой на первом же Перке или Синергии.
+              // Продажа ограничена тем, что есть: sellAgents берёт min(n, owned), и подпись про
+              // большую сделку, чем возможна, вводила бы в заблуждение.
+              const gain = incomeGain(state, m.id, sellMode ? Math.min(count, owned) : count);
               const isAAOpen = !!expandedAA[m.id];
               const lab = LABS[m.lab];
+
+              // Дефицит: при фиксированном множителе он считается на всю сумму покупки, а при Max
+              // с пустым кошельком покупки нет вообще — тогда показываем, чего стоит одна единица.
+              const missing =
+                sellMode || canAfford ? 0 : shortfall(count > 0 ? cost : bulkCost(m, owned, 1, d), state.tokens);
+
+              // Строка прироста описывает действие, которое кнопка действительно выполнит. Покупка,
+              // которая не по карману, подпись всё равно заслуживает: рядом стоит строка дефицита.
+              // А вот продать нечего — и обе цифры, и кнопка были бы пустыми.
+              const showsGain = sellMode ? owned > 0 : count > 0;
 
               return (
                 <ModelRow key={m.id} owned={owned} isFlagship={m.isFlagship}>
@@ -282,9 +344,7 @@ export const ShopColumn: React.FC = () => {
                       <MascotSprite lab={m.lab} size={28} />
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span className="pixel-font" style={{ fontSize: '1rem', color: 'var(--text-main)' }}>
-                            {m.name}
-                          </span>
+                          <span style={{ fontSize: '1rem', color: 'var(--text-main)' }}>{m.name}</span>
                           {m.isFlagship && (
                             <span
                               style={{
@@ -306,15 +366,27 @@ export const ShopColumn: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="pixel-font" style={{ fontSize: '1.2rem', color: 'var(--text-muted)' }}>
-                      {owned}
+                    {/* Подпись обязательна: голое число не отличить от счётчика чего-то другого. */}
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'right' }}>
+                      <div style={{ fontSize: '1.2rem' }}>
+                        <Num>{owned}</Num>
+                      </div>
+                      <div>{formatCount(owned, 'Агент', 'Агента', 'Агентов')}</div>
                     </div>
                   </div>
 
-                  {/* Доход и Кнопка покупки/продажи */}
+                  {/* Прирост Дохода и кнопка покупки/продажи. Цена живёт только здесь — на всех
+                      вкладках магазина, чтобы её не приходилось искать в двух местах. */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--green)' }}>
-                      +{formatNumber(mIncome, notation)}/сек
+                    <div style={{ fontSize: '0.8rem', color: sellMode ? 'var(--red)' : 'var(--green)' }}>
+                      {/* При пустом действии строка молчит: «−0 к доходу» и «+0 к доходу» не
+                          говорят ничего, а место под строку всё равно зарезервировано. */}
+                      {showsGain && (
+                        <>
+                          {sellMode ? '−' : '+'}
+                          <Num>{formatNumber(gain, notation)}</Num> к доходу
+                        </>
+                      )}
                     </div>
 
                     <button
@@ -324,38 +396,69 @@ export const ShopColumn: React.FC = () => {
                       style={{
                         padding: '6px 12px',
                         fontSize: '0.85rem',
-                        backgroundColor: sellMode ? 'var(--red-solid)' : undefined,
-                        borderColor: sellMode ? 'var(--red)' : undefined,
+                        backgroundColor: sellMode && canAfford ? 'var(--red-solid)' : undefined,
+                        borderColor: sellMode && canAfford ? 'var(--red)' : undefined,
                       }}
                     >
-                      {sellMode
-                        ? `Продать (${formatNumber(refund, notation)})`
-                        : `Купить ×${count} (${formatNumber(cost, notation)})`}
+                      {/* «Купить ×0» обещало бы покупку, которой не будет. */}
+                      {sellMode ? (
+                        count > 0 ? (
+                          <>Продать (<Num>{formatNumber(refund, notation)}</Num>)</>
+                        ) : (
+                          <>Продать</>
+                        )
+                      ) : count > 0 ? (
+                        <>
+                          Купить ×<Num>{count}</Num> (<Num>{formatNumber(cost, notation)}</Num>)
+                        </>
+                      ) : (
+                        <>Купить</>
+                      )}
                     </button>
                   </div>
+
+                  {/* Дефицит — отдельной строкой с зарезервированной высотой, поэтому ни размер
+                      кнопки, ни высота карточки не прыгают на каждом тике. */}
+                  <TokenDeficit amount={missing} notation={notation} />
 
                   {/* Справка AA переключатель */}
                   {/* Волосяная линия остаётся литералом: 6% белого — это заведомо слабее
                      любой ступени лестницы рамок, и --border здесь превратил бы её в
                      самостоятельную рамку. */}
                   <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '6px' }}>
-                    <div
+                    {/* Кнопка, а не div с обработчиком: раскрытие должно быть достижимо с
+                        клавиатуры и обязано объявлять состояние. Имя Artificial Analysis остаётся
+                        видимым текстом — атрибуция обязательна (ADR-0001). */}
+                    <button
                       onClick={() => toggleAA(m.id)}
+                      aria-expanded={isAAOpen}
+                      aria-controls={`aa-${m.id}`}
+                      id={`aa-toggle-${m.id}`}
                       style={{
+                        width: '100%',
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
                         fontSize: '0.75rem',
                         color: 'var(--accent-color)',
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
+                        gap: '8px',
                       }}
                     >
-                      <span>📊 Справка Artificial Analysis</span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Icon name="info" size={13} />
+                        Справка Artificial Analysis
+                      </span>
                       <span>{isAAOpen ? '▲ скрыть' : '▼ подробнее'}</span>
-                    </div>
+                    </button>
 
                     {isAAOpen && (
                       <div
+                        id={`aa-${m.id}`}
+                        aria-labelledby={`aa-toggle-${m.id}`}
                         style={{
                           marginTop: '6px',
                           padding: '6px 8px',
@@ -393,11 +496,12 @@ export const ShopColumn: React.FC = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {upgrades.length === 0 ? (
               <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: '40px' }}>
-                Пока нет доступных апгрейдов. Нанимайте больше агентов!
+                Пока нет доступных апгрейдов. Нанимай больше агентов!
               </div>
             ) : (
               upgrades.map((u) => {
                 const canAfford = state.tokens >= u.cost;
+                const missing = canAfford ? 0 : shortfall(u.cost, state.tokens);
                 return (
                   <div
                     key={u.id}
@@ -411,14 +515,7 @@ export const ShopColumn: React.FC = () => {
                       gap: '6px',
                     }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span className="pixel-font" style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>
-                        {u.name}
-                      </span>
-                      <span className="pixel-font" style={{ fontSize: '0.85rem', color: 'var(--accent-color)' }}>
-                        {formatNumber(u.cost, notation)}
-                      </span>
-                    </div>
+                    <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{u.name}</span>
 
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                       {u.desc}
@@ -430,8 +527,12 @@ export const ShopColumn: React.FC = () => {
                       className="pixel-btn pixel-btn-accent"
                       style={{ padding: '6px 10px', fontSize: '0.85rem', alignSelf: 'flex-end' }}
                     >
-                      Улучшить
+                      {/* Цена живёт в кнопке на всех вкладках магазина: в шапке карточки её
+                          больше нет, поэтому искать её приходилось в двух разных местах. */}
+                      Улучшить (<Num>{formatNumber(u.cost, notation)}</Num>)
                     </button>
+
+                    <TokenDeficit amount={missing} notation={notation} />
                   </div>
                 );
               })
@@ -453,12 +554,10 @@ export const ShopColumn: React.FC = () => {
                 gap: '8px',
               }}
             >
-              <div className="pixel-font" style={{ fontSize: '1.1rem', color: 'var(--gold)' }}>
-                🚀 Престиж в следующее Поколение
-              </div>
+              <div style={{ fontSize: '1.1rem', color: 'var(--gold)' }}>Престиж в следующее поколение</div>
 
               <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                Сбросит текущий Забег (Токены, Агенты, Апгрейды) и перенесёт вас в следующее Поколение.
+                Сбросит текущий забег (токены, агенты, апгрейды) и перенесёт тебя в следующее поколение.
               </div>
 
               <div
@@ -470,13 +569,10 @@ export const ShopColumn: React.FC = () => {
                 }}
               >
                 <div>
-                  Получите Compute:{' '}
-                  <span className="pixel-font" style={{ color: 'var(--gold)', fontWeight: 700 }}>
-                    +{prestigeGain(state)}
-                  </span>
+                  Получишь Compute: <Num>{prestigeGain(state)}</Num>
                 </div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                  (Каждая единица Compute даёт постоянный бонус +1% к Доходу)
+                  (Каждая единица Compute даёт постоянный бонус +1% к доходу)
                 </div>
               </div>
 
@@ -487,7 +583,7 @@ export const ShopColumn: React.FC = () => {
                   className="pixel-btn pixel-btn-gold"
                   style={{ width: '100%', marginTop: '4px' }}
                 >
-                  {canPrestige(state) ? 'Сделать Престиж!' : '🔒 Нужен 1 Агент Флагмана'}
+                  {canPrestige(state) ? 'Сделать престиж!' : 'Нужен 1 агент флагмана'}
                 </button>
               )}
             </div>
@@ -495,10 +591,9 @@ export const ShopColumn: React.FC = () => {
             {/* Магазин Перков */}
             <div>
               <div
-                className="pixel-font"
                 style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: '8px' }}
               >
-                Постоянные Перки (Свободно: {unspentCompute} Compute)
+                Постоянные перки (Свободно: <Num>{unspentCompute}</Num> Compute)
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -519,14 +614,7 @@ export const ShopColumn: React.FC = () => {
                         gap: '6px',
                       }}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span className="pixel-font" style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>
-                          {p.name}
-                        </span>
-                        <span className="pixel-font" style={{ fontSize: '0.85rem', color: 'var(--gold)' }}>
-                          {p.cost} Compute
-                        </span>
-                      </div>
+                      <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{p.name}</span>
 
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                         {p.desc}
@@ -538,7 +626,7 @@ export const ShopColumn: React.FC = () => {
                         className={`pixel-btn ${owned ? '' : 'pixel-btn-gold'}`}
                         style={{ padding: '6px 10px', fontSize: '0.85rem', alignSelf: 'flex-end' }}
                       >
-                        {owned ? '✅ Куплено' : 'Купить Перк'}
+                        {owned ? 'Куплено' : <>Купить перк (<Num>{p.cost}</Num> Compute)</>}
                       </button>
                     </div>
                   );
