@@ -1,7 +1,7 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '../store/useGameStore';
 import { CATALOG } from '../economy/catalog';
-import { LABS, LAB_IDS } from '../data/labs';
+import { LABS, LAB_IDS, type LabId } from '../data/labs';
 import { canPrestige, isContentFinale, labIncomeShare } from '../economy/engine';
 import { labAgents, labWork, SYNERGY_PER_AGENT, synergyUpgradeId } from '../economy/upgrades';
 import { formatCount, formatNumber } from '../economy/format';
@@ -110,18 +110,121 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
 
   const sceneIndex = Math.min(Math.floor(state.generation / 2), SCENE_COUNT - 1);
 
-  // Прогрев следующей Сцены: без неё Престиж на секунду показывает пустой кадр, потому что
-  // картинка начинает грузиться только когда src уже назначен. Обход массива тут же зациклился
-  // бы на последнем индексе, поэтому сосед отсекается по SCENE_COUNT.
+  // Кроссфейд Сцены: предыдущий кадр лежит под новым, входящий проявляется
+  // opacity 0→1 за 0.4s (класс scene-crossfade--in, только opacity — разрешена
+  // и при reducedMotion). Предыдущий убирается по onAnimationEnd входящего,
+  // таймеров нет. Пара {prev, curr}, а не очередь: Сцена меняется не чаще,
+  // чем игрок жмёт Престиж.
+  const [sceneShown, setSceneShown] = useState({ prev: -1, curr: sceneIndex });
   useEffect(() => {
-    const next = sceneIndex + 1;
-    if (next >= SCENE_COUNT) return;
-    const preload = new Image();
-    preload.src = SCENE_SRC[next];
+    setSceneShown((s) => (s.curr === sceneIndex ? s : { prev: s.curr, curr: sceneIndex }));
+  }, [sceneIndex]);
+
+  // Двухшаговый Престиж, как в магазине: первый Клик только взводит кнопку, второй
+  // в течение ARM_MS выполняет переход в новое Поколение — сброс Забега необратим.
+  // Логика продублирована локально, общий компонент не выделяем. Звук только
+  // на выполнении внутри triggerPrestige. Взвод — текстом и красной заливкой
+  // (знак необратимости, как у продажи), без движения: в reducedMotion это те же
+  // текст и цвет, ничего отключать не нужно.
+  const ARM_MS = 6000;
+  const [prestigeArmed, setPrestigeArmed] = useState(false);
+  const prestigeTimer = useRef<number | null>(null);
+  // Размонтирование гасит one-shot: иначе он сбросил бы подпись уже несуществующей кнопки.
+  useEffect(
+    () => () => {
+      if (prestigeTimer.current !== null) window.clearTimeout(prestigeTimer.current);
+    },
+    [],
+  );
+  // Взвод не переживает потерю готовности: armed-кнопка не должна остаться после того,
+  // как условия Престижа ушли.
+  useEffect(() => {
+    if (!prestigeReady || finale) {
+      if (prestigeTimer.current !== null) {
+        window.clearTimeout(prestigeTimer.current);
+        prestigeTimer.current = null;
+      }
+      setPrestigeArmed(false);
+    }
+  }, [prestigeReady, finale]);
+
+  const handlePrestige = () => {
+    if (!prestigeArmed) {
+      setPrestigeArmed(true);
+      prestigeTimer.current = window.setTimeout(() => {
+        prestigeTimer.current = null;
+        setPrestigeArmed(false);
+      }, ARM_MS);
+      return;
+    }
+    if (prestigeTimer.current !== null) {
+      window.clearTimeout(prestigeTimer.current);
+      prestigeTimer.current = null;
+    }
+    setPrestigeArmed(false);
+    triggerPrestige();
+  };
+
+  // Прогрев соседних Сцен: без неё Престиж на секунду показывает пустой кадр, потому что
+  // картинка начинает грузиться только когда src уже назначен. Вперёд — для следующего
+  // Престижа, назад — для возврата взглядом: раньше обратного прелоада не было (аудит).
+  // Края массива отсекаются по SCENE_COUNT, чтобы не зациклиться.
+  useEffect(() => {
+    for (const i of [sceneIndex + 1, sceneIndex - 1]) {
+      if (i < 0 || i >= SCENE_COUNT) continue;
+      const preload = new Image();
+      preload.src = SCENE_SRC[i];
+    }
   }, [sceneIndex]);
 
   const activeLabs = LAB_IDS.filter((l) => labAgents(state, l) > 0);
   const totalAgents = activeLabs.reduce((sum, l) => sum + labAgents(state, l), 0);
+
+  // Прыжок Маскота при покупке Агента его Лаборатории. Предыдущие числа — в ref, как
+  // prevOwned в ModelRow: магазин перерисовывается каждый тик, и отмечать покупку в сторе
+  // значило бы гонять эффект по всей колонке двадцать раз в секунду. Сравнение идёт по всем
+  // LAB_IDS, а не по activeLabs: иначе появление первой покупки новой Лаборатории (0 → 1)
+  // не отличить от первого рендера, и Маскот либо не прыгнул бы, либо прыгнули бы все сразу.
+  const prevLabCounts = useRef<Partial<Record<LabId, number>>>({});
+  const hopNodes = useRef(new Map<LabId, HTMLDivElement>());
+  const [hoppingLabId, setHoppingLabId] = useState<LabId | null>(null);
+
+  useEffect(() => {
+    const prev = prevLabCounts.current;
+    // Первый замер только запоминает числа: иначе все Маскоты с Агентами прыгнули бы
+    // на загрузке сохранения. LAB_IDS статичен, поэтому пустой ref — это ровно первый замер.
+    let known = false;
+    for (const labId of LAB_IDS) {
+      if (prev[labId] !== undefined) {
+        known = true;
+        break;
+      }
+    }
+    if (!known) {
+      for (const labId of LAB_IDS) prev[labId] = labAgents(state, labId);
+      return;
+    }
+    // Покупка растит ровно одну Лабораторию, поэтому прыгает первая выросшая; импорт
+    // сохранения может вырастить несколько сразу — там прыжка одной достаточно, это редкий
+    // путь, а не игровой отклик.
+    for (const labId of LAB_IDS) {
+      const before = prev[labId] ?? 0;
+      const now = labAgents(state, labId);
+      prev[labId] = now;
+      if (now <= before) continue;
+      setHoppingLabId(labId);
+      const node = hopNodes.current.get(labId);
+      if (!node) continue;
+      // Чтение ширины между снятием и возвратом класса — обязательный сброс анимации:
+      // иначе быстрая повторная покупка той же Лаборатории не перезапустила бы прыжок,
+      // класс ведь не менялся. Тот же приём, что у model-row--pop.
+      node.classList.remove('mascot-hop');
+      void node.offsetWidth;
+      node.classList.add('mascot-hop');
+      break;
+    }
+  }, [state.agents]);
+
   const synergyLabs = activeLabs.filter((l) =>
     state.upgrades.includes(synergyUpgradeId(state.generation, l))
   );
@@ -143,8 +246,11 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
         gap: '16px',
       }}
     >
-      {/* Баннер Поколения и Флагмана */}
+      {/* Баннер Поколения и Флагмана. key пересоздаёт карточку на смене Поколения
+          или финала, поэтому появление через существующий toast-fade (только opacity,
+          без движения) проигрывается один раз на смену текста. */}
       <div
+        key={`${state.generation}-${finale ? 'finale' : 'goal'}`}
         className="pixel-card"
         style={{
           flexShrink: 0,
@@ -155,6 +261,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
           alignItems: 'center',
           flexWrap: 'wrap',
           gap: '12px',
+          animation: 'toast-fade 0.15s ease-out',
         }}
       >
         <div>
@@ -173,11 +280,17 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
 
         {prestigeReady && !finale && (
           <button
-            onClick={triggerPrestige}
+            onClick={handlePrestige}
             className="pixel-btn pixel-btn-gold"
-            style={{ fontSize: '1rem', padding: '10px 16px' }}
+            style={{
+              fontSize: '1rem',
+              padding: '10px 16px',
+              ...(prestigeArmed
+                ? { backgroundColor: 'var(--red-solid)', borderColor: 'var(--red)' }
+                : undefined),
+            }}
           >
-            Совершить престиж
+            {prestigeArmed ? 'Точно в новое Поколение? Забег сбросится — нажми ещё раз' : 'Совершить престиж'}
           </button>
         )}
 
@@ -214,24 +327,74 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
           backgroundColor: 'var(--bg-void)',
         }}
       >
-        <img
-          className="scene__img"
-          src={SCENE_SRC[sceneIndex]}
-          alt=""
-          draggable={false}
-          style={{
-            position: 'absolute',
-            inset: 0,
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-            objectPosition: 'center',
-            display: 'block',
-            // Арт 384×256 и растягивается нецелым кратным: без этого он читался бы как мыло.
-            imageRendering: 'pixelated',
-            userSelect: 'none',
-          }}
-        />
+        {/* Кроссфейд: предыдущий кадр лежит нижним слоем, новый проявляется поверх
+            (класс scene-crossfade--in, только opacity). Предыдущий убирается по концу
+            входящей анимации — таймеров нет, текст и HUD-полосы вне картинки (ADR-0002). */}
+        {sceneShown.prev >= 0 && sceneShown.prev !== sceneShown.curr ? (
+          <>
+            <img
+              className="scene__img"
+              src={SCENE_SRC[sceneShown.prev]}
+              alt=""
+              draggable={false}
+              aria-hidden="true"
+              style={{
+                position: 'absolute',
+                inset: 0,
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                objectPosition: 'center',
+                display: 'block',
+                // Арт 384×256 и растягивается нецелым кратным: без этого он читался бы как мыло.
+                imageRendering: 'pixelated',
+                userSelect: 'none',
+              }}
+            />
+            <img
+              className="scene__img scene-crossfade--in"
+              src={SCENE_SRC[sceneShown.curr]}
+              alt=""
+              draggable={false}
+              onAnimationEnd={(e) => {
+                // Конец здесь — это конец входящего кроссфейда: событие всплывает от
+                // потомков Сцены, поэтому чужое имя игнорируется.
+                if (e.animationName !== 'scene-crossfade-in') return;
+                setSceneShown((s) => (s.prev < 0 ? s : { prev: -1, curr: s.curr }));
+              }}
+              style={{
+                position: 'absolute',
+                inset: 0,
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                objectPosition: 'center',
+                display: 'block',
+                imageRendering: 'pixelated',
+                userSelect: 'none',
+              }}
+            />
+          </>
+        ) : (
+          <img
+            className="scene__img"
+            src={SCENE_SRC[sceneShown.curr]}
+            alt=""
+            draggable={false}
+            style={{
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              objectPosition: 'center',
+              display: 'block',
+              // Арт 384×256 и растягивается нецелым кратным: без этого он читался бы как мыло.
+              imageRendering: 'pixelated',
+              userSelect: 'none',
+            }}
+          />
+        )}
 
         {/* HUD-полоса: собственный скрим, поэтому читаемость подписи не зависит от того,
             что нарисовала машина (ADR-0002). */}
@@ -304,7 +467,25 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
                     pointerEvents: 'none',
                   }}
                 />
-                <div style={{ position: 'relative', zIndex: 1, lineHeight: 0 }}>
+                {/* Прыжок висит на родителе узла покачивания, а не на нём самом: animation на том
+                    же узле перезаписала бы бесконечное mascot-bob, а вложенный transform
+                    складывается с ним — прыжок идёт поверх покачивания, не вместо него. Тень
+                    остаётся на полу: прыгает только Маскот, а не его контакт с полом. */}
+                <div
+                  ref={(node) => {
+                    if (node) hopNodes.current.set(labId, node);
+                    else hopNodes.current.delete(labId);
+                  }}
+                  className={hoppingLabId === labId ? 'mascot-hop' : undefined}
+                  onAnimationEnd={(e) => {
+                    // Покачивание бесконечно и конца не даёт, поэтому конец здесь — это конец
+                    // прыжка. Таймеров в игре нет, снятие только по событию анимации.
+                    if (e.animationName !== 'mascot-hop') return;
+                    e.currentTarget.classList.remove('mascot-hop');
+                    setHoppingLabId((cur) => (cur === labId ? null : cur));
+                  }}
+                  style={{ position: 'relative', zIndex: 1, lineHeight: 0 }}
+                >
                   <MascotSprite lab={labId} size={MASCOT_SIZE} animated />
                 </div>
               </div>

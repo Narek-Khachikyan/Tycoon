@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useGameStore } from '../store/useGameStore';
 import { ACHIEVEMENTS } from '../economy/achievements';
 import { GLOSSARY } from '../data/glossary';
@@ -15,10 +15,55 @@ interface ModalProps {
   onClose: () => void;
 }
 
+// Выход модалок — реверс существующего toast-fade (только opacity, поэтому картина
+// одинакова при полном и при выключенном движении, нового CSS ноль). Входные
+// длительности уже в коде (0.18s / 0.2s), выход везде 0.15s, таймер равен длительности
+// выхода. Снятие по таймеру, а не по onAnimationEnd: конец анимации может не наступить
+// (свёрнутая вкладка, снятый кадр), а висящее окно осталось бы в DOM навсегда.
+const MODAL_EXIT_MS = 150;
+const MODAL_EXIT_ANIMATION = 'toast-fade 0.15s ease-out reverse';
+
+// Отложенное размонтирование окна: запрос закрытия лишь взводит closing, а настоящий
+// onClose приходит по одному bounded one-shot таймеру. Очистка в эффекте обязательна —
+// иначе размонтирование с висящим таймером дёрнуло бы onClose уже снятого окна.
+// Повторный запрос во время выхода — игнор: иначе спам ✕ перезапускал бы выход.
+// Открытие (open поменялся) сбрасывает closing, иначе повторное открытие показало бы
+// выходной кадр вместо окна. Один вызов хука — одно окно, один таймер.
+function useModalExit(
+  open: boolean,
+  onClose: () => void,
+): { closing: boolean; requestClose: () => void } {
+  const [closing, setClosing] = useState(false);
+  // onClose в рефе, а не в зависимостях таймера: стрелка из оболочки пересоздаётся на
+  // каждом рендере, и с ней в зависимостях таймер перезапускался бы, растягивая выход.
+  const closeRef = useRef(onClose);
+  useEffect(() => {
+    closeRef.current = onClose;
+  }, [onClose]);
+  // Сброс closing — layout-эффектом, до кадра: иначе при повторном открытии виден
+  // один кадр выходной анимации (пассивный эффект срабатывает уже после отрисовки).
+  useLayoutEffect(() => {
+    if (open) setClosing(false);
+  }, [open]);
+  useEffect(() => {
+    if (!closing) return;
+    const timer = setTimeout(() => closeRef.current(), MODAL_EXIT_MS);
+    return () => clearTimeout(timer);
+  }, [closing]);
+  const requestClose = (): void => {
+    if (closing) return;
+    setClosing(true);
+  };
+  return { closing, requestClose };
+}
+
 export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   const state = useGameStore((s) => s.state);
+  // Все пути закрытия (скрим, ✕, Esc из хука) идут через один запрос: мгновенного
+  // onClose больше нет ни на одном пути.
+  const { closing, requestClose } = useModalExit(isOpen, onClose);
   // Хук обязан стоять до раннего выхода: иначе окно то открывалось бы с ловушкой, то без неё.
-  const cardRef = useDialogFocus<HTMLDivElement>(isOpen, onClose);
+  const cardRef = useDialogFocus<HTMLDivElement>(isOpen, requestClose);
   if (!isOpen) return null;
 
   const unlockedSet = new Set(state.achievements);
@@ -34,8 +79,11 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
         justifyContent: 'center',
         zIndex: 50,
         padding: '16px',
+        // Вход — существующий toast-fade, выход — тот же кадр в реверсе (только opacity,
+        // поэтому при reducedMotion картина та же, нового CSS ноль).
+        animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.18s ease-out',
       }}
-      onClick={onClose}
+      onClick={requestClose}
     >
       <div
         ref={cardRef}
@@ -51,6 +99,8 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
           flexDirection: 'column',
           padding: '20px',
           gap: '14px',
+          // Карточка ходит тем же кадром, что и скрим: вход — прямо, выход — в реверсе.
+          animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.18s ease-out',
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -60,7 +110,7 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
           </h2>
           <button
             className="pixel-btn"
-            onClick={onClose}
+            onClick={requestClose}
             aria-label="Закрыть"
             title="Закрыть"
             style={{ padding: '4px 10px' }}
@@ -111,7 +161,10 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
 
 export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   const state = useGameStore((s) => s.state);
-  const cardRef = useDialogFocus<HTMLDivElement>(isOpen, onClose);
+  // Все пути закрытия (скрим, ✕, Esc из хука) идут через один запрос: мгновенного
+  // onClose больше нет ни на одном пути.
+  const { closing, requestClose } = useModalExit(isOpen, onClose);
+  const cardRef = useDialogFocus<HTMLDivElement>(isOpen, requestClose);
   if (!isOpen) return null;
 
   const now = Date.now();
@@ -155,8 +208,11 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
         justifyContent: 'center',
         zIndex: 50,
         padding: '16px',
+        // Вход — существующий toast-fade, выход — тот же кадр в реверсе (только opacity,
+        // поэтому при reducedMotion картина та же, нового CSS ноль).
+        animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.18s ease-out',
       }}
-      onClick={onClose}
+      onClick={requestClose}
     >
       <div
         ref={cardRef}
@@ -172,6 +228,7 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
           flexDirection: 'column',
           padding: '20px',
           gap: '14px',
+          animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.18s ease-out',
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -181,7 +238,7 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
           </h2>
           <button
             className="pixel-btn"
-            onClick={onClose}
+            onClick={requestClose}
             aria-label="Закрыть"
             title="Закрыть"
             style={{ padding: '4px 10px' }}
@@ -245,7 +302,10 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   const setReducedMotion = useGameStore((s) => s.setReducedMotion);
   const importSaveData = useGameStore((s) => s.importSaveData);
   const resetGame = useGameStore((s) => s.resetGame);
-  const cardRef = useDialogFocus<HTMLDivElement>(isOpen, onClose);
+  // Все пути закрытия (скрим, ✕, Esc из хука, удачные импорт/сброс) идут через один
+  // запрос: мгновенного onClose больше нет ни на одном пути.
+  const { closing, requestClose } = useModalExit(isOpen, onClose);
+  const cardRef = useDialogFocus<HTMLDivElement>(isOpen, requestClose);
 
   const [importCode, setImportCode] = useState('');
   const [copyStatus, setCopyStatus] = useState(false);
@@ -267,7 +327,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
     const ok = importSaveData(importCode.trim());
     if (ok) {
       setImportCode('');
-      onClose();
+      requestClose();
     } else {
       setErrorMsg('Неверный код сохранения!');
     }
@@ -278,7 +338,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
         'Сбросить весь прогресс? Токены, агенты, апгрейды и Compute пропадут навсегда. Отменить это нельзя.',
       )) {
       resetGame();
-      onClose();
+      requestClose();
     }
   };
 
@@ -293,8 +353,11 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
         justifyContent: 'center',
         zIndex: 50,
         padding: '16px',
+        // Вход — существующий toast-fade, выход — тот же кадр в реверсе (только opacity,
+        // поэтому при reducedMotion картина та же, нового CSS ноль).
+        animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.18s ease-out',
       }}
-      onClick={onClose}
+      onClick={requestClose}
     >
       <div
         ref={cardRef}
@@ -310,6 +373,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
           flexDirection: 'column',
           padding: '20px',
           gap: '16px',
+          animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.18s ease-out',
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -319,7 +383,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
           </h2>
           <button
             className="pixel-btn"
-            onClick={onClose}
+            onClick={requestClose}
             aria-label="Закрыть"
             title="Закрыть"
             style={{ padding: '4px 10px' }}
@@ -451,8 +515,10 @@ export const OfflineModal: React.FC = () => {
   const dismiss = useGameStore((s) => s.dismissOfflineReport);
   const notation = useGameStore((s) => s.state.settings.notation);
   // Esc здесь не закрывает: игрок должен забрать начисленное и увидеть сумму, поэтому окно
-  // закрывается только своей кнопкой.
-  const cardRef = useDialogFocus<HTMLDivElement>(offlineReport !== null, dismiss, false);
+  // закрывается только своей кнопкой. Кнопка идёт через тот же closing-путь, что и
+  // остальные окна: мгновенного dismiss больше нет.
+  const { closing, requestClose } = useModalExit(offlineReport !== null, dismiss);
+  const cardRef = useDialogFocus<HTMLDivElement>(offlineReport !== null, requestClose, false);
 
   if (!offlineReport) return null;
 
@@ -467,6 +533,9 @@ export const OfflineModal: React.FC = () => {
         justifyContent: 'center',
         zIndex: 60,
         padding: '16px',
+        // Вход — существующий toast-fade, выход — тот же кадр в реверсе (только opacity,
+        // поэтому при reducedMotion картина та же, нового CSS ноль).
+        animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.2s ease-out',
       }}
     >
       <div
@@ -485,6 +554,7 @@ export const OfflineModal: React.FC = () => {
           textAlign: 'center',
           gap: '14px',
           border: '2px solid var(--accent-color)',
+          animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.2s ease-out',
         }}
       >
         <div style={{ fontSize: '3rem', lineHeight: 1 }}>
@@ -514,7 +584,7 @@ export const OfflineModal: React.FC = () => {
         </div>
 
         <button
-          onClick={dismiss}
+          onClick={requestClose}
           className="pixel-btn pixel-btn-accent"
           style={{ width: '100%', padding: '12px', fontSize: '1.1rem', marginTop: '6px' }}
         >

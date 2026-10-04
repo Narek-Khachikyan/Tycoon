@@ -16,6 +16,7 @@ import {
 import { awardAchievements } from '../economy/achievements';
 import { formatNumber } from '../economy/format';
 import { pickNews } from '../economy/news';
+import { availableUpgrades } from '../economy/upgrades';
 import { importSave, migrate, SAVE_KEY, serialize } from '../economy/save';
 import { newGame, type GameState, type Notation } from '../economy/state';
 import {
@@ -312,6 +313,15 @@ export const useGameStore = create<GameStore>((set, get) => {
       const next = engineBuyAgents(state, modelId, buyAmount);
       if (next !== state) {
         playBuySound(state.settings.muted);
+        // Покупка Агентов — единственный путь роста их числа: продажа и Престиж его только
+        // уменьшают, а тиканье Апгрейды не открывает. Поэтому появление Апгрейда ловим только здесь,
+        // сравнением до/после внутри экшена — без нового поля в GameState и без миграции.
+        // Звук покупки остаётся, а следом идёт уже знакомый playUpgradeSound (ассоциация
+        // «звук = Апгрейды» есть у покупки Апгрейда): два звука подряд — избыточное подтверждение
+        // готовности Апгрейда двумя каналами сразу, новый тембр не вводим.
+        if (availableUpgrades(next).length > availableUpgrades(state).length) {
+          playUpgradeSound(state.settings.muted);
+        }
         set({ state: awardEarned(next) });
       }
     },

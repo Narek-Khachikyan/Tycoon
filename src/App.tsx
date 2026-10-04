@@ -148,11 +148,16 @@ export const App: React.FC = () => {
           // Одноколоночный режим: единственная колонка растягивается на всю ширину, поэтому её
           // базис из трёхколоночной раскладки здесь не применяется.
           <div style={{ flex: 1, height: '100%', overflowX: 'auto', overflowY: 'hidden' }}>
-            {activeTab === 'click' && <ClickColumn full />}
-            {activeTab === 'office' && <OfficeColumn full />}
-            {(activeTab === 'shop' || activeTab === 'upgrades' || activeTab === 'perks') && (
-              <ShopColumn full />
-            )}
+            {/* key пересоздаёт обёртку на смене вкладки, поэтому появление через
+                существующий toast-fade (только opacity, без движения) проигрывается
+                один раз на переключение. Состояние activeTab и порог не тронуты. */}
+            <div key={activeTab} style={{ height: '100%', animation: 'toast-fade 0.15s ease-out' }}>
+              {activeTab === 'click' && <ClickColumn full />}
+              {activeTab === 'office' && <OfficeColumn full />}
+              {(activeTab === 'shop' || activeTab === 'upgrades' || activeTab === 'perks') && (
+                <ShopColumn full />
+              )}
+            </div>
           </div>
         ) : (
           // Десктопный вид: классические 3 колонки Cookie Clicker

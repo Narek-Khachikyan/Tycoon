@@ -58,6 +58,21 @@ export function shortfall(cost: number, tokens: number): number {
   return Math.max(0, cost - tokens);
 }
 
+/**
+ * Цена ближайшей покупки Агента: минимум цены одного Агента по всем Моделям текущего
+ * Поколения. Живёт здесь, а не в компоненте, потому что это деньги — цена считается
+ * движком через bulkCost со скидкой, и компонент не должен складывать её сам.
+ */
+export function nextAgentCost(state: GameState): number {
+  const d = discountMult(state);
+  let min = Infinity;
+  for (const m of CATALOG[state.generation].models) {
+    const cost = bulkCost(m, state.agents[m.id] ?? 0, 1, d);
+    if (cost < min) min = cost;
+  }
+  return min === Infinity ? 0 : min;
+}
+
 // ---------- Доход ----------
 
 export function globalMult(state: GameState): number {

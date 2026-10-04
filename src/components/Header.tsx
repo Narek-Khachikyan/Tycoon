@@ -59,7 +59,11 @@ export const Header: React.FC<HeaderProps> = ({
         <h1 className="pixel-font" style={{ fontSize: '1.4rem', color: 'var(--accent-color)', letterSpacing: '1px' }}>
           AI TYCOON
         </h1>
+        {/* Бейдж Поколения: key пересоздаёт узел на смене Поколения, появление — только
+            opacity через toast-fade, а пульс — классом tab-badge--pulse (scale при движении,
+            мигание при reducedMotion), перезапуск тем же перемонтированием. */}
         <span
+          key={state.generation}
           style={{
             fontSize: '0.85rem',
             backgroundColor: 'var(--tint-accent)',
@@ -67,9 +71,12 @@ export const Header: React.FC<HeaderProps> = ({
             color: 'var(--text-main)',
             padding: '2px 8px',
             borderRadius: '4px',
+            animation: 'toast-fade 0.15s ease-out',
           }}
         >
-          Поколение {gen.id}: {gen.name} ({gen.period})
+          <span className="tab-badge--pulse" style={{ display: 'inline-block' }}>
+            Поколение {gen.id}: {gen.name} ({gen.period})
+          </span>
         </span>
         {state.compute > 0 && (
           <span
@@ -80,6 +87,9 @@ export const Header: React.FC<HeaderProps> = ({
               color: 'var(--gold)',
               padding: '2px 8px',
               borderRadius: '4px',
+              // Появление при монтировании — только opacity через toast-fade: бейдж
+              // возникает один раз, пульс ему не нужен.
+              animation: 'toast-fade 0.15s ease-out',
             }}
             title="Бонус к доходу от Compute"
           >

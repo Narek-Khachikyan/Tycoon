@@ -166,6 +166,125 @@ body {
 .model-row--pop {
 }
 
+/* Сквош кнопки Клика. Площадь сохраняется: 1.06 × 0.94 ≈ 1.0, поэтому кнопка читается
+   как нажатая, а не раздутая — тот же приём, что у .pixel-btn:active. Вспышка яркости
+   идёт через opacity, а не filter: анимируются только transform и opacity. */
+@keyframes click-squash {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  40% {
+    transform: scale(1.06, 0.94);
+    opacity: 0.82;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Та же вспышка без сдвига и масштаба: при выключенном движении кнопка только мигает. */
+@keyframes click-fade {
+  0% {
+    opacity: 1;
+  }
+  40% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.click-btn--squash {
+}
+
+/* Вспышка разблокировки Модели. Анимируются только background-color и opacity:
+   transform здесь ни к чему — строка не нажималась, ей не за что «прыгать».
+   background-color в keyframes — не вестибулярный триггер, в отличие от
+   сдвига/масштаба/тряски. */
+@keyframes unlock-flash {
+  0% {
+    background-color: var(--bg-card);
+    opacity: 1;
+  }
+  40% {
+    background-color: var(--bg-raised);
+    opacity: 0.85;
+  }
+  100% {
+    background-color: var(--bg-card);
+    opacity: 1;
+  }
+}
+
+/* Тот же переход без краски: при выключенном движении строка только мигает. */
+@keyframes unlock-fade {
+  0% {
+    opacity: 1;
+  }
+  40% {
+    opacity: 0.75;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.model-row--unlock {
+}
+
+/* Отказ по недоступной покупке. Только opacity — вспышка и так вестибулярно
+   нейтральна, поэтому отдельный reduced-вариант ей не нужен. */
+@keyframes deny-flash {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.deny-flash {
+}
+
+/* Сигнал «появился доступный Апгрейд» на бейдже вкладки. Перезапускается через
+   key={count}: смена числа монтирует узел заново и проигрывает вспышку один раз. */
+@keyframes tab-badge-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  40% {
+    transform: scale(1.35);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Та же вспышка без масштаба: при выключенном движении бейдж только мигает. */
+@keyframes tab-badge-fade {
+  0% {
+    opacity: 1;
+  }
+  40% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.tab-badge--pulse {
+}
+
 @keyframes spark-fly {
   0% {
     opacity: 0;
@@ -592,6 +711,25 @@ body {
      только в @media (prefers-reduced-motion: no-preference) в конце файла. */
 }
 
+/* Прыжок при покупке Агента его Лаборатории. Только transform: прыжок идёт поверх
+   покачивания (класс вешается на родителя узла .animate-mascot-bob, а не на него — animation
+   на том же узле перезаписала бы бесконечное mascot-bob), поэтому вложенные translateY
+   складываются. Середина на 45%: та же асимметрия, что у model-row-pop. */
+@keyframes mascot-hop {
+  0% {
+    transform: translateY(0);
+  }
+  45% {
+    transform: translateY(-10px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+.mascot-hop {
+}
+
 /* Ореол живёт на ::after, а не на самой кнопке. box-shadow — свойство краски, и пульс на нём
    полностью затирал жёсткую нижнюю тень .pixel-btn-accent: кнопка Клика не показывала её ни
    одного мгновения. Здесь анимируются только opacity и transform — они идут через композитор,
@@ -790,6 +928,27 @@ body {
     animation: model-row-pop 0.26s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
 
+  /* Сквош перезапускается классом из ClickColumn: снятие по onAnimationEnd, сброс чтением
+     ширины между снятием и возвратом — иначе спам Кликов не перезапустил бы анимацию. */
+  .click-btn--squash {
+    animation: click-squash 0.13s ease-out;
+  }
+
+  /* Вспышка разблокировки Модели: переход disabled→enabled, который раньше был тихим. */
+  .model-row--unlock {
+    animation: unlock-flash 0.5s ease-out;
+  }
+
+  /* Отказ по недоступной покупке: мигает строка дефицита под кнопкой. */
+  .deny-flash {
+    animation: deny-flash 0.2s ease-out;
+  }
+
+  /* Сигнал доступного Апгрейда: вспышка бейджа на вкладке, один раз на появление. */
+  .tab-badge--pulse {
+    animation: tab-badge-pulse 0.5s ease-out;
+  }
+
   .spark {
     animation: spark-fly 0.56s cubic-bezier(0.15, 0.7, 0.3, 1) forwards;
   }
@@ -821,6 +980,13 @@ body {
 
   .animate-mascot-bob {
     animation: mascot-bob 1.8s ease-in-out infinite;
+  }
+
+  /* Прыжок перезапускается классом из OfficeColumn: снятие по onAnimationEnd, сброс чтением
+     ширины между снятием и возвратом — иначе быстрая повторная покупка той же Лаборатории
+     не перезапустила бы анимацию, класс ведь не менялся. */
+  .mascot-hop {
+    animation: mascot-hop 0.35s ease-out;
   }
 
   .pulse-glow::after {
@@ -878,6 +1044,22 @@ body {
   animation: none;
 }
 
+[data-motion='reduced'] .click-btn--squash {
+  animation: click-fade 0.13s ease-out;
+}
+
+[data-motion='reduced'] .model-row--unlock {
+  animation: unlock-fade 0.5s ease-out;
+}
+
+[data-motion='reduced'] .deny-flash {
+  animation: deny-flash 0.2s ease-out;
+}
+
+[data-motion='reduced'] .tab-badge--pulse {
+  animation: tab-badge-fade 0.5s ease-out;
+}
+
 [data-motion='reduced'] .spark {
   animation: none;
   opacity: 0;
@@ -914,6 +1096,12 @@ body {
   animation: none;
 }
 
+/* Без движения Маскот просто стоит: прыжка нет, а opacity-мигания нет намеренно — Маскот
+   не кнопка и нажатие подтверждать ему нечем, мигание читалось бы как сбой спрайта. */
+[data-motion='reduced'] .mascot-hop {
+  animation: none;
+}
+
 [data-motion='reduced'] .pulse-glow::after {
   animation: pulse-fade 2s infinite ease-in-out;
 }
@@ -926,4 +1114,32 @@ body {
 [data-motion='reduced'] .news-ticker-copy--dup,
 [data-motion='reduced'] .news-ticker-sep {
   display: none;
+}
+
+/* Кроссфейд Сцены: единственный новый keyframes в задаче, только opacity 0→1 —
+   вестибулярно нейтрален, поэтому живёт вне блоков движения и работает одинаково
+   при полном и при выключенном движении. Входящий слой лежит поверх предыдущего
+   (позже в DOM) и проявляется за 0.4s; предыдущий убирается по onAnimationEnd. */
+@keyframes scene-crossfade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.scene-crossfade--in {
+  animation: scene-crossfade-in 0.4s ease-out;
+}
+
+/* Ссылка Artificial Analysis в футере мёртвой не выглядит: hover — только цвет, без
+   движения и сдвига раскладки. Переход цвета — не движение, при reducedMotion остаётся. */
+.footer-aa-link {
+  color: var(--accent-color);
+  transition: color 0.08s ease-in-out;
+}
+
+.footer-aa-link:hover {
+  color: var(--accent-hover);
 }
