@@ -72,6 +72,27 @@ export function totalIncome(state: GameState): number {
   return CATALOG[state.generation].models.reduce((s, m) => s + modelIncome(state, m), 0);
 }
 
+/**
+ * На сколько вырос бы общий Доход от покупки `n` Агентов Модели.
+ *
+ * Ответ собирается тем же `totalIncome`, что и тик: покупка подставляется в состояние, Доход
+ * пересчитывается, подпись — разница. Отдельная формула разошлась бы с настоящей экономикой на
+ * первом же Перке или Синергии, то есть ровно там, где подпись в магазине нужнее всего.
+ *
+ * Кошелёк не спрашивается намеренно: вопрос «на сколько вырастет, если купить» и вопрос «хватает
+ * ли сейчас» — разные, и магазин показывает оба.
+ */
+export function incomeGain(state: GameState, modelId: string, n: number): number {
+  if (n <= 0) return 0;
+  const model = MODEL_BY_ID[modelId];
+  if (!model || model.generation !== state.generation) return 0;
+  const hired: GameState = {
+    ...state,
+    agents: { ...state.agents, [modelId]: (state.agents[modelId] ?? 0) + n },
+  };
+  return totalIncome(hired) - totalIncome(state);
+}
+
 export function clickValue(state: GameState, income = totalIncome(state)): number {
   const gen = state.generation;
   let flat = CATALOG[gen].scale;
