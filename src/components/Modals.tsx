@@ -6,6 +6,7 @@ import { exportSave } from '../economy/save';
 import { formatDuration, formatNumber } from '../economy/format';
 import { CATALOG } from '../economy/catalog';
 import { Num } from './Num';
+import { useDialogFocus } from './useDialogFocus';
 
 interface ModalProps {
   isOpen: boolean;
@@ -14,6 +15,8 @@ interface ModalProps {
 
 export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   const state = useGameStore((s) => s.state);
+  // Хук обязан стоять до раннего выхода: иначе окно то открывалось бы с ловушкой, то без неё.
+  const cardRef = useDialogFocus<HTMLDivElement>(isOpen, onClose);
   if (!isOpen) return null;
 
   const unlockedSet = new Set(state.achievements);
@@ -33,6 +36,10 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
       onClick={onClose}
     >
       <div
+        ref={cardRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="achievements-title"
         className="pixel-card"
         style={{
           width: '100%',
@@ -46,7 +53,7 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 style={{ fontSize: '1.3rem', color: 'var(--gold)' }}>
+          <h2 id="achievements-title" style={{ fontSize: '1.3rem', color: 'var(--gold)' }}>
             🏆 ДОСТИЖЕНИЯ ({state.achievements.length} / {ACHIEVEMENTS.length})
           </h2>
           <button className="pixel-btn" onClick={onClose} style={{ padding: '4px 10px' }}>
@@ -96,6 +103,7 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
 
 export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   const state = useGameStore((s) => s.state);
+  const cardRef = useDialogFocus<HTMLDivElement>(isOpen, onClose);
   if (!isOpen) return null;
 
   const now = Date.now();
@@ -143,6 +151,10 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
       onClick={onClose}
     >
       <div
+        ref={cardRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="stats-title"
         className="pixel-card"
         style={{
           width: '100%',
@@ -156,7 +168,7 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 style={{ fontSize: '1.3rem', color: 'var(--accent-color)' }}>
+          <h2 id="stats-title" style={{ fontSize: '1.3rem', color: 'var(--accent-color)' }}>
             📊 СТАТИСТИКА
           </h2>
           <button className="pixel-btn" onClick={onClose} style={{ padding: '4px 10px' }}>
@@ -194,6 +206,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   const setReducedMotion = useGameStore((s) => s.setReducedMotion);
   const importSaveData = useGameStore((s) => s.importSaveData);
   const resetGame = useGameStore((s) => s.resetGame);
+  const cardRef = useDialogFocus<HTMLDivElement>(isOpen, onClose);
 
   const [importCode, setImportCode] = useState('');
   const [copyStatus, setCopyStatus] = useState(false);
@@ -243,6 +256,10 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
       onClick={onClose}
     >
       <div
+        ref={cardRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
         className="pixel-card"
         style={{
           width: '100%',
@@ -256,7 +273,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 style={{ fontSize: '1.3rem', color: 'var(--text-main)' }}>
+          <h2 id="settings-title" style={{ fontSize: '1.3rem', color: 'var(--text-main)' }}>
             ⚙️ НАСТРОЙКИ
           </h2>
           <button className="pixel-btn" onClick={onClose} style={{ padding: '4px 10px' }}>
@@ -385,6 +402,9 @@ export const OfflineModal: React.FC = () => {
   const offlineReport = useGameStore((s) => s.offlineReport);
   const dismiss = useGameStore((s) => s.dismissOfflineReport);
   const notation = useGameStore((s) => s.state.settings.notation);
+  // Esc здесь не закрывает: игрок должен забрать начисленное и увидеть сумму, поэтому окно
+  // закрывается только своей кнопкой.
+  const cardRef = useDialogFocus<HTMLDivElement>(offlineReport !== null, dismiss, false);
 
   if (!offlineReport) return null;
 
@@ -402,6 +422,10 @@ export const OfflineModal: React.FC = () => {
       }}
     >
       <div
+        ref={cardRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="offline-title"
         className="pixel-card"
         style={{
           width: '100%',
@@ -416,7 +440,7 @@ export const OfflineModal: React.FC = () => {
         }}
       >
         <div style={{ fontSize: '3rem' }}>🌙⚡</div>
-        <h2 style={{ fontSize: '1.4rem', color: 'var(--accent-color)' }}>
+        <h2 id="offline-title" style={{ fontSize: '1.4rem', color: 'var(--accent-color)' }}>
           С ВОЗВРАЩЕНИЕМ!
         </h2>
 
