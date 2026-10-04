@@ -6,15 +6,15 @@ import {
   bulkCost,
   canPrestige,
   discountMult,
+  incomeGain,
   isContentFinale,
   maxAffordable,
-  modelIncome,
   prestigeGain,
   sellRefund,
 } from '../economy/engine';
 import { availableUpgrades } from '../economy/upgrades';
 import { PERKS } from '../economy/perks';
-import { formatNumber } from '../economy/format';
+import { formatCount, formatNumber } from '../economy/format';
 import { MascotSprite } from './MascotSprite';
 import { Num } from './Num';
 import { Icon } from './Icon';
@@ -273,9 +273,23 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               const cost = bulkCost(m, owned, count, d);
               const refund = sellRefund(m, owned, count, d);
               const canAfford = !sellMode ? count > 0 && cost <= state.tokens : owned >= count && count > 0;
-              const mIncome = modelIncome(state, m);
+              // Прирост общего Дохода именно от этой покупки, посчитанный движком. Отдельная
+              // формула в компоненте разошлась бы с экономикой на первом же Перке или Синергии.
+              const gain = incomeGain(state, m.id, Math.max(count, 0));
               const isAAOpen = !!expandedAA[m.id];
               const lab = LABS[m.lab];
+
+              // Дефицит: при фиксированном множителе он считается на всю сумму покупки, а при Max
+              // с пустым кошельком покупки нет вообще — тогда показываем, чего стоит одна единица.
+              const shortfall =
+                sellMode || canAfford
+                  ? 0
+                  : Math.max(0, (count > 0 ? cost : bulkCost(m, owned, 1, d)) - state.tokens);
+
+              // Строка прироста описывает действие, которое кнопка действительно выполнит. Покупка,
+              // которая не по карману, подпись всё равно заслуживает: рядом стоит строка дефицита.
+              // А вот продать нечего — и обе цифры, и кнопка были бы пустыми.
+              const showsGain = sellMode ? owned > 0 : count > 0;
 
               return (
                 <ModelRow key={m.id} owned={owned} isFlagship={m.isFlagship}>
@@ -306,15 +320,27 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       </div>
                     </div>
 
-                    <div style={{ fontSize: '1.2rem', color: 'var(--text-muted)' }}>
-                      <Num>{owned}</Num>
+                    {/* Подпись обязательна: голое число не отличить от счётчика чего-то другого. */}
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'right' }}>
+                      <div style={{ fontSize: '1.2rem' }}>
+                        <Num>{owned}</Num>
+                      </div>
+                      <div>{formatCount(owned, 'Агент', 'Агента', 'Агентов')}</div>
                     </div>
                   </div>
 
-                  {/* Доход и Кнопка покупки/продажи */}
+                  {/* Прирост Дохода и кнопка покупки/продажи. Цена живёт только здесь — на всех
+                      вкладках магазина, чтобы её не приходилось искать в двух местах. */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--green)' }}>
-                      +<Num>{formatNumber(mIncome, notation)}</Num>/сек
+                    <div style={{ fontSize: '0.8rem', color: sellMode ? 'var(--red)' : 'var(--green)' }}>
+                      {/* При пустом действии строка молчит: «−0 к доходу» и «+0 к доходу» не
+                          говорят ничего, а место под строку всё равно зарезервировано. */}
+                      {showsGain && (
+                        <>
+                          {sellMode ? '−' : '+'}
+                          <Num>{formatNumber(gain, notation)}</Num> к доходу
+                        </>
+                      )}
                     </div>
 
                     <button
@@ -328,14 +354,40 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         borderColor: sellMode ? 'var(--red)' : undefined,
                       }}
                     >
+                      {/* «Купить ×0» обещало бы покупку, которой не будет. */}
                       {sellMode ? (
-                        <>Продать (<Num>{formatNumber(refund, notation)}</Num>)</>
-                      ) : (
+                        count > 0 ? (
+                          <>Продать (<Num>{formatNumber(refund, notation)}</Num>)</>
+                        ) : (
+                          <>Продать</>
+                        )
+                      ) : count > 0 ? (
                         <>
                           Купить ×<Num>{count}</Num> (<Num>{formatNumber(cost, notation)}</Num>)
                         </>
+                      ) : (
+                        <>Купить</>
                       )}
                     </button>
+                  </div>
+
+                  {/* Дефицит — отдельной строкой с зарезервированной высотой, поэтому ни размер
+                      кнопки, ни высота карточки не прыгают на каждом тике. aria-live не ставится:
+                      строка меняется двадцать раз в секунду и иначе читалась бы вслух. */}
+                  <div
+                    style={{
+                      minHeight: '1em',
+                      fontSize: '0.75rem',
+                      color: 'var(--text-muted)',
+                      textAlign: 'right',
+                    }}
+                  >
+                    {shortfall > 0 && (
+                      <>
+                        Не хватает <Num>{formatNumber(shortfall, notation)}</Num>{' '}
+                        {formatCount(Math.round(shortfall), 'Токена', 'Токенов', 'Токенов')}
+                      </>
+                    )}
                   </div>
 
                   {/* Справка AA переключатель */}
@@ -343,15 +395,26 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                      любой ступени лестницы рамок, и --border здесь превратил бы её в
                      самостоятельную рамку. */}
                   <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '6px' }}>
-                    <div
+                    {/* Кнопка, а не div с обработчиком: раскрытие должно быть достижимо с
+                        клавиатуры и обязано объявлять состояние. Имя Artificial Analysis остаётся
+                        видимым текстом — атрибуция обязательна (ADR-0001). */}
+                    <button
                       onClick={() => toggleAA(m.id)}
+                      aria-expanded={isAAOpen}
+                      aria-controls={`aa-${m.id}`}
+                      id={`aa-toggle-${m.id}`}
                       style={{
+                        width: '100%',
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
                         fontSize: '0.75rem',
                         color: 'var(--accent-color)',
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
+                        gap: '8px',
                       }}
                     >
                       <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -359,10 +422,12 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         Справка Artificial Analysis
                       </span>
                       <span>{isAAOpen ? '▲ скрыть' : '▼ подробнее'}</span>
-                    </div>
+                    </button>
 
                     {isAAOpen && (
                       <div
+                        id={`aa-${m.id}`}
+                        aria-labelledby={`aa-toggle-${m.id}`}
                         style={{
                           marginTop: '6px',
                           padding: '6px 8px',
@@ -405,6 +470,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
             ) : (
               upgrades.map((u) => {
                 const canAfford = state.tokens >= u.cost;
+                const shortfall = canAfford ? 0 : u.cost - state.tokens;
                 return (
                   <div
                     key={u.id}
@@ -418,12 +484,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       gap: '6px',
                     }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{u.name}</span>
-                      <span className="pixel-font" style={{ fontSize: '0.85rem', color: 'var(--accent-color)' }}>
-                        {formatNumber(u.cost, notation)}
-                      </span>
-                    </div>
+                    <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{u.name}</span>
 
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                       {u.desc}
@@ -435,8 +496,26 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       className="pixel-btn pixel-btn-accent"
                       style={{ padding: '6px 10px', fontSize: '0.85rem', alignSelf: 'flex-end' }}
                     >
-                      Улучшить
+                      {/* Цена живёт в кнопке на всех вкладках магазина: в шапке карточки её
+                          больше нет, поэтому искать её приходилось в двух разных местах. */}
+                      Улучшить (<Num>{formatNumber(u.cost, notation)}</Num>)
                     </button>
+
+                    <div
+                      style={{
+                        minHeight: '1em',
+                        fontSize: '0.75rem',
+                        color: 'var(--text-muted)',
+                        textAlign: 'right',
+                      }}
+                    >
+                      {shortfall > 0 && (
+                        <>
+                          Не хватает <Num>{formatNumber(shortfall, notation)}</Num>{' '}
+                          {formatCount(Math.round(shortfall), 'Токена', 'Токенов', 'Токенов')}
+                        </>
+                      )}
+                    </div>
                   </div>
                 );
               })
