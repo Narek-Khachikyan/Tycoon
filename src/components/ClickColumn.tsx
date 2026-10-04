@@ -1,5 +1,5 @@
 import React, { useLayoutEffect, useRef } from 'react';
-import { useGameStore } from '../store/useGameStore';
+import { motionAllowed, reduceMotionMedia, useGameStore } from '../store/useGameStore';
 import { totalIncome, clickValue } from '../economy/engine';
 import { formatNumber } from '../economy/format';
 
@@ -24,10 +24,6 @@ export const ClickColumn: React.FC = () => {
   const targetRef = useRef(state.tokens);
   const shownRef = useRef(state.tokens);
 
-  useLayoutEffect(() => {
-    targetRef.current = state.tokens;
-  }, [state.tokens]);
-
   // Счётчик живёт вне React: колонки перерисовываются каждый тик, и любое значение,
   // проведённое через состояние, копилось бы в очередь ререндеров вместо отрисовки.
   // Узел при этом рендерится пустым — иначе React затрёт написанное в textContent
@@ -45,32 +41,71 @@ export const ClickColumn: React.FC = () => {
       }
     };
 
+    // motionAllowed() дёргает matchMedia на каждом вызов, поэтому кадр читает кэш, а сам
+    // кэш пересчитывается при смене системной настройки: настройка игрока пересобирает
+    // эффект, система — стреляет в слушатель ниже.
+    let allowed = motionAllowed();
+    // Список берётся из магазина, а не создаётся здесь заново: литерал запроса и правило
+    // «настройка нечитаема, значит движения нет» живут в одном месте. null — тот же ответ,
+    // что allowed === false, и слушать в нём нечего, так что guard честнее заглушки.
+    const media = reduceMotionMedia();
+
     let last = performance.now();
     let frame = 0;
-    paint(reducedMotion ? targetRef.current : shownRef.current);
 
     const step = (now: number) => {
+      frame = 0;
       const target = targetRef.current;
       const shown = shownRef.current;
-      if (reducedMotion || shown >= target) {
-        // Цель ушла вниз (Престиж, Импорт, сброс) или движение выключено: показываем
-        // ровно её, не пересчитывая вниз через весь ряд.
+      if (shown >= target || !allowed) {
+        // Цель ушла вниз (Престиж, Импорт, сброс) или движение выключено — системой или
+        // настройкой: показываем ровно её, не пересчитывая вниз через весь ряд.
         shownRef.current = target;
         paint(target);
-      } else {
-        const next = shown + (target - shown) * (1 - Math.exp(-(now - last) / APPROACH_MS));
-        // Как только строка совпала, показанное значение выравнивается по цели: около
-        // 1e300 прибавка тонет в мантиссе и интерполяция иначе не завершилась бы.
-        shownRef.current =
-          formatNumber(next, notation) === formatNumber(target, notation) ? target : next;
-        paint(shownRef.current);
+        return;
       }
+      const next = shown + (target - shown) * (1 - Math.exp(-(now - last) / APPROACH_MS));
+      // Как только строка совпала, показанное значение выравнивается по цели: около
+      // 1e300 прибавка тонет в мантиссе и интерполяция иначе не завершилась бы.
+      const settled = formatNumber(next, notation) === formatNumber(target, notation);
+      shownRef.current = settled ? target : next;
+      paint(shownRef.current);
       last = now;
+      // Совпало — цикл встаёт: рисовать больше нечего, а новая цель поднимет его сама.
+      if (!settled) frame = requestAnimationFrame(step);
+    };
+
+    const start = () => {
+      if (frame !== 0) return;
+      last = performance.now();
       frame = requestAnimationFrame(step);
     };
 
-    frame = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(frame);
+    paint(allowed ? shownRef.current : targetRef.current);
+    start();
+
+    // Новая цель приходит из стора, а не из рендера: тик зовёт подписчика двадцать раз
+    // в секунду, как и разовые set (Клик, Престиж, Импорт), а state.tokens в
+    // зависимостях пересобирал бы цикл на каждом тике — дороже, чем сам цикл.
+    const unsubscribe = useGameStore.subscribe((s) => {
+      if (s.state.tokens === targetRef.current) return;
+      targetRef.current = s.state.tokens;
+      start();
+    });
+
+    // Выключение обязано показать цель сразу, а не последним интерполированным кадром;
+    // включению догонять нечего — при выключенном движении показанное уже равно цели.
+    const recheck = () => {
+      allowed = motionAllowed();
+      start();
+    };
+    media?.addEventListener('change', recheck);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      unsubscribe();
+      media?.removeEventListener('change', recheck);
+    };
   }, [notation, reducedMotion]);
 
   const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {

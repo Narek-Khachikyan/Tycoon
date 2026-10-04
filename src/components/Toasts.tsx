@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { motionAllowed, useGameStore, type ToastMessage } from '../store/useGameStore';
 import { ACHIEVEMENTS } from '../economy/achievements';
 
@@ -15,6 +15,56 @@ const FAN = Array.from({ length: FAN_COUNT }, (_, i) => {
 
 let fanCounter = 0;
 
+/**
+ * Одноразовая CSS-анимация, которая обязана довести элемент до конца.
+ *
+ * Снимает элемент только кадр анимации, и прерванная анимация кадра не порождает: правила
+ * `[data-motion='reduced'] .toast-card--out { animation: none }` и
+ * `[data-motion='reduced'] .burst-particle { animation: none }` при смене настройки на ходу
+ * убивают идущую анимацию, а animationend после отмены не наступает уже никогда — карточка
+ * (а с веером это ещё и слой `inset: 0` поверх всей игры) остаётся в DOM до конца сессии.
+ *
+ * Каналов три, таймеров нет:
+ *   1. animationend — анимация дошла до конца;
+ *   2. animationcancel — её сняли, то есть её больше не будет. Слушатель нативный: React 19
+ *      не знает про это событие (свойства onAnimationCancel в типах нет), а по кольцу оно
+ *      приходит ещё и от каждой искры веера, что и нужно — снимать веер целиком;
+ *   3. настройка игрока, прочитанная из магазина: она меняется в том же коммите, что и
+ *      data-motion, и потому снимает элемент раньше, чем браузер применит новые стили.
+ *
+ * Канала 1 в одиночку мало и потому, что системное «уменьшить движение» меняется без
+ * действия игрока: магазин о нём не узнаёт, и событие от CSS остаётся единственным сигналом.
+ *
+ * Имя анимации нужно по делу: у карточки одновременно идут toast-in на ней самой и toast-flash
+ * на ::before, и отменяются они тем же событием, что и toast-out.
+ */
+function useOneShot(started: boolean, name: string, settle: () => void) {
+  const reducedMotion = useGameStore((s) => s.state.settings.reducedMotion);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (started && reducedMotion) settle();
+  }, [started, reducedMotion, settle]);
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node || !started) return;
+    const onCancel = (e: AnimationEvent) => {
+      if (e.animationName === name) settle();
+    };
+    node.addEventListener('animationcancel', onCancel);
+    return () => node.removeEventListener('animationcancel', onCancel);
+  }, [started, name, settle]);
+
+  // Кадр отбирается по имени анимации, а не по факту её окончания: входная анимация карточки
+  // завершается раньше, и снимать по ней элемент нельзя.
+  const onAnimationEnd = (e: React.AnimationEvent<HTMLDivElement>) => {
+    if (e.animationName === name) settle();
+  };
+
+  return { ref, onAnimationEnd };
+}
+
 const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void }> = ({
   toast,
   onRemove,
@@ -28,23 +78,21 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void 
     else onRemove(toast.id);
   };
 
+  const settle = useCallback(() => onRemove(toast.id), [onRemove, toast.id]);
+  const { ref, onAnimationEnd } = useOneShot(leaving, 'toast-out', settle);
+
   useEffect(() => {
     const timer = setTimeout(dismiss, TOAST_MS);
     return () => clearTimeout(timer);
   }, [toast.id, onRemove]);
 
-  // По имени анимации, а не по факту её окончания: входная toast-in завершается раньше
-  // и удалять тост не должна.
-  const handleAnimationEnd = (e: React.AnimationEvent<HTMLDivElement>) => {
-    if (e.animationName === 'toast-out') onRemove(toast.id);
-  };
-
   const ach = ACHIEVEMENTS.find((a) => a.id === toast.desc);
 
   return (
     <div
+      ref={ref}
       onClick={dismiss}
-      onAnimationEnd={handleAnimationEnd}
+      onAnimationEnd={onAnimationEnd}
       className={`pixel-card toast-card${leaving ? ' toast-card--out' : ''}`}
       style={{
         padding: '12px 14px',
@@ -96,9 +144,11 @@ export const Toasts: React.FC = () => {
     });
   }, [burst?.nonce]);
 
-  // Веер снимается целиком: все искры стартуют и гаснут в один кадр, поэтому ждать последнюю
-  // отдельно незачем, а вешать таймер нельзя — их и так убирает animationend.
-  const handleFanEnd = () => setFan(null);
+  // Веер снимается целиком: у искр одна и та же анимация без задержки, поэтому гаснут они
+  // одним кадром и ждать последнюю отдельно незачем. Гасит его useOneShot — иначе отмена
+  // анимации оставила бы слой `inset: 0` висеть до конца сессии.
+  const stopFan = useCallback(() => setFan(null), []);
+  const { ref: fanRef, onAnimationEnd: onFanEnd } = useOneShot(fan !== null, 'burst-fly', stopFan);
 
   if (toasts.length === 0 && !fan) return null;
 
@@ -122,7 +172,7 @@ export const Toasts: React.FC = () => {
       </div>
 
       {fan && (
-        <div className="burst-layer" onAnimationEnd={handleFanEnd}>
+        <div className="burst-layer" ref={fanRef} onAnimationEnd={onFanEnd}>
           {FAN.map((p, i) => (
             <span
               key={`${fan.id}-${i}`}

@@ -43,8 +43,12 @@ const ModelRow: React.FC<{
   const [sparks, setSparks] = useState<{ id: number; x: number; y: number } | null>(null);
 
   useEffect(() => {
-    if (owned <= prevOwned.current) return;
+    // Сравниваем с предыдущим значением, а записываем новое при любом изменении: если писать
+    // только на покупке, после продажи ref навсегда остался бы на историческом максимуме, и
+    // возврат к уже державшемуся числу Агентов не дал бы ни хлопка, ни искр.
+    const before = prevOwned.current;
     prevOwned.current = owned;
+    if (owned <= before) return;
 
     const node = rowRef.current;
     if (!node) return;
