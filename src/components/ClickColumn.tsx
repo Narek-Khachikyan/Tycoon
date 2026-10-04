@@ -3,6 +3,7 @@ import { motionAllowed, reduceMotionMedia, useGameStore } from '../store/useGame
 import { totalIncome, clickValue } from '../economy/engine';
 import { formatNumber } from '../economy/format';
 import { Num } from './Num';
+import { Icon } from './Icon';
 
 /** За сколько миллисекунд счётчик съедает 63% расстояния до цели: каждый кадр отнимает
  *  долю dt / APPROACH_MS остатка, поэтому число тормозит, а не разгоняется, и скорость
@@ -190,7 +191,7 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
           gap: '8px',
         }}
       >
-        <span style={{ fontSize: '2rem' }}>💬</span>
+        <Icon name="chat" size={30} />
         <span>Отправить промпт</span>
         <span
           style={{

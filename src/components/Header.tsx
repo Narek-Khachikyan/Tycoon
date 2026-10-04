@@ -4,6 +4,7 @@ import { CATALOG } from '../economy/catalog';
 import { ACHIEVEMENTS } from '../economy/achievements';
 import { formatNumber } from '../economy/format';
 import { Num } from './Num';
+import { Icon } from './Icon';
 
 interface HeaderProps {
   onOpenAchievements: () => void;
@@ -57,8 +58,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Логотип — единственное место, где пиксельный шрифт законен на словах (ADR-0003). */}
         <h1 className="pixel-font" style={{ fontSize: '1.4rem', color: 'var(--accent-color)', letterSpacing: '1px' }}>
           AI TYCOON
-        </h1>
-        <span
+        </h1>        <span
           style={{
             fontSize: '0.85rem',
             backgroundColor: 'var(--tint-accent)',
@@ -88,38 +88,47 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        {/* Иконочные кнопки получают имя из aria-label: картинка помечена декоративной, и
+            без подписи озвучка прочитала бы пустую кнопку. */}
         <button
           className="pixel-btn"
           onClick={toggleMute}
           title={isMuted ? 'Включить звук' : 'Выключить звук'}
+          aria-label={isMuted ? 'Включить звук' : 'Выключить звук'}
           style={{ padding: '6px 10px', fontSize: '0.9rem' }}
         >
-          {isMuted ? '🔇' : '🔊'}
+          <Icon name={isMuted ? 'sound-off' : 'sound-on'} />
         </button>
 
         <button
           ref={badgeRef}
           className="pixel-btn ach-badge"
           onClick={onOpenAchievements}
+          title="Достижения"
           style={{ padding: '6px 12px', fontSize: '0.9rem' }}
         >
-          🏆 <Num>{unlockedAchCount}</Num>/<Num>{totalAchCount}</Num>
+          <Icon name="trophy" />
+          <Num>{unlockedAchCount}</Num>/<Num>{totalAchCount}</Num>
         </button>
 
         <button
           className="pixel-btn"
           onClick={onOpenStats}
+          title="Инфо"
           style={{ padding: '6px 12px', fontSize: '0.9rem' }}
         >
-          📊 Инфо
+          <Icon name="info" />
+          Инфо
         </button>
 
         <button
           className="pixel-btn"
           onClick={onOpenSettings}
+          title="Настройки"
+          aria-label="Настройки"
           style={{ padding: '6px 12px', fontSize: '0.9rem' }}
         >
-          ⚙️
+          <Icon name="settings" />
         </button>
       </div>
     </header>

@@ -152,8 +152,8 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
             Флагман: <span style={{ color: 'var(--gold)' }}>{flagship.name}</span> ({LABS[flagship.lab].name})
           </div>          <div style={{ fontSize: '0.85rem', color: flagshipOwned ? 'var(--green)' : 'var(--text-muted)', marginTop: '4px' }}>
             {flagshipOwned
-              ? '✅ Флагман нанят! Престиж в следующее Поколение разблокирован.'
-              : '🔒 Наймите хотя бы 1 Агента флагмана, чтобы открыть Престиж.'}
+              ? 'Флагман нанят! Престиж в следующее Поколение разблокирован.'
+              : 'Найми хотя бы 1 Агента флагмана, чтобы открыть Престиж.'}
           </div>
         </div>
 
@@ -163,7 +163,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
             className="pixel-btn pixel-btn-gold"
             style={{ fontSize: '1rem', padding: '10px 16px' }}
           >
-            🚀 Совершить Престиж
+            Совершить Престиж
           </button>
         )}
 
@@ -350,10 +350,9 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
                 textAlign: 'center',
               }}
             >
-              <div style={{ fontSize: '2.5rem', marginBottom: '8px' }}>🏢💤</div>
               <div style={{ fontSize: '1.1rem', color: 'var(--text-main)' }}>Офис пока пуст</div>
               <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: '6px' }}>
-                Наймите своего первого ИИ-Агента в магазине справа!
+                Найми своего первого ИИ-Агента в магазине справа!
               </div>
             </div>
           </div>

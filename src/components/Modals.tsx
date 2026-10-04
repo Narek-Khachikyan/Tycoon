@@ -5,6 +5,7 @@ import { PERKS } from '../economy/perks';
 import { exportSave } from '../economy/save';
 import { formatDuration, formatNumber } from '../economy/format';
 import { CATALOG } from '../economy/catalog';
+import { Icon } from './Icon';
 import { Num } from './Num';
 import { useDialogFocus } from './useDialogFocus';
 
@@ -54,9 +55,15 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2 id="achievements-title" style={{ fontSize: '1.3rem', color: 'var(--gold)' }}>
-            🏆 ДОСТИЖЕНИЯ ({state.achievements.length} / {ACHIEVEMENTS.length})
+            <Icon name="trophy" /> ДОСТИЖЕНИЯ ({state.achievements.length} / {ACHIEVEMENTS.length})
           </h2>
-          <button className="pixel-btn" onClick={onClose} style={{ padding: '4px 10px' }}>
+          <button
+            className="pixel-btn"
+            onClick={onClose}
+            aria-label="Закрыть"
+            title="Закрыть"
+            style={{ padding: '4px 10px' }}
+          >
             ✕
           </button>
         </div>
@@ -77,7 +84,7 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
                   gap: '12px',
                 }}
               >
-                <div style={{ fontSize: '1.5rem' }}>{unlocked ? '🏆' : '🔒'}</div>
+                <div aria-hidden="true" style={{ fontSize: '1.5rem' }}>{unlocked ? '🏆' : '🔒'}</div>
                 <div style={{ flex: 1 }}>
                   <div
                     /* Светлее --green намеренно: так открытое Достижение читается ярче
@@ -169,9 +176,15 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2 id="stats-title" style={{ fontSize: '1.3rem', color: 'var(--accent-color)' }}>
-            📊 СТАТИСТИКА
+            <Icon name="info" /> СТАТИСТИКА
           </h2>
-          <button className="pixel-btn" onClick={onClose} style={{ padding: '4px 10px' }}>
+          <button
+            className="pixel-btn"
+            onClick={onClose}
+            aria-label="Закрыть"
+            title="Закрыть"
+            style={{ padding: '4px 10px' }}
+          >
             ✕
           </button>
         </div>
@@ -274,9 +287,15 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2 id="settings-title" style={{ fontSize: '1.3rem', color: 'var(--text-main)' }}>
-            ⚙️ НАСТРОЙКИ
+            <Icon name="settings" /> НАСТРОЙКИ
           </h2>
-          <button className="pixel-btn" onClick={onClose} style={{ padding: '4px 10px' }}>
+          <button
+            className="pixel-btn"
+            onClick={onClose}
+            aria-label="Закрыть"
+            title="Закрыть"
+            style={{ padding: '4px 10px' }}
+          >
             ✕
           </button>
         </div>
@@ -320,7 +339,8 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
             className={`pixel-btn ${!state.settings.muted ? 'pixel-btn-accent' : ''}`}
             style={{ padding: '6px 12px', fontSize: '0.85rem' }}
           >
-            {state.settings.muted ? 'Выключен 🔇' : 'Включен 🔊'}
+            <Icon name={state.settings.muted ? 'sound-off' : 'sound-on'} />{' '}
+            {state.settings.muted ? 'Выключен' : 'Включен'}
           </button>
         </div>
 
@@ -346,7 +366,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
           <div style={{ fontWeight: 600 }}>Сохранение данных</div>
 
           <button onClick={handleExport} className="pixel-btn" style={{ width: '100%' }}>
-            {copyStatus ? '✅ Скопировано в буфер!' : '📋 Скопировать сохранение в буфер'}
+            {copyStatus ? 'Скопировано в буфер!' : 'Скопировать сохранение в буфер'}
           </button>
 
           <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
@@ -390,7 +410,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
               color: '#fca5a5',
             }}
           >
-            🗑️ Сбросить весь прогресс
+            Сбросить весь прогресс
           </button>
         </div>
       </div>
@@ -439,7 +459,9 @@ export const OfflineModal: React.FC = () => {
           border: '2px solid var(--accent-color)',
         }}
       >
-        <div style={{ fontSize: '3rem' }}>🌙⚡</div>
+        <div style={{ fontSize: '3rem', lineHeight: 1 }}>
+          <Icon name="bolt" size={40} />
+        </div>
         <h2 id="offline-title" style={{ fontSize: '1.4rem', color: 'var(--accent-color)' }}>
           С ВОЗВРАЩЕНИЕМ!
         </h2>

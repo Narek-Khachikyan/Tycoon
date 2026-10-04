@@ -200,7 +200,7 @@ export const useGameStore = create<GameStore>((set, get) => {
         ...st.toasts,
         ...awarded.map((id) => ({
           id: `${id}-${++toastCounter}`,
-          title: '🏆 Достижение разблокировано!',
+          title: 'Достижение разблокировано!',
           desc: id,
         })),
       ],

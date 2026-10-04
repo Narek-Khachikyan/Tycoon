@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { motionAllowed, useGameStore, type ToastMessage } from '../store/useGameStore';
 import { ACHIEVEMENTS } from '../economy/achievements';
+import { Icon } from './Icon';
 
 const TOAST_MS = 4000;
 
@@ -108,7 +109,9 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void 
         maxWidth: '320px',
       }}
     >
-      <div style={{ fontSize: '1.6rem' }}>🏆</div>
+      <div aria-hidden="true" style={{ fontSize: '1.6rem' }}>
+        <Icon name="trophy" size={22} />
+      </div>
       <div>
         <div style={{ fontSize: '0.85rem', color: 'var(--gold)' }}>{toast.title}</div>
         <div style={{ fontSize: '0.8rem', color: 'var(--text-main)', fontWeight: 600 }}>

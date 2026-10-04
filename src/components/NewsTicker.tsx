@@ -71,7 +71,7 @@ export const NewsTicker: React.FC = () => {
       }}
       title="Нажмите, чтобы сменить новость"
     >
-      <span style={{ color: 'var(--gold)', fontWeight: 700 }}>📰 НОВОСТИ:</span>
+      <span style={{ color: 'var(--gold)', fontWeight: 700, flexShrink: 0 }}>НОВОСТИ:</span>
       <span className="news-ticker-viewport" ref={viewportRef}>
         {/* key по тексту: смена новости меняет и число копий, и срок цикла, поэтому цикл
             начинается заново — иначе дорожка дёрнулась бы на разницу ширин. Копия повторяет

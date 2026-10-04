@@ -13,6 +13,7 @@ import {
   StatsModal,
 } from './components/Modals';
 import { Toasts } from './components/Toasts';
+import { Icon, type IconName } from './components/Icon';
 import { CATALOG } from './economy/catalog';
 import { clickColWidth, shopColWidth, THREE_COL_MIN } from './layout';
 
@@ -169,17 +170,19 @@ export const App: React.FC = () => {
         >
           {(
             [
-              ['click', '💬 Промпт'],
-              ['office', '🏢 Офис'],
-              ['shop', '🛒 Магазин'],
-            ] as [ActiveTab, string][]
-          ).map(([t, label]) => (
+              ['click', 'chat', 'Промпт'],
+              ['office', 'office', 'Офис'],
+              ['shop', 'shop', 'Магазин'],
+            ] as [ActiveTab, IconName, string][]
+          ).map(([t, icon, label]) => (
             <button
               key={t}
               onClick={() => setActiveTab(t)}
               className={`pixel-btn ${activeTab === t ? 'pixel-btn-accent' : ''}`}
+              aria-label={label}
               style={{ flex: 1, padding: '10px 4px', fontSize: '0.9rem' }}
             >
+              <Icon name={icon} />
               {label}
             </button>
           ))}

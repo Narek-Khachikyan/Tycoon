@@ -17,6 +17,7 @@ import { PERKS } from '../economy/perks';
 import { formatNumber } from '../economy/format';
 import { MascotSprite } from './MascotSprite';
 import { Num } from './Num';
+import { Icon } from './Icon';
 
 // 8 искр из точки покупки. Радиус 14–26 px — чуть больше самой кнопки, поэтому жест читается
 // как отклик на нажатие, а не как залп.
@@ -353,7 +354,10 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         justifyContent: 'space-between',
                       }}
                     >
-                      <span>📊 Справка Artificial Analysis</span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Icon name="info" size={13} />
+                        Справка Artificial Analysis
+                      </span>
                       <span>{isAAOpen ? '▲ скрыть' : '▼ подробнее'}</span>
                     </div>
 
@@ -396,7 +400,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {upgrades.length === 0 ? (
               <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: '40px' }}>
-                Пока нет доступных апгрейдов. Нанимайте больше агентов!
+                Пока нет доступных Апгрейдов. Нанимай больше Агентов!
               </div>
             ) : (
               upgrades.map((u) => {
@@ -483,7 +487,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                   className="pixel-btn pixel-btn-gold"
                   style={{ width: '100%', marginTop: '4px' }}
                 >
-                  {canPrestige(state) ? 'Сделать Престиж!' : '🔒 Нужен 1 Агент Флагмана'}
+                  {canPrestige(state) ? 'Сделать Престиж!' : 'Нужен 1 Агент Флагмана'}
                 </button>
               )}
             </div>
@@ -531,7 +535,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         className={`pixel-btn ${owned ? '' : 'pixel-btn-gold'}`}
                         style={{ padding: '6px 10px', fontSize: '0.85rem', alignSelf: 'flex-end' }}
                       >
-                        {owned ? '✅ Куплено' : 'Купить Перк'}
+                        {owned ? 'Куплено' : 'Купить Перк'}
                       </button>
                     </div>
                   );
