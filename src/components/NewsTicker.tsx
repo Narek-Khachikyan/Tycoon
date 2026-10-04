@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '../store/useGameStore';
+import { Icon } from './Icon';
 
 // Сколько миллисекунд копия новости идёт мимо окна. Задаёт скорость ленты: за цикл дорожка
 // проезжает ровно половину своей длины, то есть половину копий, поэтому время копии — это и
@@ -14,12 +15,17 @@ const MIN_COPIES = 2;
 // и на стыке цикла текст прыгал бы на половину новости.
 const roundUpEven = (n: number) => Math.max(MIN_COPIES, Math.ceil(n / 2) * 2);
 
+const NEWS_INTERVAL_MS = 15000;
+
 export const NewsTicker: React.FC = () => {
   const news = useGameStore((s) => s.news);
   const refreshNews = useGameStore((s) => s.refreshNews);
+  const paused = useGameStore((s) => s.newsPaused);
+  const setPaused = useGameStore((s) => s.setNewsPaused);
 
   const viewportRef = useRef<HTMLSpanElement>(null);
   const trackRef = useRef<HTMLSpanElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
   const [layout, setLayout] = useState({ copies: MIN_COPIES, cycleMs: COPY_PASS_MS });
 
   // Сколько копий нужно, решает только сама разметка: из CSS ширину окна не узнать, а без неё
@@ -46,17 +52,33 @@ export const NewsTicker: React.FC = () => {
     return () => window.removeEventListener('resize', measure);
   }, [news]);
 
-  // Единственный таймер в файле: он меняет текст, а движение задано transform в CSS.
+  // Единственный таймер в файле: он меняет текст, а движение задано transform в CSS. На паузе
+  // таймер не идёт вовсе — иначе надпись под замершей строкой продолжала бы подменяться.
   useEffect(() => {
+    if (paused) return;
     const timer = setInterval(() => {
       refreshNews();
-    }, 15000);
+    }, NEWS_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [refreshNews]);
+  }, [refreshNews, paused]);
+
+  // Пауза по наведению и по фокусу: игроку, которому мешает движение, не нужно искать кнопку.
+  // Размытие ловится только когда фокус действительно ушёл из ленты, иначе переход между
+  // соседними кнопками гасил бы паузу на каждом нажатии.
+  const pause = () => setPaused(true);
+  const resumeIfOutside = (e: React.FocusEvent<HTMLDivElement>) => {
+    if (e.currentTarget.contains(e.relatedTarget)) return;
+    setPaused(false);
+  };
 
   return (
     <div
-      onClick={refreshNews}
+      ref={barRef}
+      onMouseEnter={pause}
+      onMouseLeave={() => setPaused(false)}
+      onFocus={pause}
+      onBlur={resumeIfOutside}
+      className={paused ? 'news-ticker--paused' : undefined}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -64,12 +86,10 @@ export const NewsTicker: React.FC = () => {
         backgroundColor: 'var(--bg-void)',
         borderBottom: '1px solid var(--border)',
         fontSize: '0.9rem',
-        cursor: 'pointer',
         gap: '8px',
         overflow: 'hidden',
         whiteSpace: 'nowrap',
       }}
-      title="Нажмите, чтобы сменить новость"
     >
       <span style={{ color: 'var(--gold)', fontWeight: 700, flexShrink: 0 }}>НОВОСТИ:</span>
       <span className="news-ticker-viewport" ref={viewportRef}>
@@ -98,6 +118,26 @@ export const NewsTicker: React.FC = () => {
           ))}
         </span>
       </span>
+
+      {/* Два раздельных элемента управления вместо клика по всей полосе: вложенные кнопки
+          недостижимы с клавиатуры, а здесь нужен и переход, и остановка. */}
+      <button
+        onClick={refreshNews}
+        className="news-ticker__btn"
+        aria-label="Сменить новость"
+        title="Сменить новость"
+      >
+        <Icon name="next" size={14} />
+      </button>
+      <button
+        onClick={() => setPaused(!paused)}
+        className="news-ticker__btn"
+        aria-pressed={paused}
+        aria-label={paused ? 'Продолжить ленту' : 'Остановить ленту'}
+        title={paused ? 'Продолжить ленту' : 'Остановить ленту'}
+      >
+        <Icon name={paused ? 'play' : 'pause'} size={14} />
+      </button>
     </div>
   );
 };

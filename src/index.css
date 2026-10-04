@@ -676,6 +676,44 @@ body {
   display: none;
 }
 
+/* Кнопки ленты. Отступ от края полосы не задаётся здесь: их две, и они стоят вровень с
+   золотым заголовком, поэтому flex-раскладка полосы ими и управляет. */
+.news-ticker__btn {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  padding: 2px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.08s ease-in-out, border-color 0.08s ease-in-out;
+}
+
+.news-ticker__btn:hover {
+  color: var(--accent-color);
+  border-color: var(--accent-color);
+}
+
+/* Выбранное состояние паузы — то же, что у переключателей магазина: заливка плюс рамка. */
+.news-ticker__btn[aria-pressed='true'] {
+  background: var(--bg-raised);
+  border-color: var(--accent-color);
+  color: var(--accent-color);
+}
+
+.news-ticker__btn:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+/* Пауза останавливает и смену текста, и саму строку: animation-play-state висит вне
+   медиазапроса движения, потому что без анимации свойство просто ничего не делает. */
+.news-ticker--paused .news-ticker-track {
+  animation-play-state: paused;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;

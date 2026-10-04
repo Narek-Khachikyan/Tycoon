@@ -126,6 +126,11 @@ interface GameStore {
   setNotation: (notation: Notation) => void;
   toggleMute: () => void;
   setReducedMotion: (on: boolean) => void;
+  /** Пауза Новостной ленты: останавливает и движение строки, и смену новости. Живёт в UI-слое
+   *  и не сохраняется — персистентность означала бы новое поле в `GameState.settings` и правку
+   *  контракта сохранения ради одного переключателя. */
+  newsPaused: boolean;
+  setNewsPaused: (paused: boolean) => void;
   dismissOfflineReport: () => void;
   removeToast: (id: string) => void;
   importSaveData: (str: string) => boolean;
@@ -372,6 +377,9 @@ export const useGameStore = create<GameStore>((set, get) => {
       set((s) => ({
         state: { ...s.state, settings: { ...s.state.settings, reducedMotion: on } },
       })),
+
+    newsPaused: false,
+    setNewsPaused: (paused: boolean) => set({ newsPaused: paused }),
 
     dismissOfflineReport: () => set({ offlineReport: null }),
 
