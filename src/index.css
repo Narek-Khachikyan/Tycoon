@@ -96,8 +96,15 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Пиксельный шрифт — только логотип и строки, которые целиком являются числом (ADR-0003).
+   В самом Pixelify Sans нет заглавных «О» и «П», поэтому любая кириллица на пиксельном
+   начертании молча уходит в фолбэк — и причём разный в заголовке и на кнопке.
+
+   Фолбэк-цепочка сужена намеренно: `cursive` подменял отсутствующий глиф каллиграфией, а
+   моноширинный `monospace` при незагруженном Nunito делает кириллицу заметно шире и ломает
+   вёрстку сильнее обычного `sans-serif`. */
 .pixel-font {
-  font-family: 'Pixelify Sans', cursive, monospace;
+  font-family: 'Pixelify Sans', 'Nunito', sans-serif;
 }
 
 /* font-variant-numeric: tabular-nums у счётчика Токенов нет намеренно: в Pixelify Sans
@@ -349,7 +356,10 @@ body {
 
 /* Pixel buttons */
 .pixel-btn {
-  font-family: 'Pixelify Sans', monospace;
+  /* Кнопка набирается Nunito целиком (ADR-0003): в пиксельном шрифте живут только числа, а
+     подпись кнопки — это слово плюс цена. `inherit` обязателен, потому что кнопка по
+     умолчанию берёт шрифт пользовательского агента, а не шрифт body. */
+  font-family: inherit;
   font-size: 1rem;
   letter-spacing: 0.5px;
   background: var(--bg-card);
@@ -447,7 +457,7 @@ body {
   pointer-events: none;
   animation: float-fade 0.9s ease-out forwards;
   color: var(--accent-color);
-  font-family: 'Pixelify Sans', monospace;
+  font-family: 'Pixelify Sans', 'Nunito', sans-serif;
   font-size: 1.5rem;
   font-weight: 700;
   /* Ореол держит цвет текста, поэтому и живёт в .app-root, а не в палитре панели. */

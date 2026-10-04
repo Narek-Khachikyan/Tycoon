@@ -6,6 +6,7 @@ import { canPrestige, isContentFinale } from '../economy/engine';
 import { labAgents, SYNERGY_PER_AGENT, synergyUpgradeId } from '../economy/upgrades';
 import { formatCount, formatNumber } from '../economy/format';
 import { MascotSprite } from './MascotSprite';
+import { Num } from './Num';
 
 // Сцен четыре, по две эпохи Поколения на каждую (ADR-0002), поэтому индекс Сцены —
 // floor(Поколение / 2). Список имён выводится из количества, а не дублируется руками:
@@ -142,10 +143,9 @@ export const OfficeColumn: React.FC = () => {
           <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
             ЦЕЛЬ ПОКОЛЕНИЯ
           </div>
-          <div className="pixel-font" style={{ fontSize: '1.25rem', color: 'var(--text-main)', marginTop: '2px' }}>
+          <div style={{ fontSize: '1.25rem', color: 'var(--text-main)', marginTop: '2px' }}>
             Флагман: <span style={{ color: 'var(--gold)' }}>{flagship.name}</span> ({LABS[flagship.lab].name})
-          </div>
-          <div style={{ fontSize: '0.85rem', color: flagshipOwned ? 'var(--green)' : 'var(--text-muted)', marginTop: '4px' }}>
+          </div>          <div style={{ fontSize: '0.85rem', color: flagshipOwned ? 'var(--green)' : 'var(--text-muted)', marginTop: '4px' }}>
             {flagshipOwned
               ? '✅ Флагман нанят! Престиж в следующее Поколение разблокирован.'
               : '🔒 Наймите хотя бы 1 Агента флагмана, чтобы открыть Престиж.'}
@@ -172,9 +172,7 @@ export const OfficeColumn: React.FC = () => {
               textAlign: 'center',
             }}
           >
-            <div className="pixel-font" style={{ color: 'var(--gold)', fontSize: '1rem' }}>
-              🌟 Финал контента MVP!
-            </div>
+            <div style={{ color: 'var(--gold)', fontSize: '1rem' }}>Финал контента MVP!</div>
             <div style={{ fontSize: '0.8rem', color: 'var(--gold)' }}>
               Вы на острие ИИ! Ждите новые реальные модели в будущих апдейтах.
             </div>
@@ -234,11 +232,9 @@ export const OfficeColumn: React.FC = () => {
             background: 'linear-gradient(to bottom, var(--bg-scrim) 0%, var(--bg-scrim) 55%, transparent 100%)',
           }}
         >
-          <span className="pixel-font" style={{ fontSize: '1rem', color: 'var(--text-main)' }}>
-            🏢 ОФИС АГЕНТОВ
-          </span>
-          <span className="pixel-font" style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>
-            {formatNumber(totalAgents, notation)}{' '}
+          <span style={{ fontSize: '1rem', color: 'var(--text-main)' }}>ОФИС АГЕНТОВ</span>
+          <span style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>
+            <Num>{formatNumber(totalAgents, notation)}</Num>{' '}
             {formatCount(totalAgents, 'Агент', 'Агента', 'Агентов')}
           </span>
         </div>
@@ -294,10 +290,9 @@ export const OfficeColumn: React.FC = () => {
                 </div>
               </div>
               <span
-                className="pixel-font"
                 style={{ fontSize: '0.8rem', color: 'var(--text-main)', textShadow: BADGE_OUTLINE }}
               >
-                ×{formatNumber(labAgents(state, labId), notation)}
+                ×<Num>{formatNumber(labAgents(state, labId), notation)}</Num>
               </span>
             </div>
           ))}
@@ -351,9 +346,7 @@ export const OfficeColumn: React.FC = () => {
               }}
             >
               <div style={{ fontSize: '2.5rem', marginBottom: '8px' }}>🏢💤</div>
-              <div className="pixel-font" style={{ fontSize: '1.1rem', color: 'var(--text-main)' }}>
-                Офис пока пуст
-              </div>
+              <div style={{ fontSize: '1.1rem', color: 'var(--text-main)' }}>Офис пока пуст</div>
               <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: '6px' }}>
                 Наймите своего первого ИИ-Агента в магазине справа!
               </div>
@@ -378,9 +371,7 @@ export const OfficeColumn: React.FC = () => {
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' }}>
-          <span className="pixel-font" style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>
-            РОСТЕР ЛАБОРАТОРИЙ
-          </span>
+          <span style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>СОСТАВ ЛАБОРАТОРИЙ</span>
           <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
             {activeLabs.length}{' '}
             {formatCount(activeLabs.length, 'Лаборатория', 'Лаборатории', 'Лабораторий')} в офисе
@@ -414,16 +405,16 @@ export const OfficeColumn: React.FC = () => {
                   />
                   <span style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>{lab.name}</span>
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{lab.mascot}</span>
-                  <span className="pixel-font" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                    ×{formatNumber(count, notation)} {formatCount(count, 'Агент', 'Агента', 'Агентов')}
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    ×<Num>{formatNumber(count, notation)}</Num>{' '}
+                    {formatCount(count, 'Агент', 'Агента', 'Агентов')}
                   </span>
                   {synergyOn && (
                     <span
-                      className="pixel-font"
                       title={`Синергия: +${synergyPct}% к Доходу всех Моделей ${lab.name}`}
                       style={{ fontSize: '0.75rem', color: 'var(--gold)' }}
                     >
-                      +{synergyPct}%
+                      +<Num>{synergyPct}</Num>%
                     </span>
                   )}
                 </div>

@@ -16,6 +16,7 @@ import { availableUpgrades } from '../economy/upgrades';
 import { PERKS } from '../economy/perks';
 import { formatNumber } from '../economy/format';
 import { MascotSprite } from './MascotSprite';
+import { Num } from './Num';
 
 // 8 искр из точки покупки. Радиус 14–26 px — чуть больше самой кнопки, поэтому жест читается
 // как отклик на нажатие, а не как залп.
@@ -282,9 +283,7 @@ export const ShopColumn: React.FC = () => {
                       <MascotSprite lab={m.lab} size={28} />
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span className="pixel-font" style={{ fontSize: '1rem', color: 'var(--text-main)' }}>
-                            {m.name}
-                          </span>
+                          <span style={{ fontSize: '1rem', color: 'var(--text-main)' }}>{m.name}</span>
                           {m.isFlagship && (
                             <span
                               style={{
@@ -306,15 +305,15 @@ export const ShopColumn: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="pixel-font" style={{ fontSize: '1.2rem', color: 'var(--text-muted)' }}>
-                      {owned}
+                    <div style={{ fontSize: '1.2rem', color: 'var(--text-muted)' }}>
+                      <Num>{owned}</Num>
                     </div>
                   </div>
 
                   {/* Доход и Кнопка покупки/продажи */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div style={{ fontSize: '0.8rem', color: 'var(--green)' }}>
-                      +{formatNumber(mIncome, notation)}/сек
+                      +<Num>{formatNumber(mIncome, notation)}</Num>/сек
                     </div>
 
                     <button
@@ -328,9 +327,13 @@ export const ShopColumn: React.FC = () => {
                         borderColor: sellMode ? 'var(--red)' : undefined,
                       }}
                     >
-                      {sellMode
-                        ? `Продать (${formatNumber(refund, notation)})`
-                        : `Купить ×${count} (${formatNumber(cost, notation)})`}
+                      {sellMode ? (
+                        <>Продать (<Num>{formatNumber(refund, notation)}</Num>)</>
+                      ) : (
+                        <>
+                          Купить ×<Num>{count}</Num> (<Num>{formatNumber(cost, notation)}</Num>)
+                        </>
+                      )}
                     </button>
                   </div>
 
@@ -412,9 +415,7 @@ export const ShopColumn: React.FC = () => {
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span className="pixel-font" style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>
-                        {u.name}
-                      </span>
+                      <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{u.name}</span>
                       <span className="pixel-font" style={{ fontSize: '0.85rem', color: 'var(--accent-color)' }}>
                         {formatNumber(u.cost, notation)}
                       </span>
@@ -453,9 +454,7 @@ export const ShopColumn: React.FC = () => {
                 gap: '8px',
               }}
             >
-              <div className="pixel-font" style={{ fontSize: '1.1rem', color: 'var(--gold)' }}>
-                🚀 Престиж в следующее Поколение
-              </div>
+              <div style={{ fontSize: '1.1rem', color: 'var(--gold)' }}>Престиж в следующее Поколение</div>
 
               <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
                 Сбросит текущий Забег (Токены, Агенты, Апгрейды) и перенесёт вас в следующее Поколение.
@@ -470,10 +469,7 @@ export const ShopColumn: React.FC = () => {
                 }}
               >
                 <div>
-                  Получите Compute:{' '}
-                  <span className="pixel-font" style={{ color: 'var(--gold)', fontWeight: 700 }}>
-                    +{prestigeGain(state)}
-                  </span>
+                  Получите Compute: <Num>{prestigeGain(state)}</Num>
                 </div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
                   (Каждая единица Compute даёт постоянный бонус +1% к Доходу)
@@ -495,10 +491,9 @@ export const ShopColumn: React.FC = () => {
             {/* Магазин Перков */}
             <div>
               <div
-                className="pixel-font"
                 style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: '8px' }}
               >
-                Постоянные Перки (Свободно: {unspentCompute} Compute)
+                Постоянные Перки (Свободно: <Num>{unspentCompute}</Num> Compute)
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -520,11 +515,9 @@ export const ShopColumn: React.FC = () => {
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span className="pixel-font" style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>
-                          {p.name}
-                        </span>
-                        <span className="pixel-font" style={{ fontSize: '0.85rem', color: 'var(--gold)' }}>
-                          {p.cost} Compute
+                        <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{p.name}</span>
+                        <span style={{ fontSize: '0.85rem', color: 'var(--gold)' }}>
+                          <Num>{p.cost}</Num> Compute
                         </span>
                       </div>
 

@@ -110,9 +110,7 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void 
     >
       <div style={{ fontSize: '1.6rem' }}>🏆</div>
       <div>
-        <div className="pixel-font" style={{ fontSize: '0.85rem', color: 'var(--gold)' }}>
-          {toast.title}
-        </div>
+        <div style={{ fontSize: '0.85rem', color: 'var(--gold)' }}>{toast.title}</div>
         <div style={{ fontSize: '0.8rem', color: 'var(--text-main)', fontWeight: 600 }}>
           {ach?.name ?? toast.desc}
         </div>

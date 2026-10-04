@@ -6,8 +6,11 @@
     <link rel="icon" type="image/png" href="/sprites/token.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Оба семейства одним запросом. Параметр subset здесь не работал: css2 его игнорирует и
+         с ним и без него отдаёт один и тот же файл, поэтому кириллический поднабор Pixelify
+         Sans подключить было нельзя (ADR-0003). -->
     <link
-      href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600;700&family=Nunito:wght@400;700;800&display=swap&subset=cyrillic"
+      href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600;700&family=Nunito:wght@400;700;800&display=swap"
       rel="stylesheet"
     />
     <title>AI Tycoon</title>

@@ -3,6 +3,7 @@ import { motionAllowed, useGameStore } from '../store/useGameStore';
 import { CATALOG } from '../economy/catalog';
 import { ACHIEVEMENTS } from '../economy/achievements';
 import { formatNumber } from '../economy/format';
+import { Num } from './Num';
 
 interface HeaderProps {
   onOpenAchievements: () => void;
@@ -53,16 +54,16 @@ export const Header: React.FC<HeaderProps> = ({
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        {/* Логотип — единственное место, где пиксельный шрифт законен на словах (ADR-0003). */}
         <h1 className="pixel-font" style={{ fontSize: '1.4rem', color: 'var(--accent-color)', letterSpacing: '1px' }}>
-          ⚡ AI TYCOON
+          AI TYCOON
         </h1>
         <span
-          className="pixel-font"
           style={{
             fontSize: '0.85rem',
             backgroundColor: 'var(--tint-accent)',
-            border: '1px solid var(--accent-color)',
-            color: 'var(--accent-hover)',
+            border: '1px solid var(--border-strong)',
+            color: 'var(--text-main)',
             padding: '2px 8px',
             borderRadius: '4px',
           }}
@@ -71,7 +72,6 @@ export const Header: React.FC<HeaderProps> = ({
         </span>
         {state.compute > 0 && (
           <span
-            className="pixel-font"
             style={{
               fontSize: '0.85rem',
               backgroundColor: 'var(--tint-gold)',
@@ -82,7 +82,7 @@ export const Header: React.FC<HeaderProps> = ({
             }}
             title="Бонус к доходу от Compute"
           >
-            🧠 {formatNumber(state.compute)} Compute (+{state.compute}%)
+            <Num>{formatNumber(state.compute)}</Num> Compute (+{state.compute}%)
           </span>
         )}
       </div>
@@ -103,7 +103,7 @@ export const Header: React.FC<HeaderProps> = ({
           onClick={onOpenAchievements}
           style={{ padding: '6px 12px', fontSize: '0.9rem' }}
         >
-          🏆 {unlockedAchCount}/{totalAchCount}
+          🏆 <Num>{unlockedAchCount}</Num>/<Num>{totalAchCount}</Num>
         </button>
 
         <button

@@ -2,6 +2,7 @@ import React, { useLayoutEffect, useRef } from 'react';
 import { motionAllowed, reduceMotionMedia, useGameStore } from '../store/useGameStore';
 import { totalIncome, clickValue } from '../economy/engine';
 import { formatNumber } from '../economy/format';
+import { Num } from './Num';
 
 /** За сколько миллисекунд счётчик съедает 63% расстояния до цели: каждый кадр отнимает
  *  долю dt / APPROACH_MS остатка, поэтому число тормозит, а не разгоняется, и скорость
@@ -162,7 +163,6 @@ export const ClickColumn: React.FC = () => {
           Токенов
         </div>
         <div
-          className="pixel-font"
           style={{
             fontSize: '1.1rem',
             color: 'var(--green)',
@@ -170,7 +170,7 @@ export const ClickColumn: React.FC = () => {
             fontWeight: 600,
           }}
         >
-          +{formatNumber(income, notation)} / сек
+          +<Num>{formatNumber(income, notation)}</Num> / сек
         </div>
       </div>
 
@@ -195,10 +195,9 @@ export const ClickColumn: React.FC = () => {
             fontSize: '0.85rem',
             color: 'var(--text-main)',
             fontWeight: 400,
-            fontFamily: 'Nunito',
           }}
         >
-          +{formatNumber(cVal, notation)} Токенов за клик
+          +<Num>{formatNumber(cVal, notation)}</Num> Токенов за клик
         </span>
       </button>
 
@@ -213,12 +212,7 @@ export const ClickColumn: React.FC = () => {
           flex: 1,
         }}
       >
-        <div
-          className="pixel-font"
-          style={{ fontSize: '0.95rem', color: 'var(--text-muted)' }}
-        >
-          Диалог с моделью:
-        </div>
+        <div style={{ fontSize: '0.95rem', color: 'var(--text-muted)' }}>Диалог с моделью:</div>
 
         <div
           style={{

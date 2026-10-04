@@ -5,6 +5,7 @@ import { PERKS } from '../economy/perks';
 import { exportSave } from '../economy/save';
 import { formatDuration, formatNumber } from '../economy/format';
 import { CATALOG } from '../economy/catalog';
+import { Num } from './Num';
 
 interface ModalProps {
   isOpen: boolean;
@@ -45,7 +46,7 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 className="pixel-font" style={{ fontSize: '1.3rem', color: 'var(--gold)' }}>
+          <h2 style={{ fontSize: '1.3rem', color: 'var(--gold)' }}>
             🏆 ДОСТИЖЕНИЯ ({state.achievements.length} / {ACHIEVEMENTS.length})
           </h2>
           <button className="pixel-btn" onClick={onClose} style={{ padding: '4px 10px' }}>
@@ -72,7 +73,6 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
                 <div style={{ fontSize: '1.5rem' }}>{unlocked ? '🏆' : '🔒'}</div>
                 <div style={{ flex: 1 }}>
                   <div
-                    className="pixel-font"
                     /* Светлее --green намеренно: так открытое Достижение читается ярче
                        закрытой строки, а --green на подложке сравнялся бы с --text-muted
                        соседнего описания. */
@@ -104,18 +104,25 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   const notation = state.settings.notation;
   const totalAgents = Object.values(state.agents).reduce((a, b) => a + b, 0);
 
-  const statRows = [
-    ['Токенов сейчас', formatNumber(state.tokens, notation)],
-    ['Токенов за текущий Забег', formatNumber(state.runTokens, notation)],
-    ['Токенов за всё время', formatNumber(state.totalTokens, notation)],
+  // Значение-узел, а не строка: строка целиком из числа остаётся пиксельной (ADR-0003), а
+  // строка со словом («3 ч 12 мин», «1: Рассвет») набирается Nunito.
+  const statRows: [string, React.ReactNode][] = [
+    ['Токенов сейчас', <Num key="a">{formatNumber(state.tokens, notation)}</Num>],
+    ['Токенов за текущий Забег', <Num key="b">{formatNumber(state.runTokens, notation)}</Num>],
+    ['Токенов за всё время', <Num key="c">{formatNumber(state.totalTokens, notation)}</Num>],
     ['Кликов за Забег', state.runClicks.toLocaleString('ru-RU')],
     ['Кликов за всё время', state.clicks.toLocaleString('ru-RU')],
-    ['Агентов в текущем офисе', totalAgents.toString()],
-    ['Апгрейдов куплено', state.upgrades.length.toString()],
+    ['Агентов в текущем офисе', <Num key="d">{totalAgents}</Num>],
+    ['Апгрейдов куплено', <Num key="e">{state.upgrades.length}</Num>],
     ['Текущее Поколение', `${CATALOG[state.generation].id}: ${CATALOG[state.generation].name}`],
     ['Максимальное Поколение', `${CATALOG[state.maxGeneration].id}: ${CATALOG[state.maxGeneration].name}`],
-    ['Престижей совершено', state.prestiges.toString()],
-    ['Всего Compute', `${state.compute} (+${state.compute}% к доходу)`],
+    ['Престижей совершено', <Num key="f">{state.prestiges}</Num>],
+    [
+      'Всего Compute',
+      <>
+        <Num key="g">{state.compute}</Num> (+{state.compute}% к доходу)
+      </>,
+    ],
     ['Перков открыто', `${state.perks.length} / ${PERKS.length}`],
     ['Время в текущем Забеге', formatDuration(runTimeSec)],
     ['Время за всё время игры', formatDuration(playTimeSec)],
@@ -149,7 +156,7 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 className="pixel-font" style={{ fontSize: '1.3rem', color: 'var(--accent-color)' }}>
+          <h2 style={{ fontSize: '1.3rem', color: 'var(--accent-color)' }}>
             📊 СТАТИСТИКА
           </h2>
           <button className="pixel-btn" onClick={onClose} style={{ padding: '4px 10px' }}>
@@ -171,9 +178,7 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
               }}
             >
               <span style={{ color: 'var(--text-muted)' }}>{label}</span>
-              <span className="pixel-font" style={{ color: 'var(--text-main)', fontWeight: 600 }}>
-                {val}
-              </span>
+              <span style={{ color: 'var(--text-main)', fontWeight: 600 }}>{val}</span>
             </div>
           ))}
         </div>
@@ -251,7 +256,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 className="pixel-font" style={{ fontSize: '1.3rem', color: 'var(--text-main)' }}>
+          <h2 style={{ fontSize: '1.3rem', color: 'var(--text-main)' }}>
             ⚙️ НАСТРОЙКИ
           </h2>
           <button className="pixel-btn" onClick={onClose} style={{ padding: '4px 10px' }}>
@@ -411,7 +416,7 @@ export const OfflineModal: React.FC = () => {
         }}
       >
         <div style={{ fontSize: '3rem' }}>🌙⚡</div>
-        <h2 className="pixel-font" style={{ fontSize: '1.4rem', color: 'var(--accent-color)' }}>
+        <h2 style={{ fontSize: '1.4rem', color: 'var(--accent-color)' }}>
           С ВОЗВРАЩЕНИЕМ!
         </h2>
 
@@ -424,7 +429,6 @@ export const OfflineModal: React.FC = () => {
         </div>
 
         <div
-          className="pixel-font"
           style={{
             fontSize: '2rem',
             color: 'var(--green)',
@@ -432,7 +436,7 @@ export const OfflineModal: React.FC = () => {
             textShadow: '0 0 10px rgba(74, 222, 128, 0.5)',
           }}
         >
-          +{formatNumber(offlineReport.earned, notation)} Токенов
+          +<Num>{formatNumber(offlineReport.earned, notation)}</Num> Токенов
         </div>
 
         <button
