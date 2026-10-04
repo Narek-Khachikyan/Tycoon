@@ -166,7 +166,7 @@ Beyond "Ways to hurt yourself":
 
 ## Verification commands
 
-- Full suite: `npm test` — 90 vitest cases across three files: `src/economy/economy.test.ts` (the main safety net), `src/economy/shadow.test.ts` (the shadow Achievement ladder) and `src/layout.test.ts` (the column constants). About 0.3 s. Cheap; run it before finishing any economy, save, content or layout change.
+- Full suite: `npm test` — 92 vitest cases across three files: `src/economy/economy.test.ts` (the main safety net), `src/economy/shadow.test.ts` (the shadow Achievement ladder) and `src/layout.test.ts` (the column constants). About 0.3 s. Cheap; run it before finishing any economy, save, content or layout change.
 - Typecheck for a scope: `npx tsc -b`. This is the only static gate — there is no ESLint or Prettier in this repo, and adding one is not part of a feature. `npm run build` is `tsc -b && vite build` and is the closest thing to CI, because there is no CI.
 - Focused: `npm test -- -t '<test name>'`. Note that `vite.config.ts` includes only `src/**/*.test.ts`, so a `.test.tsx` would silently never run; component behaviour is verified by hand.
 - UI verification: `npm run dev`, then check both widths (≥1000 px and <1000 px) and the states you touched — empty first run, no income yet, the offline report at its cap, Prestige confirmation, the content finale, an import error. Screenshots go to the PR, never into the repo. Do not add browser automation or E2E tooling unless asked.

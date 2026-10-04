@@ -715,12 +715,7 @@ const state = useGameStore((s) => s.state);
         >
           {labRows.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <div
-                className="pixel-font"
-                style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}
-              >
-                Кто заработал
-              </div>
+              <div style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>Кто заработал</div>
               {labRows.map((row) => (
                 <div
                   key={row.lab}
@@ -749,9 +744,7 @@ const state = useGameStore((s) => s.state);
           )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <div className="pixel-font" style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>
-              Теперь доступно
-            </div>
+            <div style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>Теперь доступно</div>
 
             {bestModel && (
               <div
@@ -764,7 +757,7 @@ const state = useGameStore((s) => s.state);
                 }}
               >
                 <div style={{ color: 'var(--text-main)' }}>
-                  Агент: <span className="pixel-font">{bestModel.name}</span>
+                  Агент: <span>{bestModel.name}</span>
                 </div>
                 <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
                   {/* После «на» 1 и 2–4 стоят в родительном: 1 Агента, 2 Агента, 5 Агентов. */}
@@ -790,7 +783,7 @@ const state = useGameStore((s) => s.state);
                 }}
               >
                 <span style={{ flex: 1, minWidth: 0, color: 'var(--text-main)' }}>
-                  Апгрейд: <span className="pixel-font">{u.name}</span>
+                  Апгрейд: <span>{u.name}</span>
                 </span>
                 <span className="pixel-font" style={{ color: 'var(--accent-color)' }}>
                   {formatNumber(u.cost, notation)}

@@ -16,7 +16,7 @@ const tokens = (id: string, name: string, n: number): Achievement => ({
 });
 
 export const ACHIEVEMENTS: Achievement[] = [
-  { id: 'click_1', name: 'Hello, world', desc: 'Отправить первый промпт', check: (s) => s.clicks >= 1 },
+  { id: 'click_1', name: 'Привет, мир', desc: 'Отправить первый промпт', check: (s) => s.clicks >= 1 },
   { id: 'click_100', name: 'Промпт-джуниор', desc: '100 кликов', check: (s) => s.clicks >= 100 },
   { id: 'click_1000', name: 'Промпт-мидл', desc: '1 000 кликов', check: (s) => s.clicks >= 1000 },
   { id: 'click_10000', name: 'Промпт-сеньор', desc: '10 000 кликов', check: (s) => s.clicks >= 10000 },
@@ -30,7 +30,7 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'agents_50', name: 'Стартап', desc: '50 агентов одновременно', check: (s) => totalAgents(s) >= 50 },
   { id: 'agents_250', name: 'Скейлап', desc: '250 агентов одновременно', check: (s) => totalAgents(s) >= 250 },
   { id: 'one_100', name: 'Монокультура', desc: '100 агентов одной модели', check: (s) => Object.values(s.agents).some((n) => n >= 100) },
-  { id: 'upgrade_1', name: 'Fine-tuned', desc: 'Купить первый Апгрейд', check: (s) => s.upgrades.length >= 1 },
+  { id: 'upgrade_1', name: 'Дообучен', desc: 'Купить первый Апгрейд', check: (s) => s.upgrades.length >= 1 },
   {
     id: 'full_roster', name: 'Полный зоопарк', desc: 'Иметь агентов всех моделей текущего поколения',
     check: (s) => CATALOG[s.generation].models.every((m) => (s.agents[m.id] ?? 0) > 0),

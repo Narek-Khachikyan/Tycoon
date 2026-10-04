@@ -62,7 +62,8 @@ const TokenDeficit: React.FC<{ amount: number; notation: Notation }> = ({ amount
       {amount > 0 && (
         <>
           Не хватает <Num>{formatNumber(amount, notation)}</Num>{' '}
-          {formatCount(Math.round(amount), 'Токен', 'Токена', 'Токенов')}
+          {/* Нотация обязательна: форма считается по цифрам той же записи, что и число. */}
+          {formatCount(amount, 'Токен', 'Токена', 'Токенов', notation)}
         </>
       )}
     </div>
@@ -362,6 +363,13 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
+            // Перенос строк обязателен: сумма двух групп кнопок не помещается в
+            // SHOP_COL_MIN, и без переноса «Max» уезжал за правый край колонки на всём
+            // диапазоне от трёхколоночного порога до ~1190px. Поднимать минимум колонки
+            // ради этого не стоит — он поднял бы и порог одноколоночного режима, а перенос
+            // читается: на узкой колонке множители просто встают вторым рядом.
+            flexWrap: 'wrap',
+            rowGap: '4px',
             marginBottom: '12px',
             backgroundColor: 'var(--bg-card)',
             padding: '6px 10px',
