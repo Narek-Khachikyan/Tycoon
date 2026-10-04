@@ -21,15 +21,29 @@ export const CLICK_UPGRADES = [
 
 export const SYNERGY_MIN_AGENTS = 15;
 export const SYNERGY_PER_AGENT = 0.01;
+/** Фиксированный бафф Парной Синергии обеим Лабораториям. */
+export const PAIR_SYNERGY_MULT = 1.5;
+/** Сколько пар на Поколение попадает в магазин: полный перебор дал бы до 28 записей
+ *  и захламил бы список Апгрейдов, а порог 15/15 всё равно раньше всего reachable у
+ *  самых представленных Лабораторий. */
+export const MAX_PAIR_SYNERGIES_PER_GEN = 3;
 
 export type Upgrade =
   | { id: string; kind: 'model'; name: string; desc: string; cost: number; modelId: string; tier: number }
   | { id: string; kind: 'click'; name: string; desc: string; cost: number; effect: 'x2' | 'pct' }
-  | { id: string; kind: 'synergy'; name: string; desc: string; cost: number; lab: LabId };
+  // Парная синергия — тот же kind: `lab` держит первую Лабораторию для совместимости
+  // (магазин и ростер читают её как раньше), вторая лежит в `pairLab`, если он есть.
+  | { id: string; kind: 'synergy'; name: string; desc: string; cost: number; lab: LabId; pairLab?: LabId };
 
 export const modelUpgradeId = (modelId: string, tier: number) => `m:${modelId}:${tier}`;
 export const clickUpgradeId = (gen: number, i: number) => `c:${gen}:${i}`;
 export const synergyUpgradeId = (gen: number, lab: LabId) => `s:${gen}:${lab}`;
+/** Канонический id пары: Лаборатории всегда отсортированы, чтобы `A×B` и `B×A`
+ *  не давали два разных Апгрейда на одну и ту же пару. */
+export const pairSynergyUpgradeId = (gen: number, a: LabId, b: LabId) => {
+  const [first, second] = a < b ? [a, b] : [b, a];
+  return `s:${gen}:${first}x${second}`;
+};
 
 export function upgradesFor(gen: Generation): Upgrade[] {
   const list: Upgrade[] = [];
@@ -66,6 +80,48 @@ export function upgradesFor(gen: Generation): Upgrade[] {
       desc: `Каждый агент ${LABS[lab].name} даёт +1% дохода всем моделям ${LABS[lab].name}`,
       cost: labModels[0].baseCost * 1000,
       lab,
+    });
+  }
+  // Парные синергии «Совместный датасет A×B»: в отличие от одиночных, каждой Лаборатории
+  // достаточно одной Модели в Поколении — пара собирается из состава, а не из глубины ростера.
+  const labCount = new Map<LabId, number>();
+  const firstCost = new Map<LabId, number>();
+  for (const lab of LAB_IDS) {
+    const labModels = gen.models.filter((m) => m.lab === lab);
+    if (labModels.length === 0) continue;
+    labCount.set(lab, labModels.length);
+    firstCost.set(lab, labModels[0].baseCost);
+  }
+  const labs = [...labCount.keys()];
+  const pairs: Array<[LabId, LabId]> = [];
+  for (let i = 0; i < labs.length; i++) {
+    for (let j = i + 1; j < labs.length; j++) {
+      const [a, b] = labs[i] < labs[j] ? [labs[i], labs[j]] : [labs[j], labs[i]];
+      pairs.push([a, b]);
+    }
+  }
+  // Топ по суммарному числу Моделей: такие пары игрок откроет раньше всего, а id пар
+  // стабильны — состав Лабораторий идёт из сидов, а не из снапшота, поэтому сортировка
+  // Рангов на набор пар не влияет и старые сохранения не осиротеют.
+  pairs.sort((p, q) => {
+    const nP = labCount.get(p[0])! + labCount.get(p[1])!;
+    const nQ = labCount.get(q[0])! + labCount.get(q[1])!;
+    if (nQ !== nP) return nQ - nP;
+    if (p[0] !== q[0]) return p[0] < q[0] ? -1 : 1;
+    return p[1] < q[1] ? -1 : 1;
+  });
+  for (const [a, b] of pairs.slice(0, MAX_PAIR_SYNERGIES_PER_GEN)) {
+    list.push({
+      id: pairSynergyUpgradeId(gen.index, a, b),
+      kind: 'synergy',
+      name: `Совместный датасет: ${LABS[a].name} × ${LABS[b].name}`,
+      desc: `Доход моделей ${LABS[a].name} и ${LABS[b].name} ×1.5, пока в каждой ≥15 Агентов`,
+      // Цена от более дорогой стороны пары, тем же приёмом, что одиночная синергия:
+      // берётся baseCost первой (самой дешёвой) Модели Лаборатории, а не флагмана,
+      // иначе пара стоила бы как конец Поколения и не покупалась бы никогда.
+      cost: Math.max(firstCost.get(a)!, firstCost.get(b)!) * 1000,
+      lab: a,
+      pairLab: b,
     });
   }
   return list;
@@ -113,6 +169,11 @@ export function isUpgradeUnlocked(state: GameState, u: Upgrade): boolean {
       return prevOk && state.runTokens >= u.cost / 4;
     }
     case 'synergy':
+      // Пара открывается только составом 15/15: одна перекачанная Лаборатория
+      // вторую не вытягивает.
+      if (u.pairLab !== undefined) {
+        return labAgents(state, u.lab) >= SYNERGY_MIN_AGENTS && labAgents(state, u.pairLab) >= SYNERGY_MIN_AGENTS;
+      }
       return labAgents(state, u.lab) >= SYNERGY_MIN_AGENTS;
   }
 }
