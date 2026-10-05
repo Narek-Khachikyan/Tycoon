@@ -345,6 +345,10 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
             className="scene__img"
             src={SCENE_SRC[sceneShown.curr]}
             alt=""
+            // Декоративная картинка, и по правилу репозитория декоративное помечается
+            // aria-hidden, а не только пустым alt: озвучка иначе читает «изображение» перед
+            // подписью «ОФИС АГЕНТОВ», которая и так всё объясняет.
+            aria-hidden="true"
             draggable={false}
             style={sceneImgStyle(sceneFilter(grade))}
           />
