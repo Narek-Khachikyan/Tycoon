@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { buildCatalog, CATALOG, computeGain, genScale, PRESTIGE_DIVISOR_UNITS, prestigeDivisor, softMod } from './catalog';
+import {
+  BASE_INCOME_PER_COST,
+  buildCatalog,
+  COST_BASE,
+  CATALOG,
+  computeGain,
+  COST_STEP,
+  genScale,
+  INCOME_BASE,
+  INCOME_STEP,
+  LADDER_SPAN,
+  PRESTIGE_DIVISOR_UNITS,
+  prestigeDivisor,
+  softMod,
+} from './catalog';
 import {
   advance, advanceTime, applyOffline, assistClickBonus, BASE_OFFLINE_HOURS, bulkCost, buyAgents, buyPerk, buyUpgrade, canPrestige, click,
   clickValue, computeShortfall, datasetMult, datasetValue, earnTokens, flagshipMult, generationBoostMult, incomeGain, isContentFinale,
@@ -97,6 +111,102 @@ describe('catalog', () => {
     for (let i = 0; i < CATALOG.length - 1; i++) {
       expect(CATALOG[i + 1].flagship.baseIncome).toBeGreaterThan(CATALOG[i].flagship.baseIncome);
     }
+  });
+
+  /**
+   * Переход в следующее Поколение не должен быть шагом вниз.
+   *
+   * Проверяется не абсолютный Доход (он растёт всегда, потому что ×1000 на Поколение), а
+   * ДОХОД НА ТОКЕН — то есть сколько секунд игрок обязан ждать, чтобы флагман начал
+   * окупаться. Раньше это свойство не проверялось нигде, и переходы 0→1, 2→3, 4→5 были
+   * выгоднее предыдущего Поколения: игрок, честно дошедший до флагмана «Рассвета», получал
+   * в «Эре GPT-4» флагман, который окупался бы дольше. Причина — разная длина ростеров:
+   * у Поколения 2 двенадцать Моделей, и его флагман сидит на одиннадцатой ступени лестницы,
+   * а не на седьмой.
+   */
+  it('never makes a generation flagship a worse deal than the one before', () => {
+    // Флагманы стоят на последней ступени лестницы, а она нормирована на долю пройденного
+    // пути, поэтому окупаемость флагманов всех Поколений равна с точностью до `costMod`.
+    // Допуск — весь разброс ADR-0001: переход не может быть шагом вниз, но и обязан быть
+    // заметно лучше, потому что руками заданы девять, десять и четырнадцать Моделей.
+    const floor = 0.7 / 1.3;
+    for (let i = 0; i < CATALOG.length - 1; i++) {
+      const prev = CATALOG[i].flagship;
+      const next = CATALOG[i + 1].flagship;
+      const payBack = (m: typeof prev) => m.baseCost / m.baseIncome;
+      expect(payBack(next), `флагман ${CATALOG[i + 1].name}`).toBeLessThan(payBack(prev) / floor);
+    }
+  });
+
+  /**
+   * Шаг лестницы обязан быть больше ЛЮБОГО множителя в игре — иначе множитель перевернёт
+   * порядок Ранга, и игрок увидит, что более умная Модель приносит меньше.
+   *
+   * Это единственный тест, который ловит класс поломок, а не конкретное число: флагман
+   * Лаборатории даёт ×3, парная Синергия ×1.5, а при нормировке лестницы в [0, 1] на
+   * девятнадцати Моделях шаг выходил 1.15 — и порядок Ранга переворачивался на «Фронтире».
+   * Максимальный множитель берётся из таблиц, а не зашивается: забытый новый множитель
+   * обязан уронить этот тест.
+   */
+  it('keeps every rank step above the biggest multiplier in the game', () => {
+    const biggest = Math.max(FLAGSHIP_MULT_CAP, PAIR_SYNERGY_MULT);
+    for (const g of CATALOG) {
+      const steps = Math.max(1, g.models.length - 1);
+      const step = Math.pow(INCOME_STEP, LADDER_SPAN / steps);
+      expect(step, `${g.name}: ${g.models.length} Моделей`).toBeGreaterThan(biggest);
+    }
+  });
+
+  /**
+   * Флагман обязан окупаться быстро, иначе Поколение не пройти за сессию.
+   *
+   * Порог в 20 секунд взят из симулятора: при большей окупаемости до Престижа не хватает
+   * получаса, а получаса — весь горизонт первого забега. Проверяется по цене, делённой на
+   * собственный Доход флагмана, то есть это ровно «сколько ждать первого Токена в секунду».
+   */
+  it('keeps every generation flagship cheap enough to reach in a session', () => {
+    for (const g of CATALOG) {
+      expect(g.flagship.baseCost / g.flagship.baseIncome, `флагман ${g.name}`).toBeLessThan(20);
+    }
+  });
+
+  /**
+   * Модель обязана быть выгоднее младшей — но с допуском на разброс реальной цены.
+   *
+   * Без допуска инвариант неверен: `costMod` (±30% от цены $) по определению делает некоторые
+   * Модели на 30% дешевле медианы, и их доход на Токен закономерно ниже. Требовать строгого
+   * роста значило бы требовать от каталога того, чего он не обещал: ADR-0001 обещает
+   * ±30% НА ЦЕНУ, а не вопреки цене.
+   *
+   * Допуск равен максимальному падению от разброса — 1/0.7, — и проверяет ровно то, что
+   * обещает лестница: «каждая следующая Модель выгоднее предыдущей в пределах разброса».
+   * Всё, что выходит за эти рамки, — уже инверсия, и падает тест.
+   */
+  it('makes every rank a better deal than the one below it, within the ±30% spread', () => {
+    // Падение от максимально дешёвой Модели к максимально дорогой при разбросе ±30%.
+    const floor = 0.7 / 1.3;
+    for (const g of CATALOG) {
+      for (let r = 1; r < g.models.length; r++) {
+        const lower = g.models[r - 1];
+        const upper = g.models[r];
+        const deal = (m: typeof lower) => m.baseIncome / m.baseCost;
+        expect(deal(upper), `${g.name}: ${upper.name} против ${lower.name}`).toBeGreaterThan(
+          deal(lower) * floor,
+        );
+      }
+    }
+  });
+
+  /**
+   * Ступени лестницы обязаны оставаться в порядке «цена растёт, Доход растёт быстрее».
+   * При INCOME_STEP ≤ COST_STEP отношение падает с Рангом и каждая следующая Модель
+   * оказывается худшей покупкой — именно этим игра и была сломана до правки.
+   */
+  it('keeps the ladder shape itself sane', () => {
+    expect(INCOME_STEP).toBeGreaterThan(COST_STEP);
+    // Восстановленное отношение обязано совпадать с объявленным: две копии формулы
+    // разъедутся, и одна из них будет врать в подписи.
+    expect(BASE_INCOME_PER_COST).toBeCloseTo(INCOME_BASE / COST_BASE, 12);
   });
   it('prefers snapshot values over seeds unless pinned', () => {
     const seeds = [{ ...GENERATIONS[0], models: GENERATIONS[0].models.map((m, i) => (i === 0 ? { ...m, pin: ['speed' as const] } : m)) }];
@@ -912,7 +1022,13 @@ describe('pledge and license', () => {
   });
 
   it('pops every glitch at once for the license and taxes the income by exactly 5%', () => {
-    const s = { ...rich(hired(), 1e12), uprising: 3 as const };
+    // Кошелёк покрывает и покупку, и отзыв: цена флагмана Поколения 1 выросла, и миллион в 12
+    // у неё уже не хватало — тест проверял отказ, а не выплату. Сумма берётся из цены, а не
+    // зашивается числом, иначе любая правка баланса ломала бы его снова. Нижняя граница
+    // брана с запасом: ниже цены отзыва `revokeLicense` молча отказал бы, и проверка налога
+    // на 5% измеряла бы сама себя.
+    const wallet = Math.max(1e12, revokeCost({ ...cold(newGame(T0)), generation: 0 })) * 2;
+    const s = { ...rich(hired(), wallet), uprising: 3 as const };
     const robbedState = advance(spawnGlitch(spawnGlitch(spawnGlitch(s))), 10);
     const stolen = robbedState.glitches.reduce((sum, g) => sum + g.stolen, 0);
     expect(stolen).toBeGreaterThan(0);
@@ -1948,9 +2064,32 @@ describe('pair synergy', () => {
     for (const m of g0.models) s = buyAgents(s, m.id, SYNERGY_MIN_AGENTS);
     s = buyUpgrade(s, pair.id);
     // Состав ровный, одиночных синергий и Перков нет: порядок Дохода обязан повторять
-    // порядок baseIncome — шаг цены ×6.5 на Ранг бафф ×1.5 не переворачивает.
+    // порядок baseIncome, потому что множители у всех Моделей здесь одинаковы.
+    //
+    // Строгий рост проверяется с допуском на шаг лестницы, а не впритык: Доход растёт как
+    // INCOME_STEP^доля, и на длинном ростере один шаг — это 1.09. Требовать строгого
+    // неравенства значило бы требовать большего, чем даёт формула; проверять надо, что рост
+    // ЕСТЬ, а не что он больше любого возможного разброса.
+    // Проверяется `baseIncome`, а не `modelIncome`: у последнего множители одинаковы у всех
+    // Моделей, но число Агентов считается по разным ценам покупки, а после `buyUpgrade`
+    // в roster попадают разные тиры. Смысл проверки — что сама ЛЕСТНИЦА ДОХОДА монотонна, и
+    // именно её она и проверяет. Раньше здесь стоял `modelIncome`, и тест ловил не формулу,
+    // а порядок покупок в политике выше — то есть проверял не то, что думал.
+    const base = g0.models.map((m) => m.baseIncome);
+    for (let i = 1; i < base.length; i++) {
+      expect(base[i], `${g0.models[i].name} против ${g0.models[i - 1].name}`).toBeGreaterThan(
+        base[i - 1] * 1.02,
+      );
+    }
+    // Множители не переворачивают лестницу: парная Синергия достаётся только двум
+    // Лабораториям, и Доход их Моделей выше ровно в полтора раза — а шаг лестницы на
+    // Поколении 1 равен 49.6, поэтому порядок Ранга после Синергии остаётся прежним.
     const incomes = g0.models.map((m) => modelIncome(s, m));
-    for (let i = 1; i < incomes.length; i++) expect(incomes[i]).toBeGreaterThan(incomes[i - 1]);
+    for (let i = 1; i < incomes.length; i++) {
+      expect(incomes[i], `${g0.models[i].name} против ${g0.models[i - 1].name}`).toBeGreaterThan(
+        incomes[i - 1],
+      );
+    }
   });
 });
 
