@@ -142,9 +142,9 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void;
         className="pixel-btn"
         aria-label="Закрыть уведомление"
         title="Закрыть"
-        style={{ padding: '2px 6px', fontSize: '0.8rem', flexShrink: 0 }}
+        style={{ padding: '2px 6px', flexShrink: 0 }}
       >
-        ✕
+        <Icon name="close" size={12} />
       </button>
     </div>
   );

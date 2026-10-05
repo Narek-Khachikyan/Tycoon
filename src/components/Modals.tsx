@@ -186,7 +186,7 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
             title="Закрыть"
             style={{ padding: '4px 10px' }}
           >
-            ✕
+            <Icon name="close" />
           </button>
         </div>
 
@@ -369,7 +369,7 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
             title="Закрыть"
             style={{ padding: '4px 10px' }}
           >
-            ✕
+            <Icon name="close" />
           </button>
         </div>
 
@@ -566,7 +566,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
             title="Закрыть"
             style={{ padding: '4px 10px' }}
           >
-            ✕
+            <Icon name="close" />
           </button>
         </div>
 
@@ -619,8 +619,8 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
             (это псевдоэлементы), поэтому настраивается только accentColor. */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-            <label htmlFor="settings-volume" style={{ fontWeight: 600 }}>
-              Громкость
+            <label htmlFor="settings-volume" style={{ fontWeight: 600, display: 'flex', gap: '6px' }}>
+              <Icon name="volume" /> Громкость
             </label>
             <span style={{ color: 'var(--text-main)' }}>
               <Num>{Math.round(state.settings.volume * 100)}</Num>%
@@ -667,7 +667,12 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
 
           {/* Экспорт */}
           <div>
-            <button onClick={handleExport} className="pixel-btn" style={{ width: '100%' }}>
+            <button
+              onClick={handleExport}
+              className="pixel-btn"
+              style={{ width: '100%', display: 'flex', gap: '6px', justifyContent: 'center' }}
+            >
+              <Icon name="export" />{' '}
               {copyStatus ? 'Скопировано в буфер!' : 'Скопировать сохранение в буфер'}
             </button>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
@@ -696,15 +701,30 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
               <button
                 onClick={handleImport}
                 className="pixel-btn pixel-btn-accent"
-                style={{ padding: '8px 12px' }}
+                style={{ padding: '8px 12px', display: 'flex', gap: '6px' }}
               >
-                Импорт
+                <Icon name="import" /> Импорт
               </button>
             </div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
               Вставь код в поле Импорт и нажми — сейв заменится целиком. Внимание: импорт заменяет текущий Забег!
             </div>
-            {errorMsg && <div style={{ color: 'var(--red)', fontSize: '0.8rem', marginTop: '4px' }}>{errorMsg}</div>}
+            {errorMsg && (
+              // Значок в строку с ошибкой: импорт отвергнут, и это единственное место, где игрок
+              // теряет прогресс из-за чужой ошибки — предупреждение читается быстрее текста.
+              <div
+                style={{
+                  color: 'var(--red)',
+                  fontSize: '0.8rem',
+                  marginTop: '4px',
+                  display: 'flex',
+                  gap: '6px',
+                  alignItems: 'center',
+                }}
+              >
+                <Icon name="warning" size={14} /> {errorMsg}
+              </div>
+            )}
           </div>
         </div>
 
@@ -718,8 +738,17 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
             gap: '8px',
           }}
         >
-          <div style={{ fontWeight: 600, color: 'var(--red)', fontSize: '0.9rem' }}>
-            Опасная зона: Сброс прогресса
+          <div
+            style={{
+              fontWeight: 600,
+              color: 'var(--red)',
+              fontSize: '0.9rem',
+              display: 'flex',
+              gap: '6px',
+              alignItems: 'center',
+            }}
+          >
+            <Icon name="warning" size={14} /> Опасная зона: Сброс прогресса
           </div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
             Сброс удалит Токены, Агентов, Апгрейды и Compute навсегда. Начнётся новая чистая игра с первого Забега.
@@ -736,9 +765,13 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
                   color: '#ffffff',
                   padding: '8px',
                   fontSize: '0.85rem',
+                  display: 'flex',
+                  gap: '6px',
+                  justifyContent: 'center',
+                  alignItems: 'center',
                 }}
               >
-                Точно сбросить? Нажми для подтверждения
+                <Icon name="reset" size={14} /> Точно сбросить? Нажми для подтверждения
               </button>
               <button
                 onClick={() => setConfirmReset(false)}
@@ -756,12 +789,16 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
                 width: '100%',
                 backgroundColor: 'var(--tint-red)',
                 borderColor: 'var(--red)',
-                color: '#fca5a5',
+                color: 'var(--red-text)',
                 padding: '8px',
                 fontSize: '0.85rem',
+                display: 'flex',
+                gap: '6px',
+                justifyContent: 'center',
+                alignItems: 'center',
               }}
             >
-              Сбросить весь прогресс
+              <Icon name="reset" size={14} /> Сбросить весь прогресс
             </button>
           )}
         </div>
@@ -889,7 +926,7 @@ export const OfflineModal: React.FC = () => {
             fontSize: '2rem',
             color: 'var(--green)',
             // Ореол остаётся литералом: --tint-green — это 10% подложка, а свечению нужно 50%.
-            textShadow: '0 0 10px rgba(74, 222, 128, 0.5)',
+            textShadow: '0 0 10px var(--green-glow)',
           }}
         >
           +<Num>{formatNumber(offlineReport.earned, notation)}</Num> Токенов
@@ -1162,7 +1199,7 @@ export const PrestigeModal: React.FC = () => {
             title="Закрыть"
             style={{ padding: '4px 10px' }}
           >
-            ✕
+            <Icon name="close" />
           </button>
         </div>
 
@@ -1200,7 +1237,7 @@ export const PrestigeModal: React.FC = () => {
                 fontSize: '0.9rem',
                 // Светлее --red намеренно: на собственной красной подложке --red тонет в
                 // заливке, а причина отказа обязана читаться.
-                color: '#fca5a5',
+                color: 'var(--red-text)',
               }}
             >
               Престиж сейчас невозможен. {blocked}
@@ -1374,7 +1411,7 @@ export const FinaleModal: React.FC = () => {
           aria-label="Закрыть"
           title="Закрыть"
         >
-          ✕
+          <Icon name="close" />
         </button>
 
         <div style={{ fontSize: '2.5rem', lineHeight: 1 }}>

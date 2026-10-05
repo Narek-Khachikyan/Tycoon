@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { LABS } from '../data/labs';
 import { QUIPS } from '../data/quips';
 import { quipsSeenOf, useGameStore } from '../store/useGameStore';
+import { Icon } from './Icon';
 import { MascotSprite } from './MascotSprite';
 import { useDialogFocus } from './useDialogFocus';
 import { THREE_COL_MIN } from '../layout';
@@ -158,7 +159,7 @@ export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
             title="Закрыть"
             style={{ padding: "4px 10px" }}
           >
-            ✕
+            <Icon name="close" />
           </button>
         </div>
 
