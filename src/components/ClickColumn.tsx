@@ -7,6 +7,8 @@ import { Icon } from './Icon';
 import { GoldenToken } from './GoldenToken';
 import { QuipBubble } from './QuipBubble';
 import { OnboardingCoach } from './OnboardingCoach';
+import { ThermalDial } from './ThermalDial';
+import { MilestoneStrip } from './MilestoneStrip';
 
 /** За сколько миллисекунд счётчик съедает 63% расстояния до цели: каждый кадр отнимает
  *  долю dt / APPROACH_MS остатка, поэтому число тормозит, а не разгоняется, и скорость
@@ -196,7 +198,7 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
       ))}
 
       {/* Токены и Доход */}
-      <div style={{ textAlign: 'center', width: '100%' }}>
+      <div className="click-counter" style={{ textAlign: 'center', width: '100%' }}>
         {/* Пустой узел: текст сюда пишет только requestAnimationFrame, и любой ререндер
             React затирал бы его своими детьми на каждом тике. */}
         <div
@@ -251,14 +253,20 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
           объявление. */}
       <GoldenToken />
 
-      {/* Большая кнопка Клика: сила растёт с прогрессом офиса */}
-      <button
+      {/* Веха и шкала Температуры */}
+      <div style={{ width: '100%', marginTop: '2px' }}>
+        <MilestoneStrip />
+      </div>
+      <ThermalDial />
+
+      {/* Большая кнопка Клиreg */}
+<button
         ref={btnRef}
         onClick={handleClick}
         onAnimationEnd={handleSquashEnd}
         aria-label="Отправить промпт"
         data-power-tier={clickPowerTier}
-        className="pixel-btn pixel-btn-accent pulse-glow click-btn"
+className="pixel-btn pixel-btn-accent pulse-glow click-btn"
         style={{
           width: '100%',
           padding: '24px 16px',
@@ -278,7 +286,12 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
             fontWeight: 400,
           }}
         >
-          +<Num>{formatNumber(cVal, notation)}</Num> Токенов за клик
+          {/* Существительное склоняется по числу: «+1 Токенов за клик» — ошибка, которую игрок
+              видит буквально на первой кнопке первой минуты. Величина может быть дробной
+              («1,44 B»), и там множественное верно, поэтому одна форма на «1» сломала бы
+              вторую половину диапазона. */}
+          +<Num>{formatNumber(cVal, notation)}</Num>{' '}
+          {formatCount(Math.floor(cVal), 'Токен', 'Токена', 'Токенов')} за клик
         </span>
       </button>
 

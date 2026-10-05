@@ -45,8 +45,37 @@ const NEWS: NewsItem[] = [
 ];
 
 export function pickNews(s: GameState, rnd = Math.random): string {
-  const pool = NEWS.filter((n) => !n.when || n.when(s));
-  return pool[Math.floor(rnd() * pool.length)].text;
+  const pool = newsPool(s);
+  return pool[Math.floor(rnd() * pool.length)];
+}
+
+/**
+ * Все новости, доступные при текущем состоянии.
+ *
+ * Вынесено отдельно от `pickNews`, потому что бегущая строка заполняет себя копиями: раньше
+ * она повторяла одну и ту же подобранную новость, и в начале игры — когда доступно шесть
+ * заголовков — игрок трижды подряд читал одну и ту же фразу. Лента обязана крутить разные.
+ *
+ * Порядок пула детерминирован (порядок объявления), поэтому строка не «прыгает» при пересборке.
+ */
+export function newsPool(s: GameState): string[] {
+  return NEWS.filter((n) => !n.when || n.when(s)).map((n) => n.text);
+}
+
+/**
+ * Подборка строки бегущей ленты: первая новость — уже подобранная сторем, остальные копии
+ * заполняются оставшимися заголовками по кругу.
+ *
+ * Первая копия остаётся из стора намеренно: на неё завязана смена новости — когда лента
+ * обновляется, пересобирается вся строка, и первый заголовок обязан совпасть с тем, что игрок
+ * видел в момент обновления. При нехватке заголовков копии повторяются, но не подряд: дальше
+ * идёт снова пул, а не одна и та же фраза три раза подряд.
+ */
+export function tickerLine(headline: string, pool: readonly string[], copies: number): string[] {
+  const rest = pool.filter((t) => t !== headline);
+  const line = [headline];
+  for (let i = 0; i < copies - 1; i++) line.push(rest.length ? rest[i % rest.length] : headline);
+  return line;
 }
 
 /**

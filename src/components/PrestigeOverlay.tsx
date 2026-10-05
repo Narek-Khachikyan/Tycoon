@@ -1,9 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motionAllowed, useGameStore } from '../store/useGameStore';
 import { CATALOG } from '../economy/catalog';
-import { CHALLENGES, canStartChallenge } from '../economy/challenges';
 import { formatNumber } from '../economy/format';
-import { clickColWidth, shopColWidth, THREE_COL_MIN } from '../layout';
 import { Num } from './Num';
 
 /** Карточка держится столько, затем кроссфейд выхода. */
@@ -17,90 +15,6 @@ const TICK_MS = 1200;
 const MOTES = 14;
 
 /**
- * Выбор испытания на свежем забеге. Испытание стартует только здесь: ядро разрешает его
- * лишь пока забег свежий, и блок виден ровно пока canStartChallenge. Несвежий забег скрывает
- * блок целиком, а не гасит кнопки: выбирать там уже нечего. После выбора ядро само выводит
- * забег из «свежих», поэтому локального состояния у блока нет — видимость читается из стора.
- *
- * Карточка не вуаль: игра под ней идёт, и выбор не блокирует Клик. Лежит над колонной Офиса,
- * а не над магазином: офис — единственная колонка с декоративной картинкой, и перекрывать её
- * ничего не теряет, тогда как над магазином карточка закрывала список Моделей — самый нужный
- * контент первых минут. Ширина колонн берётся из layout, иначе якоря разошлись бы с раскладкой.
- */
-const ChallengePicker: React.FC = () => {
-  const state = useGameStore((s) => s.state);
-  const startChallenge = useGameStore((s) => s.startChallenge);
-  if (!canStartChallenge(state)) return null;
-  // `canStartChallenge` — это про ДОПУСТИМОСТЬ, а не про момент вопроса, и на первом забеге эти
-  // два смысла разошлись: условие требует `runClicks === 0`, то есть панель была верна только
-  // пока игрок не сделал ничего. Она перекрывала Сцену, стояла поверх неё `position: fixed` и
-  // перехватывала клики, а текст объяснял Престиж — до которого на первом забеге ещё 83 минуты.
-  // Замерено на свежем сейве: панель видна с нулевого клика и исчезает после первого, то есть
-  // ровно тогда, когда игрок начал играть.
-  //
-  // Спрашивать имеет смысл после первого Престижа: к этому моменту Престиж уже знаком, а забег
-  // только что начался — ровно то окно, для которого условие «свежий забег» и писалось.
-  if (state.generation === 0) return null;
-  // Без слушателя ресайза: стор тикает каждые 50 мс, и подписка на состояние перерисовывает
-  // карточку так часто, что ширина читается свежей без нового таймера.
-  const vw = typeof window === 'undefined' ? THREE_COL_MIN : window.innerWidth;
-  const single = vw < THREE_COL_MIN;
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        left: single ? '12px' : clickColWidth(vw) + 12,
-        right: single ? '12px' : shopColWidth(vw) + 12,
-        bottom: single ? '132px' : '72px',
-        zIndex: 40,
-        display: 'flex',
-        justifyContent: 'center',
-        pointerEvents: 'none',
-      }}
-    >
-      <div
-        className="pixel-card"
-        style={{
-          pointerEvents: 'auto',
-          width: '100%',
-          maxWidth: '320px',
-          padding: '12px 14px',
-          backgroundColor: 'var(--bg-card)',
-          border: '2px solid var(--gold)',
-          boxShadow: '0 4px 14px rgba(0,0,0,0.5)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '8px',
-        }}
-      >
-      <div style={{ fontSize: '0.9rem', color: 'var(--gold)' }}>Испытание Забега</div>
-      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-        Особое условие до следующего Престижа. Награда за прохождение — +10% к Доходу навсегда.
-      </div>
-      {CHALLENGES.map((c) => (
-        <button
-          key={c.id}
-          className="pixel-btn"
-          onClick={() => startChallenge(c.id)}
-          style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '2px' }}
-        >
-          <span style={{ fontSize: '0.85rem' }}>{c.name}</span>
-          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{c.desc}</span>
-        </button>
-      ))}
-      <button
-        className="pixel-btn"
-        onClick={() => startChallenge(null)}
-        style={{ color: 'var(--text-muted)' }}
-      >
-        Без испытания
-      </button>
-      </div>
-    </div>
-  );
-};
-
-/**
  * Полноэкранный отклик на Престиж в духе экрана вознесения Cookie Clicker: затемнение,
  * карточка нового Поколения с тикающим Compute и восходящие искры.
  * Яркой вспышки на весь экран нет намеренно — это триггер фоточувствительности,
@@ -110,11 +24,7 @@ const ChallengePicker: React.FC = () => {
 export const PrestigeOverlay: React.FC = () => {
   const burst = useGameStore((s) => s.burst);
   const notation = useGameStore((s) => s.state.settings.notation);
-  const [shown, setShown] = useState<{
-    generation: number;
-    computeGain: number;
-    challengeId?: 'no-synergy' | 'no-click';
-  } | null>(null);
+  const [shown, setShown] = useState<{ generation: number; computeGain: number } | null>(null);
   const [exiting, setExiting] = useState(false);
   const [withMotion, setWithMotion] = useState(false);
   const gainRef = useRef<HTMLSpanElement>(null);
@@ -139,6 +49,9 @@ export const PrestigeOverlay: React.FC = () => {
     setExiting(false);
     setWithMotion(motion);
     // Счётчик пишет прямо в DOM-ноду, как счётчик Токенов: ре-рендер на каждый кадр не нужен.
+    // Письмо идёт в textContent, поэтому класс pixel-font обязан стоять на самой этой ноде —
+    // на обёртке он остался бы в Nunito, и число меняло бы начертание в момент старта
+    // тиканья, то есть ровно тогда, когда игрок на него смотрит.
     let raf = 0;
     if (motion && payload.computeGain > 0) {
       const t0 = performance.now() + TICK_DELAY_MS;
@@ -162,13 +75,8 @@ export const PrestigeOverlay: React.FC = () => {
     };
   }, [burst?.kind, burst?.nonce, notation]);
 
-  if (!shown) return <ChallengePicker />;
+  if (!shown) return null;
   const gen = CATALOG[shown.generation];
-  // Престиж с активным испытанием: подтверждение называет его награду. Название и процент
-  // читаются из таблицы ядра, а не из полезной нагрузки: стор привозит только id.
-  const challenge = shown.challengeId
-    ? CHALLENGES.find((c) => c.id === shown.challengeId)
-    : undefined;
 
   return (
     <div
@@ -197,26 +105,31 @@ export const PrestigeOverlay: React.FC = () => {
           />
         ))}
       <div className="prestige-card pixel-card" style={{ textAlign: 'center', padding: '28px 36px' }}>
-        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', letterSpacing: '4px' }}>
+        <div
+          style={{
+            fontSize: '0.85rem',
+            color: 'var(--text-muted)',
+            letterSpacing: '4px',
+            // Отступ первой строки равен межбуквенному: последняя буква разрядки тоже занимает
+            // 4 px, и без компенсации центрированная надпись висела на 4 px левее середины.
+            textIndent: '4px',
+          }}
+        >
           ПРЕСТИЖ
         </div>
-        {/* Без pixel-font: строка целиком кириллическая, а в Pixelify Sans нет даже «П»,
-            и буквы брали бы запасной шрифт по одной — микс внутри строки (ADR-0003).
-            Пиксельным остаётся число ниже, обёрнутое в Num. */}
+        {/* Строка названия Поколения — в Nunito: слово «Поколение» кириллическое, а в
+            Pixelify Sans её нет (ADR-0003), и в пиксельном начертании она молча уходила в
+            фолбэк — слово обычным шрифтом рядом с пиксельным номером на одной строке.
+            Пиксельным остаётся только число, ради которого этот приём и существует. */}
         <div style={{ fontSize: '1.6rem', color: 'var(--accent-color)' }}>
-          Поколение {shown.generation + 1}: {gen.name}
+          Поколение <Num>{shown.generation + 1}</Num>: {gen.name}
         </div>
         <div style={{ fontSize: '1rem', color: 'var(--text-main)' }}>
-          +<span ref={gainRef}>
-            <Num>{withMotion ? 0 : shown.computeGain}</Num>
+          +<span ref={gainRef} className="pixel-font">
+            {withMotion ? 0 : shown.computeGain}
           </span>{' '}
           Compute навсегда
         </div>
-        {challenge && (
-          <div style={{ fontSize: '0.85rem', color: 'var(--gold)' }}>
-            Испытание пройдено: {challenge.name} — награда +{challenge.rewardPct}% к Доходу навсегда
-          </div>
-        )}
         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>нажми, чтобы продолжить</div>
       </div>
     </div>

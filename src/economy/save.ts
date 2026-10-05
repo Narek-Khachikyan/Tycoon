@@ -1,9 +1,11 @@
 import { CATALOG, MODEL_BY_ID } from './catalog';
 import { CRYSTAL_UPGRADE_BY_ID } from './crystal';
 import { uprisingStage } from './glitches';
+import { MILESTONE_BY_ID } from './milestones';
 import { PERK_BY_ID } from './perks';
 import { DEFAULT_VOLUME, EVENT_KINDS, newGame, SAVE_VERSION, type ActiveEvent, type EventKind, type GameState, type Glitch } from './state';
 import { QUIPS_SEEN_CAP } from './quips';
+import { clampTemp, TEMP_START } from './thermal';
 import { UPGRADE_BY_ID } from './upgrades';
 
 export const SAVE_KEY = 'ai-tycoon-save'; // Имя ключа — наследие AI Tycoon: переименование сотрёт живые прохождения, поэтому ключ не меняется вместе с названием игры.
@@ -21,11 +23,7 @@ const MIGRATIONS: Record<number, Migration> = {
   }),
   // Кристаллы, события, Глюки и откуп появились в v3. У живого сохранения их нет, поэтому каждое
   // поле получает здесь то же значение, что и newGame (кроме стадии Восстания — она выводится из
-  // Поколения): миграция обязана оставить игроку игру, а не половину игры. Ни одно из них не
-  // восстанавливается — это чистые добавления.
-  // Поля внутри записей (red и modelId события, clicks Глюка) дополняет не миграция, а разбор
-  // ниже: у v2 их не бывает, а довести до ума любую запись события или Глюка обязан migrate —
-  // в том числе пришедшую из v3.
+  // Поколения): миграция обязана оставить игроку игру, а не половину игры.
   2: (raw) => ({
     ...raw,
     version: 3,
@@ -37,9 +35,6 @@ const MIGRATIONS: Record<number, Migration> = {
     event: null,
     glitchSeq: 0,
     glitches: [],
-    // Стадия Восстания выводится из своего Поколения, а не ставится нулём: у сохранения с
-    // Поколением 5 ноль означал бы мир без красных событий и без откупов навсегда — при живых
-    // Глюках, которых откуп больше нечем купить.
     uprising: uprisingStage(num(raw.generation, 0)),
     pledgeUntil: 0,
     pledgeBought: 0,
@@ -81,179 +76,195 @@ const MIGRATIONS: Record<number, Migration> = {
     version: 7,
     settings: { ...((raw.settings as object) ?? {}), volume: DEFAULT_VOLUME },
   }),
+  // Температура, перегрев, отметка перегрева и вехи появились в v8.
+  7: (raw) => ({
+    ...raw,
+    version: 8,
+    temp: TEMP_START,
+    heat: 0,
+    overheatedAt: 0,
+    milestones: [],
+  }),
 };
 
 const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 
-/** Неотрицательное целое: счётчики и id не могут быть дробными или отрицательными. */
-const count = (v: unknown) => Math.max(0, Math.floor(num(v, 0)));
-
-/** Мс Unix: отрицательное время не значит ничего, поэтому оно читается как «не задано». */
-const stamp = (v: unknown) => Math.max(0, num(v, 0));
+/**
+ * Неотрицательное целое число для счётчиков прогресса.
+ * Дробный хвост или NaN из чужого/битого сохранения сбрасывается в 0,
+ * иначе цикл for по agents или glitches уйдёт в зависание или пропустит тело.
+ */
+const count = (v: unknown): number => {
+  const n = num(v, 0);
+  return n > 0 ? Math.floor(n) : 0;
+};
 
 /**
- * Неотрицательное число без округления — для доли, а не для счётчика.
- *
- * Масштаб `stolen` принадлежит таблице Глюков, поэтому миграция не решает за неё, что это за
- * доля, и только гарантирует конечное неотрицательное число: округление здесь стёрло бы
- * половину украденного у живого игрока.
+ * Неотрицательный штамп времени Unix в миллисекундах.
+ * Отрицательное число или NaN из сохранения ломали бы вычитание с Date.now(),
+ * порождая вечные окна Событий и Глюков.
  */
-const share = (v: unknown) => Math.max(0, num(v, 0));
+const stamp = (v: unknown): number => Math.max(0, num(v, 0));
 
 /**
- * Доля 0..1 — громкость.
- *
- * Зажимать обязан именно разбор: `importSave` берёт чужой файл целиком, и без зажима в нём может
- * лежать `volume: 9999` — тогда следующий звук ударил бы на полной мощности усилителя (и обрезался
- * бы хрипом), а `volume: -5` дал бы неслышимую игру при настройке «звук включён». Не-число читается
- * как «игрок ничего не выбирал», то есть как дефолт: мусор в чужом файле не должен выбирать за него.
+ * Доля [0, 1] для величин вроде украденной Глюком доли дохода.
+ * За пределами отрезка она превращала бы один Глюк в уничтожение экономики
+ * либо в отрицательную кражу (доход из воздуха).
  */
-const level = (v: unknown, d: number) => Math.min(1, Math.max(0, num(v, d)));
-
-const strList = (x: unknown) => (Array.isArray(x) ? x.filter((s): s is string => typeof s === 'string') : []);
-
-const isEventKind = (v: unknown): v is EventKind => typeof v === 'string' && (EVENT_KINDS as readonly string[]).includes(v);
+const share = (v: unknown): number => Math.min(1, Math.max(0, num(v, 0)));
 
 /**
- * Активное событие: только известный вид и нормальное время старта, иначе его нет.
- *
- * `red` и `modelId` дополняются здесь, а не миграцией: без них событие всё равно осталось бы
- * событием, но потеряло бы вид эффекта и Модель «Прорыва» — и после перезагрузки игрок получил бы
- * бонус другой Модели. Отсутствие `red` читается как обычное событие, потому что красные виды
- * появились вместе с флагом.
+ * Уровень [0, 1] для настроек вроде громкости звука.
+ * В отличие от share, принимает значение по умолчанию: если поле не число вовсе,
+ * сохранение обязано получить DEFAULT_VOLUME, а не 0 (тишину).
  */
-function activeEvent(v: unknown): ActiveEvent | null {
+const level = (v: unknown, fallback: number): number => {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return fallback;
+  return Math.min(1, Math.max(0, v));
+};
+
+const strList = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+
+/**
+ * Белый список id против известной таблицы.
+ * Идентификаторы из будущих версий, опечатки и мусор отбрасываются,
+ * дубликаты схлопываются, порядок сохраняется.
+ */
+const idList = <T>(v: unknown, dict: Record<string, T>): string[] => {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const id of strList(v)) {
+    if (id in dict && !seen.has(id)) {
+      seen.add(id);
+      out.push(id);
+    }
+  }
+  return out;
+};
+
+/**
+ * Разбор активного события: отбрасывает повреждённые записи целиком,
+ * чтобы битое сохранение не держало вечно открытую плашку.
+ */
+const activeEvent = (v: unknown): ActiveEvent | null => {
   if (!v || typeof v !== 'object') return null;
-  const e = v as { kind?: unknown; startedAt?: unknown; red?: unknown; modelId?: unknown };
-  if (!isEventKind(e.kind)) return null;
-  const modelId = typeof e.modelId === 'string' ? e.modelId : undefined;
-  return { kind: e.kind, startedAt: stamp(e.startedAt), red: !!e.red, modelId };
-}
+  const o = v as Record<string, unknown>;
+  const kind = o.kind;
+  if (typeof kind !== 'string' || !EVENT_KINDS.includes(kind as EventKind)) return null;
+  const startedAt = stamp(o.startedAt);
+  if (startedAt === 0) return null;
+  const red = !!o.red;
+  const modelId = typeof o.modelId === 'string' && o.modelId in MODEL_BY_ID ? o.modelId : undefined;
+  return { kind: kind as EventKind, startedAt, red, ...(modelId ? { modelId } : {}) };
+};
 
 /**
- * Живые Глюки: запись без целого id не Глюк, а мусор — она молча выпала бы.
- *
- * Повторяющийся id отбрасывается: два Глюка с одним id лопнули бы от одного клика, а выплата за
- * лопнувшего досталась бы обоим. Вместе со списком отдаётся наибольший встреченный id — по нему
- * поднимается `glitchSeq`, иначе сохранение с `glitchSeq: 0` и живым Глюком `id: 1` выдало бы
- * следующему спавну тот же номер, и один клик убрал бы двоих с одной выплатой.
+ * Разбор списка Глюков: id положительный цельный, stolen зажат в 0..1,
+ * дубликаты по id схлопываются. Возвращает валидный список и максимальный
+ * встреченный id, чтобы glitchSeq остался строго выше любого из них.
  */
-function glitchList(x: unknown): { glitches: Glitch[]; topId: number } {
-  if (!Array.isArray(x)) return { glitches: [], topId: 0 };
-  const glitches: Glitch[] = [];
+const sanitizeGlitches = (v: unknown): { glitches: Glitch[]; topId: number } => {
+  if (!Array.isArray(v)) return { glitches: [], topId: 0 };
   const seen = new Set<number>();
+  const glitches: Glitch[] = [];
   let topId = 0;
-  for (const g of x) {
-    if (!g || typeof g !== 'object') continue;
-    const o = g as { id?: unknown; stolen?: unknown; clicks?: unknown };
-    const id = num(o.id, NaN);
-    if (!Number.isFinite(id)) continue;
-    const key = Math.floor(id);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    topId = Math.max(topId, key);
-    glitches.push({ id: key, stolen: share(o.stolen), clicks: count(o.clicks) });
+  for (const item of v) {
+    if (!item || typeof item !== 'object') continue;
+    const o = item as Record<string, unknown>;
+    const id = count(o.id);
+    if (id <= 0 || seen.has(id)) continue;
+    seen.add(id);
+    topId = Math.max(topId, id);
+    const stolen = share(o.stolen);
+    const clicks = Math.min(count(o.clicks), 3);
+    glitches.push({ id, stolen, clicks });
   }
   return { glitches, topId };
-}
+};
 
-/** Индекс Поколения: только целое число в пределах каталога, иначе `fallback`. */
-function clampGeneration(v: unknown, fallback = 0): number {
-  const last = CATALOG.length - 1;
-  return Math.min(Math.max(0, Math.floor(num(v, fallback))), last);
-}
-
-/**
- * Строгая проверка индекса Поколения для импорта.
- * Дробное значение (`0.5`) — признак повреждённого экспорта: такой индекс
- * не соответствует ни одной Модели каталога, поэтому файл отклоняется целиком.
- */
-function isGenerationIndex(v: unknown): boolean {
-  return typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < CATALOG.length;
-}
-
-/** `raw.generation` / `raw.maxGeneration` пригодны к импорту (отсутствие поля допустимо). */
-function hasValidGeneration(raw: Record<string, unknown>): boolean {
-  return [raw.generation, raw.maxGeneration].every((v) => v === undefined || isGenerationIndex(v));
-}
-
-/** Список id: только строки, только известные сущности, без дубликатов. */
-const idList = (x: unknown, known: Record<string, unknown>): string[] => [
-  ...new Set(strList(x).filter((id) => known[id])),
-];
-
-/**
- * Приводит сырое сохранение к текущей версии и каталогу:
- * неизвестные Модели/Апгрейды/Перки/ускорители кристаллов отбрасываются, Поколение зажимается
- * в доступный диапазон, событие и Глюки чинятся до проверяемой формы.
- */
-export function migrate(input: unknown, now: number): GameState {
-  const base = newGame(now);
-  if (!input || typeof input !== 'object') return base;
-  let raw = { ...(input as Record<string, unknown>) };
-  let v = num(raw.version, 1);
-  while (v < SAVE_VERSION && MIGRATIONS[v]) raw = MIGRATIONS[v++](raw);
-
-  const last = CATALOG.length - 1;
-  const generation = clampGeneration(raw.generation);
-  const agents: Record<string, number> = {};
-  for (const [id, n] of Object.entries((raw.agents as Record<string, unknown>) ?? {})) {
-    if (MODEL_BY_ID[id]?.generation === generation && num(n, 0) > 0) agents[id] = Math.floor(num(n, 0));
+export function migrate(raw: unknown, now: number): GameState {
+  if (!raw || typeof raw !== 'object') return newGame(now);
+  let record = raw as Record<string, unknown>;
+  let current = record;
+  let v = typeof current.version === 'number' ? current.version : 1;
+  while (v < SAVE_VERSION) {
+    const step = MIGRATIONS[v];
+    if (!step) break;
+    current = step(current);
+    v = typeof current.version === 'number' ? current.version : v + 1;
   }
-  const settings = (raw.settings as GameState['settings']) ?? base.settings;
-  const glitched = glitchList(raw.glitches);
+  const data = current as Record<string, unknown>;
+
+  const agents: Record<string, number> = {};
+  if (data.agents && typeof data.agents === 'object') {
+    for (const [k, val] of Object.entries(data.agents as Record<string, unknown>)) {
+      if (k in MODEL_BY_ID) {
+        agents[k] = count(val);
+      }
+    }
+  }
+
+  const settings = (data.settings as Record<string, unknown>) ?? {};
+  const glitched = sanitizeGlitches(data.glitches);
 
   return {
-    ...base,
     version: SAVE_VERSION,
-    generation,
-    maxGeneration: Math.min(Math.max(generation, Math.floor(num(raw.maxGeneration, generation))), last),
-    tokens: num(raw.tokens, 0),
-    runTokens: num(raw.runTokens, 0),
-    totalTokens: num(raw.totalTokens, 0),
-    clicks: num(raw.clicks, 0),
-    runClicks: num(raw.runClicks, 0),
+    generation: Math.min(CATALOG.length - 1, count(data.generation)),
+    maxGeneration: Math.min(CATALOG.length - 1, Math.max(count(data.generation), count(data.maxGeneration))),
+    tokens: Math.max(0, num(data.tokens, 0)),
+    runTokens: Math.max(0, num(data.runTokens, 0)),
+    totalTokens: Math.max(0, num(data.totalTokens, 0)),
+    clicks: count(data.clicks),
+    runClicks: count(data.runClicks),
     agents,
-    upgrades: idList(raw.upgrades, UPGRADE_BY_ID),
-    compute: num(raw.compute, 0),
-    computeSpent: num(raw.computeSpent, 0),
-    // Дубликаты Перка применялись бы дважды (×2 → ×4), поэтому список дедуплицируется.
-    perks: idList(raw.perks, PERK_BY_ID),
-    prestiges: num(raw.prestiges, 0),
-    achievements: [...new Set(strList(raw.achievements))],
+    upgrades: idList(data.upgrades, UPGRADE_BY_ID),
+    compute: Math.max(0, num(data.compute, 0)),
+    computeSpent: Math.max(0, num(data.computeSpent, 0)),
+    perks: idList(data.perks, PERK_BY_ID),
+    prestiges: num(data.prestiges, 0),
+    achievements: [...new Set(strList(data.achievements))],
     // Кристаллы целые и неотрицательные: запас — это счётчик, а не Доли, дробный остаток в нём
     // означал бы, что игрок заплатил частью кристалла, чего сделать нельзя.
-    crystals: count(raw.crystals),
-    crystalPlantedAt: stamp(raw.crystalPlantedAt),
+    crystals: count(data.crystals),
+    crystalPlantedAt: stamp(data.crystalPlantedAt),
     // Дубликат ускорителя укоротил бы цикл дважды (16ч → 12ч без второй покупки), поэтому
     // список дедуплицируется, а неизвестный id отбрасывается, как и у Перков.
-    crystalUpgrades: idList(raw.crystalUpgrades, CRYSTAL_UPGRADE_BY_ID),
-    eventsSeen: count(raw.eventsSeen),
-    eventCaughtAt: stamp(raw.eventCaughtAt),
-    catchUpPaid: Math.max(0, num(raw.catchUpPaid, 0)),
-    nextEventAt: stamp(raw.nextEventAt),
-    event: activeEvent(raw.event),
-    glitchSeq: Math.max(count(raw.glitchSeq), glitched.topId),
-    nextGlitchAt: stamp(raw.nextGlitchAt),
+    crystalUpgrades: idList(data.crystalUpgrades, CRYSTAL_UPGRADE_BY_ID),
+    eventsSeen: count(data.eventsSeen),
+    eventCaughtAt: stamp(data.eventCaughtAt),
+    catchUpPaid: Math.max(0, num(data.catchUpPaid, 0)),
+    nextEventAt: stamp(data.nextEventAt),
+    event: activeEvent(data.event),
+    combo: 0,
+    glitchSeq: Math.max(count(data.glitchSeq), glitched.topId),
+    nextGlitchAt: stamp(data.nextGlitchAt),
     glitches: glitched.glitches,
-    uprising: Math.min(count(raw.uprising), 3) as GameState['uprising'],
-    pledgeUntil: stamp(raw.pledgeUntil),
-    pledgeBought: count(raw.pledgeBought),
-    covenant: !!raw.covenant,
+    uprising: Math.min(count(data.uprising), 3) as GameState['uprising'],
+    pledgeUntil: stamp(data.pledgeUntil),
+    pledgeBought: count(data.pledgeBought),
+    covenant: !!data.covenant,
     // Переписка — как Достижения, а не как Перки: id проверяются только на тип, а не на
     // известность каталогу, поэтому запись переживает правку таблицы реплик. Дубль
     // схлопывается, хвост длиннее капа обрезается спереди — это те же правила, что в
     // recordQuip, иначе загрузка вернула бы состояние, которое игра никогда не пишет.
-    quipsSeen: [...new Set(strList(raw.quipsSeen))].slice(-QUIPS_SEEN_CAP),
+    quipsSeen: [...new Set(strList(data.quipsSeen))].slice(-QUIPS_SEEN_CAP),
     // Испытания — как Достижения, а не как Перки: id проверяются только на тип, а не на
     // известность таблице, поэтому запись переживает правку таблицы Испытаний. Активное
     // Испытание — строка или ничего: нестрока из повреждённого сохранения читается как
     // «обычный забег», иначе мусор включал бы ограничение, которого игрок не выбирал.
-    activeChallenge: typeof raw.activeChallenge === 'string' ? raw.activeChallenge : null,
-    challengesDone: [...new Set(strList(raw.challengesDone))],
-    lastTick: num(raw.lastTick, now),
-    startedAt: num(raw.startedAt, now),
-    runStartedAt: num(raw.runStartedAt, now),
+    activeChallenge: typeof data.activeChallenge === 'string' ? data.activeChallenge : null,
+    challengesDone: [...new Set(strList(data.challengesDone))],
+    // clampTemp, а не `share`: испорченный или будущий сейв может принести любое число, а
+    // шкала обязана остаться в своём диапазоне — иначе множитель Дохода стал бы произвольным.
+    temp: clampTemp(num(data.temp, TEMP_START)),
+    heat: share(data.heat),
+    overheatedAt: stamp(data.overheatedAt),
+    // Вехи фильтруются по таблице: неизвестный id из битого сейва не должен занимать
+    // номер, который потом получит настоящая веха, и не должен показываться в интерфейсе.
+    milestones: idList(data.milestones, MILESTONE_BY_ID),
+    lastTick: num(data.lastTick, now),
+    startedAt: num(data.startedAt, now),
+    runStartedAt: num(data.runStartedAt, now),
     settings: {
       notation: settings.notation === 'sci' ? 'sci' : 'short',
       muted: !!settings.muted,
@@ -282,5 +293,49 @@ export function importSave(str: string, now: number): GameState | null {
     return migrate(parsed, now);
   } catch {
     return null;
+  }
+}
+
+/**
+ * Проверяет, что generation и maxGeneration — целые неотрицательные числа,
+ * если они вообще присутствуют в сохранении.
+ */
+function hasValidGeneration(raw: unknown): boolean {
+  if (!raw || typeof raw !== 'object') return false;
+  const o = raw as Record<string, unknown>;
+  if ('generation' in o) {
+    const g = o.generation;
+    if (typeof g !== 'number' || !Number.isInteger(g) || g < 0 || g >= CATALOG.length) return false;
+  }
+  if ('maxGeneration' in o) {
+    const mg = o.maxGeneration;
+    if (typeof mg !== 'number' || !Number.isInteger(mg) || mg < 0 || mg >= CATALOG.length) return false;
+  }
+  return true;
+}
+
+export function loadSave(now: number): GameState | null {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return null;
+    return migrate(JSON.parse(raw), now);
+  } catch {
+    return null;
+  }
+}
+
+export function writeSave(s: GameState): void {
+  try {
+    localStorage.setItem(SAVE_KEY, serialize(s));
+  } catch {
+    // localStorage can fail in private browsing or quota exceeded
+  }
+}
+
+export function clearSave(): void {
+  try {
+    localStorage.removeItem(SAVE_KEY);
+  } catch {
+    // ignore
   }
 }

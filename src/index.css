@@ -94,6 +94,11 @@
      Поколения 1, чтобы фолбэк не выглядел чужим. */
   --accent-color: #ff7a2f;
 
+  /* Шкала Температуры */
+  --thermal-cold: #2f6ea8;
+  --thermal-hot: #fff1d6;
+  --danger: #e0574a;
+
   /* ── Шкала шрифта ─────────────────────────────────────────────────────────────
      Восемь ступеней вместо двадцати разбросанных по коду значений (0.7…3rem). Ступени
      не равномерные, и это осознанно: половина шкалы — мелкий текст, которого в игре
@@ -221,6 +226,34 @@ body {
    Фолбэк-цепочка сужена намеренно: `cursive` подменял отсутствующий глиф каллиграфией, а
    моноширинный `monospace` при незагруженном Nunito делает кириллицу заметно шире и ломает
    вёрстку сильнее обычного `sans-serif`. */
+
+/* Глобальный отклик на Температуру: один корень, один источник. */
+.app-root[data-thermal='calm'] {
+  --heat-glow: 0;
+  --heat-tremor: 0px;
+}
+
+.app-root[data-thermal='hot'] {
+  --heat-glow: 0.35;
+  --heat-tremor: 0.4px;
+}
+
+.app-root[data-thermal='stunned'] {
+  --heat-glow: 0.6;
+  --heat-tremor: 1.1px;
+  filter: saturate(0.55) brightness(0.86);
+}
+
+@keyframes thermal-tremor {
+  from { transform: translate3d(calc(var(--heat-tremor) * -1), 0, 0); }
+  to { transform: translate3d(var(--heat-tremor), 0, 0); }
+}
+
+@keyframes heat-haze {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(2px, -3px, 0); }
+}
+
 .pixel-font {
   font-family: 'Pixelify Sans', 'Nunito', sans-serif;
 }
@@ -383,7 +416,9 @@ body {
   }
 }
 
+/* Пустое правило: анимация покупки живёт под гейтом движения */
 .model-row--pop {
+  /* Пустое правило: анимация строки покупки живёт под гейтом движения, см. ниже. */
 }
 
 /* Сквош кнопки Клика. Честный hit-stop: отклик происходит В ТОТ ЖЕ кадр (0% сразу
@@ -520,6 +555,30 @@ body {
 
 /* Слой искр не обрезается: они улетают за верхний край строки, и обрезка съела бы половину
    жеста. */
+
+/* Искра жара */
+@keyframes thermal-spark-fly {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) scale(0.5);
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--spark-dx), var(--spark-dy), 0) scale(1);
+  }
+}
+
+.thermal-spark {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .spark-layer {
   position: absolute;
   inset: 0;
@@ -538,16 +597,23 @@ body {
   overflow: hidden;
 }
 
+
 .model-goal__track {
-  height: 6px;
-  /* Дорожка — --bg-void, самая тёмная ступень палитры: на ней акцент Поколения держит
-     5.90–12.55:1 по всем восьми акцентам, то есть заливка читается как заливка, а не как
-     оттенок карточки. */
-  background-color: var(--bg-void);
+  display: flex;
+  gap: 2px;
+  height: 4px;
 }
 
-.model-goal__fill {
-  height: 100%;
+.model-goal__tick {
+  flex: 1;
+  background-color: var(--border);
+}
+
+.model-goal__tick--on {
+  background-color: color-mix(in srgb, var(--accent-color) 45%, var(--bg-void));
+}
+
+.model-goal__tick--goal {
   background-color: var(--accent-color);
 }
 
@@ -647,10 +713,14 @@ body {
   }
 }
 
+/* Пустое правило: появление реплики живёт под гейтом движения */
 .chat-prompt--in {
+  /* Пустое правило: появление реплики живёт под гейтом движения, см. ниже. */
 }
 
+/* Пустое правило: появление реплики живёт под гейтом движения */
 .chat-reply--in {
+  /* Пустое правило: появление реплики живёт под гейтом движения, см. ниже. */
 }
 
 /* Живой фон Сцены. Пыль держится на 50% непрозрачности и дрейфует вверх на 6–9 с: медленнее
@@ -676,6 +746,20 @@ body {
   inset: 0;
   pointer-events: none;
   z-index: 1;
+}
+
+
+.scene__heat {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: calc(var(--heat-glow, 0) * 0.8);
+  mix-blend-mode: screen;
+}
+
+.scene__heat--haze {
+  opacity: calc(var(--heat-glow, 0) * 0.85);
 }
 
 .mote {
@@ -991,7 +1075,9 @@ body {
   }
 }
 
+/* Пустое правило: прыжок Маскота живёт под гейтом движения */
 .mascot-hop {
+  /* Пустое правило: прыжок Маскота живёт под гейтом движения, см. ниже. */
 }
 
 /* Ореол живёт на ::after, а не на самой кнопке. box-shadow — свойство краски, и пульс на нём
@@ -1429,6 +1515,32 @@ body {
 
 /* Полное движение: система разрешает, игрок не выключал. */
 @media (prefers-reduced-motion: no-preference) {
+
+  .thermal-dial__fill {
+    transition: width 0.14s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .thermal-dial__heat {
+    transition: width 0.25s ease-out;
+  }
+
+  .thermal-dial__handle {
+    transition: left 0.14s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .app-root[data-thermal='hot'] .scene-plate,
+  .app-root[data-thermal='stunned'] .scene-plate {
+    animation: thermal-tremor 0.09s steps(2, end) infinite;
+  }
+
+  .app-root[data-thermal='hot'] .scene__heat--haze,
+  .app-root[data-thermal='stunned'] .scene__heat--haze {
+    animation: heat-haze 2.4s ease-in-out infinite alternate;
+  }
+
+  .thermal-spark {
+    animation: thermal-spark-fly 0.5s steps(3, end) infinite;
+  }
   .pixel-btn:hover:not(:disabled) {
     transform: translateY(-1px);
   }
@@ -1522,7 +1634,21 @@ body {
     animation: chat-reply-in 0.26s cubic-bezier(0.2, 0.8, 0.3, 1);
   }
 
-  .mote {
+  
+.scene__heat {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: calc(var(--heat-glow, 0) * 0.8);
+  mix-blend-mode: screen;
+}
+
+.scene__heat--haze {
+  opacity: calc(var(--heat-glow, 0) * 0.85);
+}
+
+.mote {
     display: block;
     animation: mote-drift var(--mote-dur) ease-in-out var(--mote-delay) infinite alternate;
   }
@@ -1655,6 +1781,11 @@ body {
   animation: tab-badge-fade 0.5s ease-out;
 }
 
+
+  .thermal-spark {
+    animation: none;
+    opacity: 0;
+  }
 [data-motion='reduced'] .spark {
   animation: none;
   opacity: 0;
@@ -1683,7 +1814,21 @@ body {
   animation: none;
 }
 
-[data-motion='reduced'] .mote {
+[data-motion='reduced'] 
+.scene__heat {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: calc(var(--heat-glow, 0) * 0.8);
+  mix-blend-mode: screen;
+}
+
+.scene__heat--haze {
+  opacity: calc(var(--heat-glow, 0) * 0.85);
+}
+
+.mote {
   display: none;
 }
 
@@ -2074,3 +2219,20 @@ body {
     toast-fade 0.25s ease-out,
     float-fade 0.18s ease-in 4.32s forwards;
 }
+
+
+@keyframes click-punch {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  30% {
+    transform: scale(1.07, 0.93);
+    opacity: 0.85;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+

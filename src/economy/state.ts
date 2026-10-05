@@ -1,4 +1,6 @@
-export const SAVE_VERSION = 7;
+import { TEMP_START } from './thermal';
+
+export const SAVE_VERSION = 8;
 
 /**
  * Громкость по умолчанию: 0.6, а не 1.
@@ -58,6 +60,8 @@ export interface GameState {
   crystalPlantedAt: number;
   /** Перманентные ускорители роста за кристаллы; id принадлежат таблице в crystal.ts. */
   crystalUpgrades: string[];
+  /** Id забранных вех: список, потому что порядок забора задаёт сама таблица, а не игрок. */
+  milestones: string[];
   /** Сколько событий выпадало за игру: счётчик выпадений, а не список видов. */
   eventsSeen: number;
   /** Мс Unix начала окна, которое игрок уже поймал; 0 = текущее окно ещё не поймано. Отметка в
@@ -97,6 +101,12 @@ export interface GameState {
   activeChallenge: string | null;
   /** Закрытые Испытания: каждое даёт +10% к Доходу навсегда; переживает Престиж, как Достижения. */
   challengesDone: string[];
+  /** Температура генерации, [0, TEMP_MAX]. Живой параметр: меняется каждый тик, покупкой не является. */
+  temp: number;
+  /** Накопленный перегрев, [0, 1]. До единицы копится от жара и гасит Доход. */
+  heat: number;
+  /** Мс Unix последнего перегрева. 0 = не было. По нему считается оглушение после сброса. */
+  overheatedAt: number;
   lastTick: number;
   startedAt: number;
   runStartedAt: number;
@@ -134,6 +144,7 @@ export function newGame(now: number): GameState {
     crystals: 0,
     crystalPlantedAt: 0,
     crystalUpgrades: [],
+    milestones: [],
     eventsSeen: 0,
     eventCaughtAt: 0,
     catchUpPaid: 0,
@@ -152,6 +163,9 @@ export function newGame(now: number): GameState {
     // Испытаний в новом забеге нет: активное выбирается на старте, закрытые копятся Престижами.
     activeChallenge: null,
     challengesDone: [],
+    temp: TEMP_START,
+    heat: 0,
+    overheatedAt: 0,
     lastTick: now,
     startedAt: now,
     runStartedAt: now,

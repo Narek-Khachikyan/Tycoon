@@ -1,46 +1,74 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '../store/useGameStore';
 import { GLITCH_CLICKS, glitchDrainMult } from '../economy/glitches';
 import { formatCount, formatNumber } from '../economy/format';
-import { GlitchSprite, GpuDrone } from './EventSprites';
+import {
+  droneDrop,
+  droneFlight,
+  GoldenToken,
+  GlitchSprite,
+  glitchCracks,
+  glitchJitter,
+  glitchSize,
+  GpuDrone,
+  mixVar,
+  sceneBands,
+  useMotionAllowed,
+} from './EventSprites';
 import { Num } from './Num';
 
 /**
  * Событийный слой Сцены: Глюки, которые на ней живут, и пролёт Дрона.
  *
- * Всё, что здесь двигается, вешает классом на CSS в index.css, поэтому выключенная
- * настройка движения снимает дёрганье, мерцание и пролёт одним правилом. Таймеров нет:
- * колонка Офиса перерисовывается каждый тик, а появление Дрона перезапускается `key`.
+ * Таймеров нет: колонка Офиса перерисовывается каждый тик, и всё, что здесь двигается, —
+ * дёрганье паразита, пролёт Дрона, падающая монета — считается из `state.lastTick` как
+ * производная. Ни CSS-анимации, ни узлов, которые надо гасить правилом: при выключенном
+ * движении слой просто не создаёт частицы, и включение настройки не пересоздаёт их на каждом
+ * тике.
  *
  * Текст на Сцене лежит либо на собственной затемнённой полосе, либо на собственном
  * затемнённом бейдже (ADR-0002). Голым текстом по живописи здесь не написано ничего:
- * контраст подписи не должен зависеть от того, что выдала машина, рисуя офис.
+ * контраст подписи не должен зависеть от того, что выдала машина, рисуя офис. Слой событий
+ * не залезает на эти полосы: полосы Сцены считаются в `sceneBands` от измеренной высоты
+ * полотна, а не от процентов, иначе на низкой Сцене рой Глюков наезжал бы на счётчики
+ * Маскотов, а Дрон — на полосу кражи.
  */
 
-/** Размер Глюка на Сцене: вдвое меньше Маскота, потому что это паразит, а не сотрудник, и он
- *  должен читаться как то, что мешает, а не как ещё один Маскот в ряду. */
-const GLITCH_SIZE = 28;
+/** Ширина спрайта Дрона в полосе пролёта. */
+const DRONE_SIZE = 44;
+/** Диаметр сбрасываемой монеты: Токен должен узнаваться в падении, но не перекрывать полёт. */
+const DROP_SIZE = 13;
 
 /**
- * Собственная тёмная подложка под любой текст события на Сцене: под полосу кражи и под
- * счётчик ударов.
+ * Размер полотна Сцены.
  *
- * Плотная, а не жёсткая обводка: обводка это приём бейджа числа Агентов, и она держит
- * контраст на светлом полу Сцены 2, но на почти чёрной Сцене 4 белая кайма теряется в шуме
- * Сцены. Счётчик ударов при этом обязателен к прочтению (он решает, бросать ли ещё один
- * удар), а значит, не может зависеть от того, что нарисовала машина.
+ * Слою событий он нужен, чтобы стоять в отведённой полосе, а не в процентах от неизвестного
+ * контейнера. Наблюдатель, а не таймер: он срабатывает на смену размера, то есть на перенос
+ * окна, переключение вкладки и смену Поколения, а не двадцать раз в секунду.
  */
-const DARK_STRIP = 'var(--bg-void)';
+const usePlateSize = (): [React.RefObject<HTMLDivElement | null>, { w: number; h: number }] => {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [size, setSize] = useState({ w: 0, h: 0 });
 
-const GLITCH_CHIP = {
-  backgroundColor: DARK_STRIP,
-  border: '1px solid var(--border)',
-  borderRadius: '3px',
-  color: 'var(--text-main)',
-  fontSize: '0.7rem',
-  lineHeight: 1.4,
-  padding: '0 4px',
-} as const;
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    // Первый замер сразу же: до него полосы считались бы по нулю, и слой встал бы на HUD.
+    const measure = () =>
+      setSize((prev) =>
+        prev.w === node.clientWidth && prev.h === node.clientHeight
+          ? prev
+          : { w: node.clientWidth, h: node.clientHeight },
+      );
+    measure();
+    if (typeof ResizeObserver !== 'function') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  return [ref, size];
+};
 
 /**
  * Полоса кражи под HUD Сцены: сколько Дохода Глюки уносят прямо сейчас и сколько уже унесли.
@@ -53,13 +81,14 @@ export const SceneGlitchBand: React.FC = () => {
   if (state.glitches.length === 0) return null;
 
   const notation = state.settings.notation;
+  const heat = state.heat;
   const drain = glitchDrainMult(state);
   const stolen = state.glitches.reduce((sum, g) => sum + g.stolen, 0);
 
   return (
     // Сплошная подложка, а не градиент, как у HUD над ней: подпись обязана читаться на любой из
     // четырёх Сцен, а градиент оставил бы её конец на неприкрытой живописи, а самый светлый пол
-    // приходится как раз на Сцену 2.
+    // приходится как раз на Сцену 2. Подложка теплеет с перегревом — полоса тоже часть офиса.
     <div
       className="scene__glitch-band"
       style={{
@@ -67,12 +96,16 @@ export const SceneGlitchBand: React.FC = () => {
         alignItems: 'center',
         gap: '8px',
         padding: '6px 12px',
-        backgroundColor: DARK_STRIP,
+        backgroundColor: 'var(--bg-void)',
         borderTop: '1px solid var(--border)',
         fontSize: '0.8rem',
+        boxShadow:
+          heat > 0.02
+            ? `inset 0 -8px 12px -8px ${mixVar('var(--accent-color)', 'var(--thermal-hot)', heat, 0.5)}`
+            : undefined,
       }}
     >
-      <GlitchSprite size={16} />
+      <GlitchSprite size={16} heat={heat} />
       <span style={{ color: 'var(--text-main)', fontWeight: 600 }}>
         Глюки: −<Num>{formatNumber(Math.round((1 - drain) * 100), notation)}</Num>% к доходу
       </span>
@@ -84,102 +117,211 @@ export const SceneGlitchBand: React.FC = () => {
   );
 };
 
+/**
+ * Таблетка «осталось ударов» под паразитом.
+ *
+ * Три точки, а не цифра: точка — это один удар, и игрок видит, сколько их осталось, не читая.
+ * Цифра остаётся в доступном имени и в подсказке, где она читается словами. Подложка своя,
+ * как у счётчика Агентов: контраст не зависит от того, что нарисовала машина.
+ */
+const GlitchPips: React.FC<{ left: number }> = ({ left }) => (
+  <span
+    aria-hidden={true}
+    style={{
+      display: 'flex',
+      gap: '3px',
+      alignItems: 'center',
+      padding: '0 5px',
+      height: '13px',
+      backgroundColor: 'var(--bg-void)',
+      border: '1px solid var(--border)',
+      borderRadius: 999,
+    }}
+  >
+    {Array.from({ length: GLITCH_CLICKS }, (_, i) => (
+      <span
+        key={i}
+        style={{
+          width: '4px',
+          height: '4px',
+          borderRadius: '50%',
+          // Съеденный удар — тёмный с контуром: без контура точки сливались бы в одну полоску,
+          // и «осталось два» читалось бы как «осталось три».
+          backgroundColor: i < left ? 'var(--green)' : 'var(--bg-raised)',
+          boxShadow: i < left ? 'none' : 'inset 0 0 0 1px var(--border-strong)',
+        }}
+      />
+    ))}
+  </span>
+);
+
+/**
+ * Отклик паразита на наведение и на уже нанесённые удары.
+ *
+ * Каждый удар оставляет паразита чуть крупнее, а последний перед лопанием — заметнее всего:
+ * иначе два последних клика выглядели бы одинаково и игрок не видел бы, что следующий что-то
+ * значит. В покое остаётся только рамка и подъём по наведению, а не масштаб.
+ */
+const glitchReply = (clicks: number, hovered: boolean, motion: boolean): number => {
+  if (!motion) return hovered ? 1.04 : 1;
+  return 1 + (hovered ? 0.08 : 0) + clicks * 0.05;
+};
+
 /** Паразиты на Сцене: каждый показывает, сколько кликов осталось, и лопается от третьего. */
 export const SceneGlitchSwarm: React.FC = () => {
   const state = useGameStore((s) => s.state);
   const hitGlitch = useGameStore((s) => s.hitGlitch);
+  const motion = useMotionAllowed();
+  const [plateRef, plate] = usePlateSize();
+  const [hovered, setHovered] = useState<number | null>(null);
 
   const glitches = state.glitches;
   if (glitches.length === 0) return null;
 
-  const notation = state.settings.notation;
+  const heat = state.heat;
+  const bands = sceneBands(plate.h);
+  const size = glitchSize(glitches.length, bands.swarmMaxHeight);
 
   return (
-    // Слой не перехватывает указатель: кликабельны только кнопки, иначе пустая часть полосы
-    // съедала бы наведение на Сцену.
+    // Внешний слой на всё полотно: он и есть измеряемая высота, поэтому полосы считаются от
+    // настоящей геометрии Сцены. Сам рой вложен и ограничен по высоте: если бы он вырос за
+    // отведённую полосу, он наехал бы на счётчики Маскотов, а это текст.
     <div
-      className="scene__glitches"
-      style={{
-        position: 'absolute',
-        top: '30%',
-        left: '6%',
-        right: '6%',
-        zIndex: 3,
-        display: 'flex',
-        flexWrap: 'wrap',
-        justifyContent: 'center',
-        alignContent: 'flex-start',
-        gap: '10px 12px',
-        pointerEvents: 'none',
-      }}
+      ref={plateRef}
+      style={{ position: 'absolute', inset: 0, zIndex: 3, pointerEvents: 'none' }}
     >
-      {glitches.map((g) => {
-        const left = GLITCH_CLICKS - g.clicks;
-        return (
-          <button
-            key={g.id}
-            className="glitch-node"
-            onClick={(e) => {
-              const node = e.currentTarget;
-              hitGlitch(g.id);
-              // Перезапуск тем же сбросом, что у сквоша Клика: класс не меняется между
-              // ударами, иначе второй удар не откликнулся бы.
-              node.classList.remove('glitch-hit');
-              void node.offsetWidth;
-              node.classList.add('glitch-hit');
-            }}
-            // Класс гасится без сверки с animationName: под настройкой игрока анимация
-            // называется glitch-hit-fade, и сверка оставила бы класс на кнопке навсегда. Чужих
-            // animationend внутри быть не может, потому что дёрганье в покое бесконечно.
-            onAnimationEnd={(e) => e.currentTarget.classList.remove('glitch-hit')}
-            aria-label={`Глюк: осталось ${left} ${formatCount(left, 'удар', 'удара', 'ударов')}`}
-            title={`Осталось ${left} ${formatCount(left, 'удар', 'удара', 'ударов')} — кликни, чтобы лопнул`}
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: '3px',
-              padding: 0,
-              background: 'none',
-              border: 'none',
-              lineHeight: 0,
-              cursor: 'pointer',
-              pointerEvents: 'auto',
-            }}
-          >
-            {/* Дёрганье в покое живёт на обёртке, а удар на кнопке: две анимации на одном узле
-                перезаписали бы друг друга, а вложенные transform складываются. */}
-            <span className="glitch-jitter" style={{ display: 'block', lineHeight: 0 }}>
-              <GlitchSprite size={GLITCH_SIZE} />
-            </span>
-            <span style={GLITCH_CHIP}>
-              ×<Num>{formatNumber(left, notation)}</Num>
-            </span>
-          </button>
-        );
-      })}
+      <div
+        className="scene__glitches"
+        style={{
+          position: 'absolute',
+          top: bands.swarmTop,
+          left: '6%',
+          right: '6%',
+          maxHeight: bands.swarmMaxHeight,
+          overflow: 'hidden',
+          display: 'flex',
+          flexWrap: 'wrap',
+          justifyContent: 'center',
+          alignContent: 'flex-start',
+          gap: '10px 12px',
+        }}
+      >
+        {glitches.map((g, i) => {
+          const left = GLITCH_CLICKS - g.clicks;
+          const cracks = glitchCracks(g.clicks, GLITCH_CLICKS);
+          const jitter = motion ? glitchJitter(state.lastTick, i * 1.7 + 1) : { x: 0, y: 0 };
+          const over = hovered === g.id;
+          return (
+            <button
+              key={g.id}
+              className="glitch-node"
+              onClick={() => hitGlitch(g.id)}
+              onMouseEnter={() => setHovered(g.id)}
+              onMouseLeave={() => setHovered((cur) => (cur === g.id ? null : cur))}
+              onFocus={() => setHovered(g.id)}
+              onBlur={() => setHovered((cur) => (cur === g.id ? null : cur))}
+              aria-label={`Глюк: осталось ${left} ${formatCount(left, 'удар', 'удара', 'ударов')}`}
+              title={`Осталось ${left} ${formatCount(left, 'удар', 'удара', 'ударов')} — кликни, чтобы лопнул`}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '4px',
+                padding: 0,
+                background: 'none',
+                border: 'none',
+                lineHeight: 0,
+                cursor: 'pointer',
+                pointerEvents: 'auto',
+                // Отклик без перехода по цвету и рамке: у кнопки Глюка нет ни заливки, ни рамки,
+                // кроме системного фокуса, и весь отклик держится на размере картинки.
+                transform: `scale(${glitchReply(g.clicks, over, motion).toFixed(3)})`,
+                transition: motion ? 'transform 0.12s ease-out' : undefined,
+              }}
+            >
+              {/* Дёрганье живёт на обёртке, а отклик на кнопке: два движения на одном узле
+                  переписали бы друг друга, а вложенные transform складываются. */}
+              <span
+                style={{
+                  display: 'block',
+                  lineHeight: 0,
+                  transform: `translate(${jitter.x}px, ${jitter.y}px)`,
+                }}
+              >
+                <GlitchSprite size={size} heat={heat} cracks={cracks} />
+              </span>
+              <GlitchPips left={left} />
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 };
 
 /**
- * Дрон с GPU: один пролёт через Сцену на каждое событие и на каждый Престиж.
+ * Дрон с GPU: один пролёт через Сцену на каждое окно события.
  *
- * Появлению не нужны ни таймер, ни ручной перезапуск анимации: узел и есть `key`, поэтому смена
- * события и смена числа Престижей монтируют его заново и проигрывают пролёт один раз. С
- * выключенным движением слой скрыт правилом в index.css: висящий на месте дрон читался бы как
- * забытая деталь офиса.
+ * Появлению не нужны ни таймер, ни перезапуск анимации, ни `key`: пролёт считается из
+ * `lastTick − startedAt`, поэтому он сам начнётся с приходом окна и закончится вместе с ним.
+ * Престиж окно не трогает, а перемонтировать слой по счётчику Престижей было бы ровно тем
+ * таймером, которого здесь нет. С выключенным движением слой не монтируется вовсе: висящий на
+ * месте дрон читался бы как забытая деталь офиса.
  */
 export const SceneDrone: React.FC = () => {
-  const eventStartedAt = useGameStore((s) => s.state.event?.startedAt ?? 0);
-  const prestiges = useGameStore((s) => s.state.prestiges);
-  if (eventStartedAt === 0) return null;
+  const startedAt = useGameStore((s) => s.state.event?.startedAt ?? 0);
+  const lastTick = useGameStore((s) => s.state.lastTick);
+  const heat = useGameStore((s) => s.state.heat);
+  const red = useGameStore((s) => s.state.event?.red ?? false);
+  const motion = useMotionAllowed();
+  const [plateRef, plate] = usePlateSize();
+
+  const flight =
+    motion && startedAt > 0 ? droneFlight(lastTick - startedAt, plate.w, DRONE_SIZE) : null;
+  if (!flight) return null;
+
+  const bands = sceneBands(plate.h);
+  const drop = droneDrop(lastTick - startedAt);
 
   return (
-    <div className="scene__drone" key={`${eventStartedAt}:${prestiges}`}>
-      <span className="drone">
-        <GpuDrone size={40} />
+    <div
+      ref={plateRef}
+      style={{
+        position: 'absolute',
+        inset: 0,
+        // Класс `.scene__drone` сюда намеренно не повешен: в index.css на нём висит анимация
+        // `drone-fly`, а CSS-анимация в каскаде сильнее инлайнового стиля и перебила бы
+        // transform и прозрачность, которые считает этот слой. Полёт живёт здесь, значит и
+        // разметка под него — здесь.
+        zIndex: 4,
+        pointerEvents: 'none',
+        opacity: flight.opacity,
+        // Полоса пролёта считается от измеренной высоты полотна, поэтому дрон не лезет ни на
+        // HUD с полосой кражи, ни на счётчики Маскотов ни на одной из четырёх Сцен.
+        transform: `translate(${flight.x}px, ${bands.droneTop + flight.y}px)`,
+      }}
+    >
+      <span style={{ display: 'block', lineHeight: 0 }}>
+        <GpuDrone size={DRONE_SIZE} heat={heat} spin={flight.spin} red={red} />
       </span>
+
+      {/* Сбрасываемый Токен: он же объясняет, зачем дрон здесь. Падает от брюха и гаснет, то есть
+          читается как «сбросил груз», а не как украшение. Роняется он на середине пути, а не в
+          конце: улетевший за край дрон роняет груз уже за кадром. */}
+      {drop && (
+        <span
+          style={{
+            position: 'absolute',
+            left: `${Math.round(DRONE_SIZE * 0.45)}px`,
+            top: `${Math.round(DRONE_SIZE * 0.5)}px`,
+            lineHeight: 0,
+            opacity: drop.opacity,
+            transform: `translateY(${drop.dy}px) scale(${drop.scale})`,
+          }}
+        >
+          <GoldenToken size={DROP_SIZE} heat={heat} red={red} />
+        </span>
+      )}
     </div>
   );
 };

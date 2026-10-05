@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useGameStore } from '../store/useGameStore';
 import { ACHIEVEMENTS, ordinaryEarned, shadowEarned } from '../economy/achievements';
 import { GLOSSARY } from '../data/glossary';
+import { ThermalSection } from './ThermalSection';
 import { PERKS } from '../economy/perks';
 import { exportSave } from '../economy/save';
 import { formatCount, formatDuration, formatNumber } from '../economy/format';
@@ -141,6 +142,32 @@ const AchievementCard: React.FC<{
 // (свёрнутая вкладка, снятый кадр), а висящее окно осталось бы в DOM навсегда.
 const MODAL_EXIT_MS = 150;
 const MODAL_EXIT_ANIMATION = 'toast-fade 0.15s ease-out reverse';
+
+// Строка настройки и её управляющий элемент. Общая форма для всех трёх строк нужна из-за
+// узкого экрана: без переноса управление сжималось до ширины, при которой его подпись
+// переносилась внутрь — «Буквы (M, B)» занимала две строки вдвое выше соседней «1e6», и
+// пара выглядела поломанной. nowrap запрещает перенос внутри кнопки, а перенос строки
+// отдаёт управляющий элемент целиком: подпись настройки при этом переносится, то есть
+// текст, который и так читается, вместо текста, который должен помещаться в кнопку.
+// marginLeft: 'auto' прижимает управление к правому краю и на отдельной строке тоже.
+const SETTING_ROW: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  gap: '10px',
+  flexWrap: 'wrap',
+};
+const SETTING_CONTROL: React.CSSProperties = {
+  padding: '6px 12px',
+  fontSize: '0.85rem',
+  whiteSpace: 'nowrap',
+  flexShrink: 0,
+  marginLeft: 'auto',
+};
+// У пары кнопок наружным элементом управления считается группа, поэтому прижимать к правому
+// краю надо её, а не каждую кнопку: auto-отступ внутри группы всегда ноль, потому что
+// свободного места в ней нет.
+const SETTING_GROUP: React.CSSProperties = { display: 'flex', gap: '6px', flexShrink: 0, marginLeft: 'auto' };
 
 // Отложенное размонтирование окна: запрос закрытия лишь взводит closing, а настоящий
 // onClose приходит по одному bounded one-shot таймеру. Очистка в эффекте обязательна —
@@ -646,6 +673,9 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
         </div>
       ))}
 
+      {/* Температура идёт ПЕРВОЙ, до словаря: это главная механика игры */}
+      <ThermalSection />
+
       {/* Справка по словарю игры. Формулировки сверены с CONTEXT.md — он источник
           правды для словаря, а не этот файл. Живёт в том же прокручиваемом теле,
           чтобы окно не переполнялось на маленьком экране. */}
@@ -670,7 +700,7 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
               <dd style={{ color: 'var(--text-muted)', margin: '2px 0 0' }}>{g.text}</dd>
             </div>
           ))}
-        </dl>
+</dl>
       </div>
     </ModalFrame>
   );
@@ -745,29 +775,27 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
       icon={<Icon name="settings" />}
       title="Настройки"
     >
-      {/* Своя колонка с зазором 16: блоков много, и общий зазор каркаса в 10px после
-          вёрстки этого окна прилипал к ползунку громкости. Ритм задаёт содержимое. */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
         {/* Настройка нотации чисел */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
+        <div style={SETTING_ROW}>
+          <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 600 }}>Формат больших чисел</div>
             <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
               1,23 M или 1.23e6
             </div>
           </div>
-          <div style={{ display: 'flex', gap: '6px' }}>
+          <div style={SETTING_GROUP}>
             <button
               onClick={() => setNotation('short')}
               className={`pixel-btn ${state.settings.notation === 'short' ? 'pixel-btn-accent' : ''}`}
-              style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+              style={{ padding: '6px 10px', fontSize: '0.85rem', whiteSpace: 'nowrap' }}
             >
               Буквы (M, B)
             </button>
             <button
               onClick={() => setNotation('sci')}
               className={`pixel-btn ${state.settings.notation === 'sci' ? 'pixel-btn-accent' : ''}`}
-              style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+              style={{ padding: '6px 10px', fontSize: '0.85rem', whiteSpace: 'nowrap' }}
             >
               1e6
             </button>
@@ -775,8 +803,8 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
         </div>
 
         {/* Настройка звука */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
+        <div style={SETTING_ROW}>
+          <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 600 }}>8-битный звук</div>
             <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
               Звуковые эффекты клика и событий
@@ -785,16 +813,14 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
           <button
             onClick={toggleMute}
             className={`pixel-btn ${!state.settings.muted ? 'pixel-btn-accent' : ''}`}
-            style={{ padding: '6px 12px', fontSize: '0.85rem' }}
+            style={SETTING_CONTROL}
           >
             <Icon name={state.settings.muted ? 'sound-off' : 'sound-on'} />{' '}
             {state.settings.muted ? 'выключен' : 'включен'}
           </button>
         </div>
 
-        {/* Громкость: честная доля, а не только мьют. Ползунок нативный — стрелки, Home/End и
-            PageUp работают без строки кода, а трек и бегунок нельзя перекрасить из inline-стиля
-            (это псевдоэлементы), поэтому настраивается только accentColor. */}
+        {/* Громкость: честная доля, а не только мьют. */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
             <label htmlFor="settings-volume" style={{ fontWeight: 600, display: 'flex', gap: '6px' }}>
@@ -812,19 +838,18 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
             step={0.05}
             value={state.settings.volume}
             onChange={(e) => setVolume(Number(e.target.value))}
+            style={{ width: '100%', accentColor: 'var(--accent-color)', cursor: 'pointer' }}
             aria-describedby="settings-volume-hint"
             aria-valuetext={`${Math.round(state.settings.volume * 100)} процентов`}
-            style={{ width: '100%', margin: 0, accentColor: 'var(--accent-color)', cursor: 'pointer' }}
           />
           <div id="settings-volume-hint" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-            0 — тишина, как при выключенном звуке. По умолчанию 60%, а не 100: на одном Клике
-            сходятся Клик, реплика и Достижение, и их сумма на полной шкале хрипит.
+            Громкость звуковых эффектов и музыки
           </div>
         </div>
 
         {/* Настройка анимации */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
+        <div style={SETTING_ROW}>
+          <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 600 }}>Меньше анимации</div>
             <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
               Выключает движение в игре
@@ -833,41 +858,41 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
           <button
             onClick={() => setReducedMotion(!state.settings.reducedMotion)}
             className={`pixel-btn ${state.settings.reducedMotion ? 'pixel-btn-accent' : ''}`}
-            style={{ padding: '6px 12px', fontSize: '0.85rem' }}
+            style={SETTING_CONTROL}
           >
             {state.settings.reducedMotion ? 'Включено' : 'Выключено'}
           </button>
         </div>
 
         {/* Экспорт и Импорт */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <div style={{ fontWeight: 600 }}>Сохранение данных</div>
 
-          {/* Экспорт */}
-          <div>
-            <button
-              onClick={handleExport}
-              className="pixel-btn"
-              style={{ width: '100%', display: 'flex', gap: '6px', justifyContent: 'center' }}
-            >
-              <Icon name="export" />{' '}
-              {copyStatus ? 'Скопировано в буфер!' : 'Скопировать сохранение в буфер'}
-            </button>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-              Копирует текстовый код прогресса в буфер обмена для переноса на другое устройство.
-            </div>
-          </div>
+          <button onClick={handleExport} className="pixel-btn" style={{ width: '100%' }}>
+            {copyStatus ? 'Скопировано в буфер!' : 'Скопировать сохранение в буфер'}
+          </button>
 
-          {/* Импорт */}
-          <div>
+          <label
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '4px',
+              flex: 1,
+              minWidth: 0,
+              marginTop: '4px',
+            }}
+          >
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              Вставь код сохранения
+            </span>
             <div style={{ display: 'flex', gap: '6px' }}>
               <input
                 type="text"
-                placeholder="Вставь код сохранения..."
                 value={importCode}
                 onChange={(e) => setImportCode(e.target.value)}
                 style={{
                   flex: 1,
+                  minWidth: 0,
                   backgroundColor: 'var(--bg-card)',
                   border: '1px solid var(--border)',
                   color: 'var(--text-main)',
@@ -876,34 +901,30 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
                   fontSize: '0.85rem',
                 }}
               />
-              <button
-                onClick={handleImport}
-                className="pixel-btn pixel-btn-accent"
-                style={{ padding: '8px 12px', display: 'flex', gap: '6px' }}
-              >
-                <Icon name="import" /> Импорт
+              <button onClick={handleImport} className="pixel-btn pixel-btn-accent" style={{ padding: '8px 12px' }}>
+                Импорт
               </button>
             </div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-              Вставь код в поле Импорт и нажми — сейв заменится целиком. Внимание: импорт заменяет текущий Забег!
+          </label>
+          {errorMsg && (
+            <div
+              role="alert"
+              style={{
+                marginTop: '6px',
+                padding: '8px 10px',
+                backgroundColor: 'var(--tint-red)',
+                border: '1px solid var(--red)',
+                borderRadius: '4px',
+                fontSize: '0.8rem',
+                color: '#fca5a5',
+                display: 'flex',
+                gap: '6px',
+                alignItems: 'center',
+              }}
+            >
+              <Icon name="warning" size={14} /> {errorMsg}
             </div>
-            {errorMsg && (
-              // Значок в строку с ошибкой: импорт отвергнут, и это единственное место, где игрок
-              // теряет прогресс из-за чужой ошибки — предупреждение читается быстрее текста.
-              <div
-                style={{
-                  color: 'var(--red)',
-                  fontSize: '0.8rem',
-                  marginTop: '4px',
-                  display: 'flex',
-                  gap: '6px',
-                  alignItems: 'center',
-                }}
-              >
-                <Icon name="warning" size={14} /> {errorMsg}
-              </div>
-            )}
-          </div>
+          )}
         </div>
 
         {/* Чистый сброс в отдельной опасной зоне */}
@@ -940,8 +961,6 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
                   flex: 1,
                   backgroundColor: 'var(--red-solid)',
                   borderColor: 'var(--red)',
-                  // --text-main на --red-solid держит 6.4:1, поэтому насыщенной заливке
-                  // хватает тёплого белого из темы, а литерал в коде не нужен.
                   color: 'var(--text-main)',
                   padding: '8px',
                   fontSize: '0.85rem',
@@ -951,7 +970,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
                   alignItems: 'center',
                 }}
               >
-                <Icon name="reset" size={14} /> Точно сбросить? Нажми для подтверждения
+                <Icon name="warning" size={14} /> Точно стереть всё?
               </button>
               <button
                 onClick={() => setConfirmReset(false)}

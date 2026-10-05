@@ -39,6 +39,11 @@ import {
   playUpgradeSound,
 } from '../audio/sound';
 
+/**
+ * Звук заглушен целиком: в node нет ни AudioContext, ни окна, и любая попытка создать
+ * источник упала бы на импорте модуля. `audioContext` отдаёт null — это честный ответ
+ * «контекста нет», на который голос Температуры обязан выходить молча.
+ */
 vi.mock('../audio/sound', () => ({
   playAchievementSound: vi.fn(),
   playBuySound: vi.fn(),
@@ -48,6 +53,14 @@ vi.mock('../audio/sound', () => ({
   playPrestigeSound: vi.fn(),
   playQuipSound: vi.fn(),
   playUpgradeSound: vi.fn(),
+  audioContext: vi.fn(() => null),
+}));
+
+/** Голос Температуры тоже заглушен: он создаёт осцилляторы и шумовой буфер. */
+vi.mock('../audio/thermal', () => ({
+  updateThermalAudio: vi.fn(),
+  playCoolingSound: vi.fn(),
+  playHallucinationSound: vi.fn(),
 }));
 
 /**
@@ -140,9 +153,20 @@ const rich = (s: GameState, tokens: number): GameState => ({ ...s, tokens, runTo
  * Глюков) к значениям модуля, поэтому тест не знает ни про один из них. Обращения к
  * localStorage внутри него за `typeof window` не доходят: в node окна нет.
  */
+/**
+ * Чистый магазин перед каждым тестом.
+ *
+ * `resetGame` вместо ручной расстановки: он возвращает и UI-слой (окно события, расписание
+ * Глюков) к значениям модуля, поэтому тест не знает ни про один из них. Обращения к
+ * localStorage внутри него за `typeof window` не доходят: в node окна нет.
+ *
+ * `temp: 0` — жар выключен, потому что этот файл проверяет действия стора, а не Температуру:
+ * `newGame` стартует с `TEMP_START`, и множитель жара попал бы в те же цифры, что и проверяемое
+ * действие. Температура имеет собственные проверки в economy.test.ts.
+ */
 const freshStore = (s: GameState = newGame(T0)): void => {
   store().resetGame();
-  useGameStore.setState({ state: s, toasts: [], buyAmount: 1, lastQuip: null, lastBoughtModelId: null });
+  useGameStore.setState({ state: { ...s, temp: 0, heat: 0 }, toasts: [], buyAmount: 1, lastQuip: null, lastBoughtModelId: null });
 };
 
 /** Тик без стенного времени: он двигает только игровые часы, по 50 мс за шаг. */
@@ -651,12 +675,15 @@ describe('pledge and license', () => {
     // цены «Лицензии» проваливается на один ULP (при цене 1e17 это 16 Токенов), и отзыв молча
     // отказывался. Тест проверяет оплату, поэтому деньги должны её покрывать с запасом.
     withTokens(licenseCost(state()) + revokeCost(state()) * 1.01);
-    store().buyLicense();
+store().buyLicense();
     expect(totalIncome(state()) / income).toBeCloseTo(1 - LICENSE_INCOME_TAX, 6);
     const before = state();
     store().revokeLicense();
     expect(state().covenant).toBe(false);
-    expect(state().tokens).toBeCloseTo(before.tokens - revokeCost(before), 6);
+    // Отношения, а не разности: кошелёк здесь порядка 1e18, то есть за пределом точного
+    // целого у double (2^53 ≈ 9e15). Сложение двух цен и вычитание одной теряют единицы,
+    // и сравнение «хватает ли ровно» стало бы проверкой округления, а не отзыва.
+    expect(state().tokens / (before.tokens - revokeCost(before))).toBeCloseTo(1, 9);
     expect(totalIncome(state()) / income).toBeCloseTo(1, 6);
   });
 

@@ -210,7 +210,7 @@ Project preferences, not universal truths.
 - Components add no timer of their own: no `setInterval`, no second persistence path, no idle animation loop. The two exceptions those three prohibitions would otherwise catch are the 15 s news timer in `NewsTicker` and the Токен counter's `requestAnimationFrame` — the latter interpolates between ticks and writes straight to its DOM node, where a React re-render cannot clobber it. A bounded one-shot `setTimeout` — a toast's dwell, a label that reverts after showing itself — is not an interval and does not repeat, so the rule does not cover it; keep it a one-shot, because a repeating `setTimeout` is an interval that only pretends otherwise.
 - No backend, auth, analytics or telemetry, and security machinery is not over-indexed for maintainer-only features. The one exception is the AA key, which must never reach the client.
 - Tests are grouped into `describe` blocks by area and assert invariants across the whole catalog — "cost strictly increases with Rank", "modifiers stay within ±30%", "an interval is never paid twice" — rather than golden snapshots or rendered markup.
-- Internal docs are `CONTEXT.md` and `docs/adr/`. There is no README and no user documentation; do not add either unasked. A merged PR is the implementation record.
+- Internal docs are `CONTEXT.md` and `docs/adr/`. `README.md` exists for players and is deliberately thin: what the game is, how to run it, and what Температура means. Do not grow it into a second `CONTEXT.md`, and do not add user documentation beyond it. A merged PR is the implementation record.
 - No lint or format tooling exists; match the surrounding style by hand.
 
 ---

@@ -171,15 +171,7 @@ export const App: React.FC = () => {
     '--tab-bar-h': `${TAB_BAR_H}px`,
   } as React.CSSProperties;
 
-  // Отступ стека тостов равен высоте полос внизу оболочки: подвалу и, в одноколаночном
-  // режиме, панели вкладок. Высоту подвала нельзя задать числом — строка атрибуции
-  // Artificial Analysis переносится по ширине окна (замерено: 85 px на 390 и 33 px на 1440).
-  // Прежний код зашивал 72 и 132 px, то есть угадывал, и на 999 px панель вкладок
-  // оказывалась ровно под тостом. Меряем вместо угадывания: ResizeObserver не таймер и не
-  // второй цикл, он читает высоту после раскладки и ничего не запускает.
-  //
-  // Именно useLayoutEffect, а не useEffect: значение нужно уже к первому кадру, иначе стек
-  // один кадр рисуется с неразрешённым bottom — то есть вообще без отступа от низа.
+  // Отступ стека тостов равен высоте полос внизу оболочки
   useLayoutEffect(() => {
     const root = rootRef.current;
     if (!root || typeof ResizeObserver === 'undefined') return;
@@ -196,11 +188,14 @@ export const App: React.FC = () => {
       const band = root.querySelector(sel);
       if (band) observer.observe(band);
     }
-    // Панель вкладок появляется и исчезает вместе с режимом, поэтому после переключения
-    // меряем ещё раз: подписчик на её исчезновение не придёт.
     measure();
     return () => observer.disconnect();
   }, [viewport.single, viewport.narrow]);
+
+  // Температура одним атрибутом на корне
+  const overheated = useGameStore((s) => s.state.heat);
+  const stunned = useGameStore((s) => s.state.overheatedAt > 0 && s.state.lastTick - s.state.overheatedAt < 3500);
+  const thermalState = stunned ? 'stunned' : overheated > 0.5 ? 'hot' : 'calm';
 
   return (
     <div
@@ -210,10 +205,8 @@ export const App: React.FC = () => {
       // только снимает анимацию, а @media (prefers-reduced-motion: no-preference) в index.css
       // добавляет её обратно там, где система её разрешает.
       data-motion={reducedMotion ? 'reduced' : 'full'}
-      // Второй порог раскладки (NARROW_MAX) приезжает признаком, а не медиазапросом: число
-      // ширины в CSS пришлось бы продублировать, и рано или поздно два ответа на один вопрос
-      // разошлись бы. Признак ставится на первый же кадр, потому что ширина читается сразу.
       data-narrow={viewport.narrow ? 'true' : 'false'}
+      data-thermal={thermalState}
       style={{
         display: 'flex',
         flexDirection: 'column',

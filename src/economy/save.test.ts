@@ -22,7 +22,7 @@ const currentSave = (settings?: Record<string, unknown>) => {
 
 describe('save volume', () => {
   it('bumps the save version so the new field has a migration', () => {
-    expect(SAVE_VERSION).toBe(7);
+    expect(SAVE_VERSION).toBe(8);
   });
 
   it('gives a v6 save the default volume and keeps the other settings', () => {
@@ -50,8 +50,8 @@ describe('save volume', () => {
     expect(migrate(currentSave({ volume: 9999 }), T0).settings.volume).toBe(1);
     expect(migrate(currentSave({ volume: -5 }), T0).settings.volume).toBe(0);
     // Импорт идёт через base64 чужого файла — зажим обязан работать и на этом пути.
-    expect(importSave(btoa(JSON.stringify(currentSave({ volume: 9999 }))), T0)!.settings.volume).toBe(1);
-    expect(importSave(btoa(JSON.stringify(currentSave({ volume: -5 }))), T0)!.settings.volume).toBe(0);
+    expect(importSave(exportSave(currentSave({ volume: 9999 })), T0)!.settings.volume).toBe(1);
+    expect(importSave(exportSave(currentSave({ volume: -5 })), T0)!.settings.volume).toBe(0);
   });
 
   it('falls back to the default when the volume is not a number', () => {

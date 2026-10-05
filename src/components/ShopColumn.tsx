@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motionAllowed, useGameStore, type BuyAmount } from '../store/useGameStore';
 import { CATALOG } from '../economy/catalog';
-import { LABS } from '../data/labs';
+import { LABS, type LabId } from '../data/labs';
 import {
   bulkCost,
   canPrestige,
@@ -35,13 +35,46 @@ import {
 import { formatCount, formatDuration, formatNumber } from '../economy/format';
 import type { Notation } from '../economy/state';
 import { MascotSprite } from './MascotSprite';
-import { GoalsBanner } from './GoalsBanner';
 import { Num } from './Num';
 import { Icon } from './Icon';
 import { playDenySound } from '../audio/sound';
 
 // 8 искр из точки покупки. Радиус 14–26 px — чуть больше самой кнопки, поэтому жест читается
 // как отклик на нажатие, а не как залп.
+/**
+ * Искры покупки: восемь штук веером из кнопки.
+ *
+ * Восемь — предел для рутинного события. Покупка Агента повторяется десятки раз за Забег,
+ * и всё, что крупнее, превратилось бы в рябь: к третьему десятку искр игрок перестаёт их
+ * видеть, а к сотне они уже мешают читать цену под собой. Крупные события получают
+ * отклик другого калибра (см. `burst-layer` в Toasts).
+ */
+/**
+ * Трёхбуквенные бейджи Лабораторий.
+ *
+ * Живут здесь, а не в разметке: длина бейджа фиксирована тремя буквами именно потому, что
+ * колонки в списке обязаны стоять вровень, и подпись, нарисованная прямо в карточке,
+ * растянула бы карточку самой длинной строкой.
+ */
+/**
+ * Деления рельса цели в карточке Модели.
+ *
+ * Двенадцать, а не «сколько поместится»: число делений — это разрешение шкалы, и оно должно
+ * быть одинаковым на всех Моделях, иначе сравнивать карточки между собой нечем.
+ */
+const GOAL_TICKS = Array.from({ length: 12 }, (_, i) => i);
+
+const LAB_BADGE: Record<LabId, string> = {
+  openai: 'OAI',
+  anthropic: 'ANT',
+  google: 'GOO',
+  xai: 'xAI',
+  deepseek: 'DSK',
+  meta: 'MET',
+  mistral: 'MIS',
+  alibaba: 'ALI',
+};
+
 const SPARK_COUNT = 8;
 const SPARK = Array.from({ length: SPARK_COUNT }, (_, i) => {
   const angle = (i * 2.399963) % (Math.PI * 2);
@@ -76,10 +109,6 @@ const PLEDGE_DESC: React.CSSProperties = {
  * Живёт под кнопкой покупки и всегда занимает строку, даже когда дефицита нет: иначе карточка
  * прыгала бы по высоте на каждом тике, а с ней и кнопка под ней. aria-live не ставится — число
  * меняется двадцать раз в секунду и иначе читалось бы вслух.
- *
- * Дефицит печатается режимом `'price'`, как и цена над ним: половина Токена в «не хватает» не
- * значит ничего, а округление вверх у дефицита и у цены одно — иначе карточка считалась бы по
- * двум разным правилам, а читались бы рядом два числа, которых стыкуются только на глаз.
  */
 const TokenDeficit: React.FC<{ amount: number; notation: Notation }> = ({ amount, notation }) => {
   // Снятие deny-вспышки по концу анимации, а не по таймеру: таймеры в компонентах запрещены.
@@ -87,25 +116,22 @@ const TokenDeficit: React.FC<{ amount: number; notation: Notation }> = ({ amount
   const handleDenyEnd = (e: React.AnimationEvent<HTMLDivElement>) => {
     e.currentTarget.classList.remove('deny-flash');
   };
-  // Скругление вверх защищает от обещания целого числа, которого не хватит на покупку, и
-  // задаёт цифры для обеих строк: форма считается по тому же числу, что и печать.
-  const displayAmount = Math.ceil(amount);
   return (
     <div
       className="token-deficit"
       onAnimationEnd={handleDenyEnd}
       style={{
         minHeight: '1em',
-        fontSize: '0.8rem',
+        fontSize: '0.75rem',
         color: 'var(--text-muted)',
         textAlign: 'right',
       }}
     >
       {amount > 0 && (
         <>
-          Не хватает <Num>{formatNumber(displayAmount, notation, 'price')}</Num>{' '}
+          Не хватает <Num>{formatNumber(amount, notation)}</Num>{' '}
           {/* Нотация обязательна: форма считается по цифрам той же записи, что и число. */}
-          {formatCount(displayAmount, 'Токен', 'Токена', 'Токенов', notation, 'price')}
+          {formatCount(amount, 'Токен', 'Токена', 'Токенов', notation)}
         </>
       )}
     </div>
@@ -225,9 +251,7 @@ const ModelRow: React.FC<{
 
 export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const [tab, setTab] = useState<'models' | 'upgrades' | 'perks'>('models');
-  // Раскрытые подробности карточек Моделей, по id: ключ — сама Модель, а не её позиция в списке,
-  // иначе перестановка каталога закрыла бы то, что игрок открыл.
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [expandedAA, setExpandedAA] = useState<Record<string, boolean>>({});
 
   const state = useGameStore((s) => s.state);
   const buyAmount = useGameStore((s) => s.buyAmount);
@@ -242,7 +266,6 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const buyLicense = useGameStore((s) => s.buyLicense);
   const revokeLicense = useGameStore((s) => s.revokeLicense);
   const buyCrystalUpgrade = useGameStore((s) => s.buyCrystalUpgrade);
-  const shatter = useGameStore((s) => s.shatterCrystal);
   const requestPrestige = useGameStore((s) => s.requestPrestige);
 
   const gen = CATALOG[state.generation];
@@ -268,14 +291,6 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   });
   const boughtGenPerks = countGenPerks(state.perks);
   const nextGenPerkCost = genPerkCost(state.perks);
-  const boughtPerks = state.perks.length;
-  // Цена самого дешёвого некупленного Перка — из списка, а не константа в компоненте: подсказка
-  // пустого состояния обязана назвать настоящую цифру иначе, чем добавится Перк. Пока не куплен
-  // хоть один Перк, некупленных в PERKS заведомо остаются, так что число конечно.
-  const cheapestPerkCost = PERKS.reduce(
-    (min, p) => (state.perks.includes(p.id) ? min : Math.min(min, p.cost)),
-    Infinity,
-  );
 
   // Откупы: остаток уже купленного глушения — по игровым часам, как всё остальное окно
   // события, поэтому подпись не убегает от реальности после возвращения из простоя.
@@ -295,15 +310,11 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   // попадёт. Один путь на обе колонки — свой взвод здесь означал бы два разных подтверждения
   // одного и того же действия. Сам переход живёт в triggerPrestige, его зовёт окно.
 
-  const toggleDetails = (id: string) => {
-    setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+  const toggleAA = (id: string) => {
+    setExpandedAA((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  // Звук получает не флаг мьюта, а настройки целиком: громкость — полноценная настройка игрока,
-  // и компонент не должен собирать их сам, иначе каждый новый звук получил бы свой способ
-  // передачи настроек.
-  const soundSettings = state.settings;
-
+  
   // Класс click-btn--squash переиспользован из ClickColumn для кнопки Перка: карточка
   // Перка после покупки остаётся (меняется на «Куплено»), поэтому сквош успевает
   // показаться — плюс уже существующий звук из стора. Перезапуск и снятие — тем же
@@ -325,25 +336,16 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
 
   // Отказ по недоступной покупке: кнопка остаётся disabled (a11y не ломается), а Клик
   // ловит обёртка на погружении и отвечает низким buzz плюс вспышкой строки дефицита.
+  // Отказ по недоступной покупке: кнопка остаётся disabled (a11y не ломается), а Клик
+  // ловит обёртка на погружении и отвечает низким buzz плюс вспышкой самой кнопки.
+  //
+  // Раньше у Моделей мигала строка дефицита под кнопкой, а у Перков, Откупов и Кристаллов —
+  // сама кнопка: два ответа на одно действие в одном списке. Теперь отказ выглядит везде
+  // одинаково, и вспыхивает то, на что игрок и нажал.
   const handleDeny =
     (affordable: boolean) => (e: React.MouseEvent<HTMLDivElement>) => {
       if (affordable) return;
-      playDenySound(soundSettings);
-      const node = e.currentTarget.querySelector('.token-deficit');
-      if (!(node instanceof HTMLElement)) return;
-      node.classList.remove('deny-flash');
-      void node.offsetWidth;
-      node.classList.add('deny-flash');
-    };
-
-  // Отказ по недоступной покупке без строки дефицита: тем же приёмом, что у Моделей, но
-  // вспышка висит на самой кнопке. Служат карточки Перков, Откупов и Кристаллов — у них под
-  // кнопкой нечего мигать: у Перков нет строки дефицита, у Откупов и Кристаллов валюта не
-  // Токены, и «Не хватает N Токенов» было бы неправдой.
-  const handleBuyDeny =
-    (affordable: boolean) => (e: React.MouseEvent<HTMLDivElement>) => {
-      if (affordable) return;
-      playDenySound(soundSettings);
+      playDenySound(state.settings);
       const node = e.currentTarget.querySelector('.pixel-btn');
       if (!(node instanceof HTMLElement)) return;
       node.classList.remove('deny-flash');
@@ -368,17 +370,10 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
         overflowY: 'hidden',
       }}
     >
-      {/* Цели видны всегда, независимо от вкладки: экран без видимой цели убивает быстрее медленного баланса. */}
-      <GoalsBanner />
-      {/* Переключатель вкладок магазина. Состояние выбора — aria-pressed, тем же приёмом,
-          что у режима продажи и количества покупки выше: вкладки не настоящий tablist,
-          у них нет связанных панелей и стрелочной навигации, а цвет рамки для скринридера
-          не существует. */}
+      {/* Переключатель вкладок магазина */}
       <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
         <button
           onClick={() => setTab('models')}
-          aria-label="Вкладка Модели"
-          aria-pressed={tab === 'models'}
           className={`pixel-btn ${tab === 'models' ? 'pixel-btn-accent' : ''}`}
           style={{ flex: 1, padding: '8px 4px', fontSize: '0.9rem' }}
         >
@@ -386,8 +381,6 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
         </button>
         <button
           onClick={() => setTab('upgrades')}
-          aria-label={`Вкладка Апгрейды${upgrades.length > 0 ? ` (${upgrades.length} доступно)` : ''}`}
-          aria-pressed={tab === 'upgrades'}
           className={`pixel-btn ${tab === 'upgrades' ? 'pixel-btn-accent' : ''}`}
           style={{ flex: 1, padding: '8px 4px', fontSize: '0.9rem', position: 'relative' }}
         >
@@ -398,12 +391,11 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               className="tab-badge--pulse"
               style={{
                 marginLeft: '4px',
-                /* --red-solid, а не --red: белый на --red держал 3.05:1, то есть ниже порога
-                   для 12.8 px. На --red-solid та же подпись держит 6.47:1, и заливка пришла
-                   из палитры, а не из правила с !important, которым её приходилось перебивать. */
-                backgroundColor: 'var(--red-solid)',
+                backgroundColor: 'var(--red)',
+                /* Чистый белый на насыщенной заливке: --text-main уводит подпись в тёплый
+                   и роняет и без того пограничную пару до 3.06:1. */
                 color: '#fff',
-                fontSize: '0.8rem',
+                fontSize: '0.7rem',
                 padding: '1px 5px',
                 borderRadius: '8px',
               }}
@@ -414,8 +406,6 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
         </button>
         <button
           onClick={() => setTab('perks')}
-          aria-label="Вкладка Престиж"
-          aria-pressed={tab === 'perks'}
           className={`pixel-btn ${tab === 'perks' ? 'pixel-btn-accent' : ''}`}
           title={
             finale
@@ -465,7 +455,6 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
             <button
               onClick={() => setSellMode(false)}
               className="pixel-btn"
-              aria-label="Режим покупки"
               aria-pressed={!sellMode}
               style={{ padding: '4px 8px', fontSize: '0.8rem' }}
             >
@@ -474,7 +463,6 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
             <button
               onClick={() => setSellMode(true)}
               className="pixel-btn pixel-btn-sell"
-              aria-label="Режим продажи"
               aria-pressed={sellMode}
               style={{ padding: '4px 8px', fontSize: '0.8rem' }}
             >
@@ -489,7 +477,6 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                 key={amt}
                 onClick={() => setBuyAmount(amt)}
                 className="pixel-btn"
-                aria-label={amt === 'max' ? 'Купить максимум' : `Количество покупки: ${amt}`}
                 aria-pressed={buyAmount === amt}
                 style={{ padding: '4px 7px', fontSize: '0.8rem' }}
               >
@@ -501,7 +488,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
           {/* Строка про возврат живёт только в режиме продажи: в режиме покупки её нечего
               читать, а возврат и так назван прямо на кнопке карточки. */}
           {sellMode && (
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', flexShrink: 0 }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', flexShrink: 0 }}>
               Возврат 25% от цены
             </div>
           )}
@@ -509,13 +496,15 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
       )}
 
       {/* Контент активной вкладки. key по вкладке: переключение даёт короткое появление
-          только через opacity toast-fade, состояние tab и expanded не трогаем. */}
+          только через opacity toast-fade, состояние tab и expandedAA не трогаем. */}
       <div
         key={tab}
         style={{
           flex: 1,
           overflowY: 'auto',
-          paddingRight: '4px',
+          // Отступ справа под скроллбар: полоса прокрутки наезжала на цену в кнопке,
+          // и последние пиксели цифры уходили под неё. 14px — ширина полосы плюс зазор.
+          paddingRight: '14px',
           animation: 'toast-fade 0.15s ease-out',
         }}
       >
@@ -533,7 +522,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               // Продажа ограничена тем, что есть: sellAgents берёт min(n, owned), и подпись про
               // большую сделку, чем возможна, вводила бы в заблуждение.
               const gain = incomeGain(state, m.id, sellMode ? Math.min(count, owned) : count);
-              const isDetailsOpen = !!expanded[m.id];
+              const isAAOpen = !!expandedAA[m.id];
               const lab = LABS[m.lab];
 
               // Дефицит: при фиксированном множителе он считается на всю сумму покупки, а при Max
@@ -550,6 +539,11 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               // ниже показывает, сколько не хватает, а полоса показывает, как близко цель:
               // одно без другого игроку не сообщает, что цель достижима.
               const missingShare = progressToNextAgent(state, m);
+              // Деления рельса. Двенадцать, а не десять: при десяти на Моделях ранга 1 шаг
+              // заметно грубее, чем у поздних, и две соседние карточки отличались бы на одно
+              // деление — глаз переставал бы их различать. Точное число читается в подписи
+              // для скринридера, поэтому рельс округляет, а не притворяется точным.
+              const goalTicks = Math.round((1 - missingShare) * GOAL_TICKS.length);
 
               // Прогресс до синергий — чистый derived render из состояния: число Агентов
               // каждой Лаборатории через labAgents, без нового состояния и без таймеров.
@@ -558,55 +552,95 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                 (u) => u.kind === 'synergy' && u.pairLab === undefined && u.lab === m.lab,
               );
               const singleBought = singleSynergy !== undefined && state.upgrades.includes(singleSynergy.id);
-              const singleCount = labAgents(state, m.lab);
               const pairSynergies = UPGRADES_BY_GEN[state.generation].filter(
                 (u) => u.kind === 'synergy' && u.pairLab !== undefined && (u.lab === m.lab || u.pairLab === m.lab),
               );
 
               return (
                 <ModelRow key={m.id} owned={owned} isFlagship={m.isFlagship} canAfford={canAfford}>
-                  {/* Шапка карточки — первый слой чтения, и ровно он: название, Ранг, Лаборатория,
-                      число Агентов. Всё, что ниже, объяснение; всё, что за раскрытием, справка.
-                      Ранг стоит рядом с названием, а не в строке Лаборатории: он объясняет цену,
-                      и игрок ищет его вместе с ней, а Лабораторию — по цвету и Маскоту. */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <MascotSprite lab={m.lab} size={28} />
                       <div style={{ minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: '1rem', color: 'var(--text-main)' }}>{m.name}</span>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                            Ранг <Num>{m.rank + 1}</Num>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span
+                            style={{
+                              fontSize: '1rem',
+                              color: 'var(--text-main)',
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                            }}
+                          >
+                            {m.name}
                           </span>
                           {m.isFlagship && (
-                            <span
-                              style={{
-                                fontSize: '0.8rem',
-                                backgroundColor: 'var(--gold-solid)',
-                                color: 'var(--text-main)',
-                                padding: '1px 5px',
-                                borderRadius: '4px',
-                                fontWeight: 700,
-                              }}
-                            >
-                              ★ ФЛАГМАН
+                            <span style={{ color: 'var(--gold)', flexShrink: 0 }} title="Флагман">
+                              <Icon name="crown" size={13} />
                             </span>
                           )}
+                          {/* Отметка справки — квадратная, а не пилюля и не строка на всю
+                              ширину: пять таких строк подряд превращали правую колонку в
+                              список одинаковых плашек. Имя источника вынесено на вкладку,
+                              здесь остаётся знак и полное имя для скринридера. */}
+                          <button
+                            onClick={() => toggleAA(m.id)}
+                            aria-expanded={isAAOpen}
+                            aria-controls={`aa-${m.id}`}
+                            id={`aa-toggle-${m.id}`}
+                            aria-label={`Справка Artificial Analysis: ${m.name}`}
+                            title="Справка Artificial Analysis"
+                            style={{
+                              flexShrink: 0,
+                              width: '20px',
+                              height: '20px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              padding: 0,
+                              cursor: 'pointer',
+                              background: isAAOpen ? 'var(--tint-accent)' : 'none',
+                              border: '1px solid var(--border)',
+                              borderRadius: '3px',
+                              color: 'var(--accent-color)',
+                            }}
+                          >
+                            <Icon name="info" size={12} />
+                          </button>
                         </div>
-                        <div style={{ fontSize: '0.8rem', color: lab.color }}>{lab.name}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          {/* Бейдж Лаборатории — три буквы фиксированной ширины. Полное имя
+                              занимало строку целиком и выдавливало Ранг за край карточки на
+                              длинных именах вроде «Llama 2 Chat 13B»; здесь имена Лабораторий
+                              стоят в одной колонке, и глаз сравнивает их по цвету, а не читает. */}
+                          <span
+                            title={lab.name}
+                            style={{
+                              fontSize: '0.6rem',
+                              letterSpacing: '0.04em',
+                              color: lab.color,
+                              border: `1px solid ${lab.color}`,
+                              padding: '0 3px',
+                              minWidth: '2.4em',
+                              textAlign: 'center',
+                              flexShrink: 0,
+                            }}
+                          >
+                            {LAB_BADGE[m.lab]}
+                          </span>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                            Ранг {m.rank + 1}
+                          </span>
+                        </div>
                       </div>
                     </div>
 
-                    {/* Подпись обязательна: голое число не отличить от счётчика чего-то другого.
-                        Оба числа идут через formatNumber в нотации игрока: число Агентов в
-                        поздней игре длиннее любой колонки, а печать сырого double дала бы «1e+300»
-                        вместо «1,00e300» и «4278» вместо «4,28 K» — и ещё и разъехавшееся
-                        склонение под ним. */}
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'right', flexShrink: 0 }}>
+                    {/* Подпись обязательна: голое число не отличить от счётчика чего-то другого. */}
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'right' }}>
                       <div style={{ fontSize: '1.2rem' }}>
-                        <Num>{formatNumber(owned, notation)}</Num>
+                        <Num>{owned}</Num>
                       </div>
-                      <div>{formatCount(owned, 'Агент', 'Агента', 'Агентов', notation)}</div>
+                      <div>{formatCount(owned, 'Агент', 'Агента', 'Агентов')}</div>
                     </div>
                   </div>
 
@@ -639,250 +673,200 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       )}
                     </div>
 
-                    <button
+<button
                       onClick={() => (sellMode ? sellAgents(m.id) : buyAgents(m.id))}
                       disabled={!canAfford}
-                      aria-label={
-                        sellMode
-                          ? count > 0
-                            ? `Продать ${formatNumber(count, notation)} ${formatCount(count, 'Агента', 'Агентов', 'Агентов', notation)} Модели ${m.name} за ${formatNumber(refund, notation, 'price')} ${formatCount(refund, 'Токен', 'Токена', 'Токенов', notation, 'price')}`
-                            : `Продать Агентов Модели ${m.name}`
-                          : count > 0
-                            ? `Купить ${formatNumber(count, notation)} ${formatCount(count, 'Агента', 'Агентов', 'Агентов', notation)} Модели ${m.name} за ${formatNumber(cost, notation, 'price')} ${formatCount(cost, 'Токен', 'Токена', 'Токенов', notation, 'price')}`
-                            : `Купить Агента Модели ${m.name}`
-                      }
                       className={`pixel-btn pixel-btn-accent model-row__buy`}
                       style={{
-                        padding: '6px 12px',
+                        padding: '7px 12px',
                         fontSize: '0.85rem',
                         backgroundColor: sellMode && canAfford ? 'var(--red-solid)' : undefined,
                         borderColor: sellMode && canAfford ? 'var(--red)' : undefined,
                         // Недоступная кнопка прозрачна для указателя: иначе браузер подавил бы
-                        // Клик точно в неё и deny-обёртка выше его бы не увидела.
+                        // Клик точно в неё и deny-обёртка выше её бы не увидела.
                         pointerEvents: canAfford ? undefined : 'none',
                       }}
                     >
-                      {/* «Купить ×0» обещало бы покупку, которой не будет.
-                          Цена в режиме `'price'`: округление вверх, а не вниз. bulkCost отдаёт
-                          дробь (10,5 за первого Агента со стартовой скидкой), и обычная печать
-                          резала её до целого: кнопка обещала «10» и отказывала при десяти
-                          Токенах в кошельке. */}
-                      {sellMode ? (
-                        count > 0 ? (
-                          <>Продать (<Num>{formatNumber(refund, notation, 'price')}</Num>)</>
-                        ) : (
-                          <>Продать</>
-                        )
-                      ) : count > 0 ? (
-                        <>
-                          {/* Число покупок идёт через formatNumber: при «Max» это могут быть тысячи Агентов, а на
-                              поздних Поколениях цена уходит в e-нотацию, и «×4278» на кнопке
-                              не влезало бы в SHOP_COL_MIN. */}
-                          Купить ×<Num>{formatNumber(count, notation)}</Num> (<Num>{formatNumber(cost, notation, 'price')}</Num>)
-                        </>
-                      ) : (
-                        <>Купить</>
-                      )}
+                      {/* Действие и цена — в одной кнопке, второй строкой. Раньше дефицит стоял
+                          отдельной строкой ПОД кнопкой и повторял то же число, что в ней: карточка
+                          вырастала на строку, а информации прибавлялось ноль. */}
+                      <span
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: '2px',
+                        }}
+                      >
+                        <span>
+                          {/* «Купить ×0» обещало бы покупку, которой не будет. */}
+                          {sellMode ? (
+                            count > 0 ? (
+                              <>Продать ×<Num>{count}</Num></>
+                            ) : (
+                              <>Продать</>
+                            )
+                          ) : count > 0 ? (
+                            <>
+                              Купить ×<Num>{count}</Num> (<Num>{formatNumber(cost, notation)}</Num>)
+                            </>
+                          ) : (
+                            <>Купить</>
+                          )}
+                        </span>
+                        {!canAfford && missing > 0 && (
+                          <span style={{ fontSize: '0.7rem', opacity: 0.85 }}>
+                            не хватает <Num>{formatNumber(missing, notation)}</Num>
+                          </span>
+                        )}
+                        {sellMode && count > 0 && (
+                          <span style={{ fontSize: '0.7rem', opacity: 0.85 }}>
+                            вернёт <Num>{formatNumber(refund, notation)}</Num>
+                          </span>
+                        )}
+                      </span>
                     </button>
                   </div>
 
-                  {/* Дефицит — отдельной строкой с зарезервированной высотой, поэтому ни размер
-                      кнопки, ни высота карточки не прыгают на каждом тике. */}
-                  <TokenDeficit amount={missing} notation={notation} />
+                  {/* Рельс цели отвечает на «как близко», а не на «сколько не хватает», и это
+                      единственное, чего не повторяет кнопка. Подписи нет: число дефицита стоит
+                      внутри кнопки, а рельс показывает путь, который остался.
 
-                  {/* Полоса цели: строка дефицита отвечает на «сколько не хватает», полоса — на
-                      «как близко». Подписи у полосы нет, число уже показано строкой выше.
+                      Именно рельс, а не сплошная полоса: пять одинаковых заливок во всю ширину
+                      карточки читались как пять копий одного и того же блока и забивали собой
+                      весь магазин. Деления дают то же самое число, но каждая карточка выглядит
+                      по-своему — по количеству заполненных делений глаз сравнивает модели между
+                      собой, не читая подписей.
 
-                      Ширина целым процентами и без перехода: магазин перерисовывается двадцать
-                      раз в секунду, а переход на ширину, который перезапускался бы каждый кадр,
-                      тянул бы заливку позади настоящей доли и перезапускал бы анимацию на ровном
-                      месте. */}
+                      Ширина делений не анимируется: магазин перерисовывается двадцать раз в
+                      секунду, и переход, перезапускаемый каждый кадр, тянул бы заливку позади
+                      настоящей доли. */}
                   <div className="model-goal">
-                    <div className="model-goal__track">
-                      <div
-                        className="model-goal__fill"
-                        style={{ width: `${Math.round((1 - missingShare) * 100)}%` }}
-                      />
+                    <div
+                      className="model-goal__track"
+                      role="img"
+                      aria-label={`до следующего Агента ${Math.round((1 - missingShare) * 100)}%`}
+                    >
+                      {GOAL_TICKS.map((_, i) => (
+                        <span
+                          key={i}
+                          className={`model-goal__tick${
+                            i < goalTicks ? ' model-goal__tick--on' : ''
+                          }${i === goalTicks - 1 ? ' model-goal__tick--goal' : ''}`}
+                        />
+                      ))}
                     </div>
                   </div>
                   </div>
 
-                  {/* Раскрытие подробностей — единственное, что осталось от шума: раньше три
-                      строки датасетов висели в каждой карточке и читались как сплошной текст.
-                      Теперь они живут здесь, вместе со Справкой AA, и карточка держит три строки:
-                      шапка, цена с приростом, полоса цели.
-                      Волосяная линия остаётся литералом: 6% белого — это заведомо слабее любой
-                      ступени лестницы рамок, и --border здесь превратил бы её в самостоятельную
-                      рамку. */}
-                  <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '6px' }}>
-                    {/* Кнопка, а не div с обработчиком: раскрытие должно быть достижимо с
-                        клавиатуры и обязано объявлять состояние. Имя Artificial Analysis остаётся
-                        видимым текстом — атрибуция обязательна (ADR-0001) и не должна прятаться
-                        за раскрытие, поэтому строка подписи не меняется. */}
-                    <button
-                      onClick={() => toggleDetails(m.id)}
-                      className="link-toggle"
-                      aria-expanded={isDetailsOpen}
-                      aria-controls={`details-${m.id}`}
-                      id={`details-toggle-${m.id}`}
-                      aria-label={isDetailsOpen ? `Скрыть подробности о Модели ${m.name}` : `Показать подробности о Модели ${m.name}: Справка Artificial Analysis`}
+                  {/* Прогресс до синергий Лаборатории: одиночный датасет — счёт одной лабы,
+                      совместный — состав пары. Только чтение состояния, без своих таймеров. */}
+                  {(singleBought || pairSynergies.length > 0) && (
+                    <div
                       style={{
-                        width: '100%',
-                        background: 'none',
-                        border: 'none',
-                        padding: 0,
-                        fontSize: '0.8rem',
-                        color: 'var(--accent-color)',
-                        cursor: 'pointer',
                         display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: '8px',
+                        flexDirection: 'column',
+                        gap: '2px',
+                        fontSize: '0.75rem',
+                        color: 'var(--text-muted)',
                       }}
                     >
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <Icon name="info" size={13} />
-                        Справка Artificial Analysis
-                      </span>
-                      <span>{isDetailsOpen ? '▲ скрыть' : '▼ подробнее'}</span>
-                    </button>
+                      {/* Показывается только то, что уже куплено или уже готово к покупке.
+                          «0/15 + 0/15 до совместного датасета» на каждой из восьми карточек —
+                          не подсказка, а шум: игрок читает четыре нуля и решает, что ничего не
+                          происходит. Готовая к покупке пара подсвечивается золотом — это
+                          единственное, что меняет решение игрока прямо сейчас. */}
+                      {singleBought && <div>Общий датасет {LABS[m.lab].name} активен</div>}
+                      {pairSynergies.map((u) => {
+                        if (u.kind !== 'synergy' || u.pairLab === undefined) return null;
+                        const first = labAgents(state, u.lab);
+                        const second = labAgents(state, u.pairLab);
+                        const bought = state.upgrades.includes(u.id);
+                        const ready = first >= SYNERGY_MIN_AGENTS && second >= SYNERGY_MIN_AGENTS;
+                        const pairName = `${LABS[u.lab].name} × ${LABS[u.pairLab].name}`;
+                        // Не куплена и не готова — молчим: до порога строка обещает, а обещание
+                        // без срока читается как отказ.
+                        if (!bought && !ready) return null;
+                        return (
+                          <div key={u.id} style={ready ? { color: 'var(--gold)' } : undefined}>
+                            {bought && ready
+                              ? `Совместный датасет ${pairName} активен (×${formatNumber(PAIR_SYNERGY_MULT, notation)})`
+                              : bought
+                                ? `Совместный датасет ${pairName} ждёт состав ${first} + ${second}`
+                                : `Совместный датасет ${pairName} готов — забирай во вкладке Апгрейды`}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
 
-                    {isDetailsOpen && (
+                  {/* Справка AA. Раньше подпись «Справка Artificial Analysis / подробнее»
+                      повторялась в каждой карточке, и на экране их было пять подряд: пять
+                      одинаковых строк с одинаковым треугольником. Теперь в карточке остаётся
+                      квадратная отметка у имени Модели, а имя Artificial Analysis стоит один раз
+                      на всю вкладку — атрибуция по-прежнему видна в магазине (ADR-0001), но
+                      перестаёт быть пятой копией сама себя.
+
+                      Волосяной линии над блоком больше нет: она отделяла подпись от рельса, а
+                      подписи не осталось, и в закрытом виде повисала под рельсом чужой чертой. */}
+                  {isAAOpen && (
                       <div
-                        id={`details-${m.id}`}
-                        aria-labelledby={`details-toggle-${m.id}`}
+                        id={`aa-${m.id}`}
+                        aria-labelledby={`aa-toggle-${m.id}`}
                         style={{
-                          marginTop: '6px',
                           padding: '6px 8px',
                           backgroundColor: 'var(--bg-void)',
                           borderRadius: '4px',
-                          fontSize: '0.8rem',
+                          fontSize: '0.75rem',
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(3, 1fr)',
+                          gap: '6px',
                         }}
                       >
-                        {/* Прогресс до датасетов Лаборатории: одиночный — счёт одной лабы,
-                            совместный — состав пары. Только чтение состояния, без своих таймеров.
-                            Одинаков для всех Моделей лабы, поэтому в карточке он и стоит один
-                            раз — по кнопке, а не стеной на каждой Модели. */}
-                        {(singleSynergy !== undefined || pairSynergies.length > 0) && (
-                          <div
-                            style={{
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: '2px',
-                              color: 'var(--text-muted)',
-                            }}
-                          >
-                            {singleSynergy !== undefined &&
-                              (singleBought ? (
-                                <div>Общий датасет активен</div>
-                              ) : (
-                                <div>
-                                  <Num>{formatNumber(singleCount, notation)}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num>{' '}
-                                  {formatCount(singleCount, 'Агент', 'Агента', 'Агентов', notation)} до датасета
-                                  {singleCount >= SYNERGY_MIN_AGENTS
-                                    ? ' — забирай во вкладке Апгрейды'
-                                    : ' — каждый Датасет из Достижений и купленный Датасет множит Доход'}
-                                </div>
-                              ))}
-                            {pairSynergies.map((u) => {
-                              if (u.kind !== 'synergy' || u.pairLab === undefined) return null;
-                              const first = labAgents(state, u.lab);
-                              const second = labAgents(state, u.pairLab);
-                              const bought = state.upgrades.includes(u.id);
-                              const ready =
-                                first >= SYNERGY_MIN_AGENTS && second >= SYNERGY_MIN_AGENTS;
-                              const pairName = `${LABS[u.lab].name} × ${LABS[u.pairLab].name}`;
-                              if (bought) {
-                                return (
-                                  <div key={u.id}>
-                                    {ready ? (
-                                      <>
-                                        Совместный датасет {pairName} активен (×
-                                        <Num>{formatNumber(PAIR_SYNERGY_MULT, notation)}</Num>)
-                                      </>
-                                    ) : (
-                                      <>
-                                        Совместный датасет {pairName} ждёт состав{' '}
-                                        <Num>{formatNumber(first, notation)}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num> +{' '}
-                                        <Num>{formatNumber(second, notation)}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num>
-                                      </>
-                                    )}
-                                  </div>
-                                );
-                              }
-                              return (
-                                <div key={u.id}>
-                                  <Num>{formatNumber(first, notation)}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num> +{' '}
-                                  <Num>{formatNumber(second, notation)}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num> до совместного
-                                  датасета {pairName}
-                                  {ready ? ' — забирай во вкладке Апгрейды' : ''}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-
-                        {/* Справка AA: реальные характеристики Модели, а не игровые. Отдельной
-                            строкой от датасетов, потому что это другой вопрос — и подпись под
-                            панелью остаётся видимой и в закрытом виде. */}
-                        <div
-                          style={{
-                            display: 'grid',
-                            gridTemplateColumns: 'repeat(3, 1fr)',
-                            gap: '6px',
-                            paddingTop: '6px',
-                          }}
-                        >
-                          <div>
-                            <div style={{ color: 'var(--text-muted)' }}>Intelligence:</div>
-                            <div style={{ color: 'var(--gold)', fontWeight: 700 }}>{m.iq} IQ</div>
-                          </div>
-                          <div>
-                            <div style={{ color: 'var(--text-muted)' }}>Скорость:</div>
-                            <div style={{ color: 'var(--accent-color)', fontWeight: 700 }}>{m.speed} t/s</div>
-                          </div>
-                          <div>
-                            <div style={{ color: 'var(--text-muted)' }}>Цена API:</div>
-                            <div style={{ color: 'var(--green)', fontWeight: 700 }}>${m.price}/1M</div>
-                          </div>
+                        <div>
+                          <div style={{ color: 'var(--text-muted)' }}>Intelligence:</div>
+                          <div style={{ color: 'var(--gold)', fontWeight: 700 }}>{m.iq} IQ</div>
+                        </div>
+                        <div>
+                          <div style={{ color: 'var(--text-muted)' }}>Скорость:</div>
+                          <div style={{ color: 'var(--accent-color)', fontWeight: 700 }}>{m.speed} t/s</div>
+                        </div>
+                        <div>
+                          <div style={{ color: 'var(--text-muted)' }}>Цена API:</div>
+                          <div style={{ color: 'var(--green)', fontWeight: 700 }}>${m.price}/1M</div>
                         </div>
                       </div>
-                    )}
-                  </div>
+                  )}
                 </ModelRow>
               );
             })}
+
+            {/* Атрибуция один раз на вкладку, а не в каждой карточке. Пять одинаковых строк
+                «Справка Artificial Analysis» подряд читались как шум и занимали место, которое
+                отдано моделям; имя источника при этом остаётся видимым в магазине (ADR-0001),
+                и в подписи кнопки каждой карточки оно тоже есть. */}
+            <div
+              style={{
+                fontSize: '0.7rem',
+                color: 'var(--text-muted)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                paddingTop: '2px',
+              }}
+            >
+              <Icon name="info" size={12} />
+              Метрики, задержки и цены API — Artificial Analysis
+            </div>
           </div>
         )}
 
         {/* ВКЛАДКА АПГРЕЙДОВ */}
         {tab === 'upgrades' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {/* Пустая вкладка. Прежде здесь стояло «Нанимай больше агентов!», и это было
-                половиной правды: Апгрейды Клика открываются не Агентами, а Токенами забега,
-                поэтому после первого Агента и без единого Апгрейда игрок решал, что вкладка
-                сломана. Теперь названы оба порога, и оба — из движка, а не выдуманы. */}
             {upgrades.length === 0 ? (
-              <div
-                style={{
-                  textAlign: 'center',
-                  color: 'var(--text-muted)',
-                  marginTop: '32px',
-                  padding: '0 8px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '8px',
-                  alignItems: 'center',
-                }}
-              >
-                <div style={{ fontSize: '0.9rem' }}>Пока нет доступных апгрейдов.</div>
-                {/* Ближайшая ступень та же, что у tiers Модели: один Агент открывает тонкую
-                    настройку. Второй порог — Токены забега на Апгрейды Клика, и он не про
-                    Агентов вовсе, поэтому назван отдельно. */}
-                <div style={{ fontSize: '0.8rem', maxWidth: '260px' }}>
-                  Каждый Агент открывает тонкую настройку своей Модели, а Апгрейды Клика —
-                  по Токенам, заработанным за Забег. Пока нет ни того, ни другого.
-                </div>
+              <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: '40px' }}>
+                Пока нет доступных апгрейдов. Нанимай больше агентов!
               </div>
             ) : (
               upgrades.map((u) => {
@@ -935,7 +919,6 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                     <button
                       onClick={() => buyUpgrade(u.id)}
                       disabled={!canAfford}
-                      aria-label={`Купить апгрейд ${u.name} за ${formatNumber(u.cost, notation, 'price')} ${formatCount(u.cost, 'Токен', 'Токена', 'Токенов', notation, 'price')}`}
                       className="pixel-btn pixel-btn-accent"
                       style={{
                         padding: '6px 10px',
@@ -946,7 +929,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                     >
                       {/* Цена живёт в кнопке на всех вкладках магазина: в шапке карточки её
                           больше нет, поэтому искать её приходилось в двух разных местах. */}
-                      Улучшить (<Num>{formatNumber(u.cost, notation, 'price')}</Num>)
+                      Улучшить (<Num>{formatNumber(u.cost, notation)}</Num>)
                     </button>
 
                     <TokenDeficit amount={missing} notation={notation} />
@@ -995,7 +978,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         и расходиться они не должны. */}
                     <Num>+{formatNumber(prestigeGain(state), notation)}</Num>
                   </div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
                     (Каждая единица Compute даёт постоянный бонус +1% к Доходу)
                   </div>
                 </div>
@@ -1006,13 +989,6 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                   который проверяет стор. */}
               <button
                 onClick={requestPrestige}
-                aria-label={
-                  finale
-                    ? 'Финал контента'
-                    : canPrestige(state)
-                      ? 'Сделать Престиж в следующее поколение'
-                      : 'Престиж недоступен: нужен 1 Агент Флагмана'
-                }
                 className="pixel-btn pixel-btn-gold"
                 style={{ width: '100%', marginTop: '4px' }}
               >
@@ -1046,7 +1022,6 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                   </div>
                   <button
                     onClick={() => setTab('models')}
-                    aria-label="Вернуться к Моделям"
                     className="pixel-btn pixel-btn-accent"
                     style={{ width: '100%' }}
                   >
@@ -1092,7 +1067,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       {state.covenant && (
                         <div style={PLEDGE_DESC}>
                           «Лицензия» глушит всё, поэтому Лобби за{' '}
-                          <Num>{formatNumber(pledgeCost(state), notation, 'price')}</Num> не продаётся.
+                          <Num>{formatNumber(pledgeCost(state), notation)}</Num> не продаётся.
                         </div>
                       )}
                       {pledgeLeftMs > 0 && (
@@ -1102,13 +1077,12 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       )}
                     </div>
                     <div
-                      onClickCapture={handleBuyDeny(canPledge(state))}
+                      onClickCapture={handleDeny(canPledge(state))}
                       style={{ flexShrink: 0 }}
                     >
                       <button
                         onClick={buyPledge}
                         disabled={!canPledge(state)}
-                        aria-label={state.covenant ? 'Лицензия уже активна' : `Откупиться от красных событий за ${formatNumber(pledgeCost(state), notation, 'price')} Токенов`}
                         className="pixel-btn pixel-btn-accent"
                         style={{ padding: '6px 10px', fontSize: '0.85rem' }}
                       >
@@ -1116,7 +1090,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                           'Есть Лицензия'
                         ) : (
                           <>
-                            Откупиться (<Num>{formatNumber(pledgeCost(state), notation, 'price')}</Num>)
+                            Откупиться (<Num>{formatNumber(pledgeCost(state), notation)}</Num>)
                           </>
                         )}
                       </button>
@@ -1139,17 +1113,16 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         </div>
                       </div>
                       <div
-                        onClickCapture={handleBuyDeny(state.tokens >= revokeCost(state))}
+                        onClickCapture={handleDeny(state.tokens >= revokeCost(state))}
                         style={{ flexShrink: 0 }}
                       >
                         <button
                           onClick={revokeLicense}
                           disabled={state.tokens < revokeCost(state)}
-                          aria-label={`Отозвать Лицензию за ${formatNumber(revokeCost(state), notation, 'price')} Токенов`}
                           className="pixel-btn"
                           style={{ padding: '6px 10px', fontSize: '0.85rem' }}
                         >
-                          Отозвать (<Num>{formatNumber(revokeCost(state), notation, 'price')}</Num>)
+                          Отозвать (<Num>{formatNumber(revokeCost(state), notation)}</Num>)
                         </button>
                       </div>
                     </div>
@@ -1167,22 +1140,21 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                           Постоянный налог на Доход −
                           <Num>{formatNumber(Math.round(LICENSE_INCOME_TAX * 100), notation)}</Num>%:
                           отзыв обойдётся в{' '}
-                          <Num>{formatNumber(revokeCost(state), notation, 'price')}</Num>.
+                          <Num>{formatNumber(revokeCost(state), notation)}</Num>.
                         </div>
                       </div>
                       <div
-                        onClickCapture={handleBuyDeny(canLicense(state))}
+                        onClickCapture={handleDeny(canLicense(state))}
                         style={{ flexShrink: 0 }}
                       >
                         <button
                           onClick={buyLicense}
                           disabled={!canLicense(state)}
-                          aria-label={`Взять Лицензию за ${formatNumber(licenseCost(state), notation, 'price')} Токенов`}
                           className="pixel-btn pixel-btn-gold"
                           style={{ padding: '6px 10px', fontSize: '0.85rem' }}
                         >
                           Взять Лицензию (
-                          <Num>{formatNumber(licenseCost(state), notation, 'price')}</Num>)
+                          <Num>{formatNumber(licenseCost(state), notation)}</Num>)
                         </button>
                       </div>
                     </div>
@@ -1251,27 +1223,6 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                 </div>
               </div>
 
-              {/* Разбить кристалл: честный обмен вечного бонуса к Доходу на разовые Токены.
-                  Кнопка видна только при crystals >= 1, подтверждения нет — размен назван прямо. */}
-              {state.crystals >= 1 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                    Разбить кристалл: вечный бонус к Доходу за кристалл превратится в разовые
-                    Токены. Кристалл исчезнет из запаса.
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                    <button
-                      onClick={shatter}
-                      aria-label="Разбить кристалл"
-                      className="pixel-btn"
-                      style={{ padding: '6px 10px', fontSize: '0.85rem' }}
-                    >
-                      Разбить кристалл
-                    </button>
-                  </div>
-                </div>
-              )}
-
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {CRYSTAL_UPGRADES.map((u) => {
                   const owned = state.crystalUpgrades.includes(u.id);
@@ -1325,13 +1276,12 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                             )}
                       </div>
                       <div
-                        onClickCapture={handleBuyDeny(owned || canAfford)}
+                        onClickCapture={handleDeny(owned || canAfford)}
                         style={{ display: 'flex', justifyContent: 'flex-end' }}
                       >
                         <button
                           onClick={() => buyCrystalUpgrade(u.id)}
                           disabled={owned || !canAfford}
-                          aria-label={owned ? `Апгрейд кристаллов ${u.name} уже куплен` : `Купить апгрейд кристаллов ${u.name} за ${u.cost} ${formatCount(u.cost, 'кристалл', 'кристалла', 'кристаллов')}`}
                           className={`pixel-btn ${owned ? '' : 'pixel-btn-accent'}`}
                           style={{ padding: '6px 10px', fontSize: '0.85rem' }}
                         >
@@ -1340,7 +1290,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                           ) : (
                             <>
                               Купить (<Num>{formatNumber(u.cost, notation)}</Num>{' '}
-                              {formatCount(u.cost, 'кристалл', 'кристалла', 'кристаллов', notation)})
+                              {formatCount(u.cost, 'кристалл', 'кристалла', 'кристаллов')})
                             </>
                           )}
                         </button>
@@ -1356,32 +1306,8 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               <div
                 style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: '8px' }}
               >
-                Постоянные перки (Свободно: <Num>{formatNumber(unspentCompute, notation)}</Num> Compute)
+                Постоянные перки (Свободно: <Num>{unspentCompute}</Num> Compute)
               </div>
-
-              {/* Ноль Compute — не «пустая колонка», а самый частый первый заход на эту вкладку:
-                  до первого Престижа Compute в игре нет вообще, и подряд идут пятнадцать
-                  приглушённых карточек с мёртвыми кнопками. Строка называет, откуда берётся
-                  Compute и сколько стоит самый дешёвый Перк, — иначе вкладка выглядит поломкой.
-                  Условие именно «ничего не куплено и купить нечего»: при накопленном Compute
-                  подсказка молчала бы впустую. */}
-              {unspentCompute === 0 && boughtPerks === 0 && (
-                <div
-                  style={{
-                    fontSize: '0.8rem',
-                    color: 'var(--text-muted)',
-                    marginBottom: '8px',
-                    padding: '8px 10px',
-                    backgroundColor: 'var(--bg-card)',
-                    border: '1px solid var(--border)',
-                    borderRadius: '6px',
-                  }}
-                >
-                  Compute начисляется за Престиж — до первого их нет. Он открыт, как только
-                  найдёшь Агента Флагмана, а самый дешёвый Перк стоит{' '}
-                  <Num>{formatNumber(cheapestPerkCost, notation)}</Num> Compute.
-                </div>
-              )}
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {regularPerks.map((p) => {
@@ -1412,7 +1338,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                           (строки дефицита здесь нет). По «Куплено» обёртка молчит: owned гасит
                           и звук, и вспышку. */}
                       <div
-                        onClickCapture={handleBuyDeny(owned || canAfford)}
+                        onClickCapture={handleDeny(owned || canAfford)}
                         style={{
                           display: 'flex',
                           flexDirection: 'column',
@@ -1427,7 +1353,6 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         }}
                         onAnimationEnd={handleSquashEnd}
                         disabled={owned || !canAfford}
-                        aria-label={owned ? `Перк ${p.name} уже куплен` : `Купить перк ${p.name} за ${p.cost} Compute`}
                         className={`pixel-btn ${owned ? '' : 'pixel-btn-gold'}`}
                         style={{
                           padding: '6px 10px',
@@ -1507,7 +1432,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                           делать. Прошлые Поколения подписи не получают: они покупаемы как
                           обычные, упущенности нет. */}
                       {locked && (
-                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                           {isFutureGen
                             ? <>Откроется в поколении «{genName}»</>
                             : needFlagship
@@ -1517,7 +1442,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       )}
 
                       <div
-                        onClickCapture={handleBuyDeny(owned || canAfford)}
+                        onClickCapture={handleDeny(owned || canAfford)}
                         style={{
                           display: 'flex',
                           flexDirection: 'column',
@@ -1532,7 +1457,6 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         }}
                         onAnimationEnd={handleSquashEnd}
                         disabled={owned || !canAfford}
-                        aria-label={owned ? `Перк Наследия ${p.name} уже куплен` : `Купить перк Наследия ${p.name} за ${nextGenPerkCost} Compute`}
                         className={`pixel-btn ${owned ? '' : 'pixel-btn-gold'}`}
                         style={{
                           padding: '6px 10px',
