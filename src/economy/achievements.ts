@@ -2,6 +2,10 @@ import { CATALOG } from './catalog';
 import { SHADOW_ACHIEVEMENTS } from './shadow';
 import type { GameState } from './state';
 
+/**
+ * Обычное Достижение. Теневые живут отдельно (shadow.ts) и сюда не попадают: у них другой
+ * счётчик, другое место выдачи и правило «не обязаны выполняться в одном прогоне».
+ */
 export interface Achievement {
   id: string;
   name: string;
@@ -42,6 +46,36 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'perk_1', name: 'Инвестор', desc: 'Купить первый Перк', check: (s) => s.perks.length >= 1 },
 ];
 
+/** Префикс id теней: по нему тень опознаётся даже в записи, где нет её табличной строки. */
+const SHADOW_ID_PREFIX = 'sh_';
+
+const SHADOW_IDS = new Set(SHADOW_ACHIEVEMENTS.map((a) => a.id));
+
+/**
+ * Число заработанных НЕтеневых Достижений — база Датасета и числитель «N / 21».
+ *
+ * Тени лежат в том же списке сохранения, поэтому числитель считается по таблице обычных записей
+ * и никогда по `achievements.length`. Отсев теней сделан по обоим признакам сразу — по таблице
+ * теней и по префиксу `sh_`, — чтобы тень, по ошибке попавшая в обычную таблицу, всё равно не
+ * раздувала Датасет.
+ */
+export function nonShadowCount(s: GameState): number {
+  return ACHIEVEMENTS.filter(
+    (a) => !a.id.startsWith(SHADOW_ID_PREFIX) && !SHADOW_IDS.has(a.id) && s.achievements.includes(a.id),
+  ).length;
+}
+
+/**
+ * То же число под именем счётчика в интерфейсе: «N / 21» в шапке и в окне Достижений считается
+ * той же величиной, что и Датасет. Два имени — два места чтения одного числа, а не две реализации.
+ */
+export const ordinaryEarned = nonShadowCount;
+
+/** Числитель теневого счётчика. */
+export function shadowEarned(s: GameState): number {
+  return SHADOW_ACHIEVEMENTS.filter((a) => s.achievements.includes(a.id)).length;
+}
+
 /** Возвращает id новых выполненных Достижений. */
 export function newlyEarned(s: GameState): string[] {
   const have = new Set(s.achievements);
@@ -81,14 +115,4 @@ export function awardShadowAchievements(s: GameState): { state: GameState; award
   const awarded = newlyEarnedShadows(s);
   if (awarded.length === 0) return { state: s, awarded };
   return { state: { ...s, achievements: [...s.achievements, ...awarded] }, awarded };
-}
-
-/** Числитель обычного счётчика: тени лежат в том же списке, но в «N / 21» не входят. */
-export function ordinaryEarned(s: GameState): number {
-  return ACHIEVEMENTS.reduce((n, a) => n + (s.achievements.includes(a.id) ? 1 : 0), 0);
-}
-
-/** Числитель теневого счётчика. */
-export function shadowEarned(s: GameState): number {
-  return SHADOW_ACHIEVEMENTS.reduce((n, a) => n + (s.achievements.includes(a.id) ? 1 : 0), 0);
 }
