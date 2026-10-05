@@ -4,6 +4,7 @@ import { totalIncome, clickValue, nextAgentCost, shortfall } from '../economy/en
 import { formatCount, formatNumber } from '../economy/format';
 import { Num } from './Num';
 import { Icon } from './Icon';
+import { GoldenToken } from './GoldenToken';
 
 /** За сколько миллисекунд счётчик съедает 63% расстояния до цели: каждый кадр отнимает
  *  долю dt / APPROACH_MS остатка, поэтому число тормозит, а не разгоняется, и скорость
@@ -208,6 +209,12 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
           </div>
         )}
       </div>
+
+      {/* Золотой Токен: появляется на время окна события прямо над кнопкой Клика, чтобы
+          находка попадала в ту же область взгляда, что и главное действие игры. Карточка
+          монтируется и размонтируется вместе с окном, поэтому её появление и есть
+          объявление. */}
+      <GoldenToken />
 
       {/* Большая кнопка Клика */}
       <button

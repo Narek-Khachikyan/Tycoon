@@ -1,4 +1,4 @@
-import { CATALOG, LAST_GENERATION } from './catalog';
+import { CATALOG, computeGain, LAST_GENERATION } from './catalog';
 import { canPrestige, clickValue } from './engine';
 import { PERKS } from './perks';
 import type { GameState } from './state';
@@ -191,6 +191,30 @@ export const SHADOW_ACHIEVEMENTS: ShadowAchievement[] = [
     id: 'shadow_all_prestiges_15m', name: 'Спринт',
     desc: `Совершить все ${CATALOG.length - 1} Престижей за 15 минут с первого запуска`,
     check: (s) => s.prestiges >= CATALOG.length - 1 && hoursSinceStart(s) <= 15 / 60,
+  },
+  // Четыре тени, пришедшие из ветки с первой лестницей теней. id сохранены как есть: они уже могут
+  // лежать в `state.achievements` у живого игрока, а проверки списка миграцией для Достижений нет —
+  // молча переименованный id исчез бы из счётчика вместе с записью.
+  {
+    id: 'sh_no_click', name: 'Тихий разгон', desc: 'Заработать 1M токенов за Забег при не более 15 Кликах',
+    check: (s) => s.runTokens >= 1e6 && s.runClicks <= 15,
+  },
+  {
+    // «Быстрее 15 минут» читается по lastTick, а не по Date.now(): условие теней обязано быть
+    // чистой функцией состояния, иначе проверка плавала бы между тиками и между прогонами.
+    // applyOffline приводит lastTick к текущему времени, поэтому после простоя отсчёт честный.
+    id: 'sh_speed', name: 'Спидран', desc: 'Заработать 1M токенов за Забег быстрее чем за 15 минут',
+    check: (s) => s.runTokens >= 1e6 && s.lastTick - s.runStartedAt <= 900_000,
+  },
+  {
+    id: 'sh_hardcore', name: 'Чистый Забег', desc: 'Нанять Флагмана, не купив ни одного Апгрейда',
+    check: (s) => (s.agents[CATALOG[s.generation].flagship.id] ?? 0) >= 1 && s.upgrades.length === 0,
+  },
+  {
+    // Формула прироста читается из каталога, а не повторяется здесь: она одна на игру, и копия
+    // разошлась бы с Престижем при первой же правке баланса.
+    id: 'sh_777', name: 'Счастливый Compute', desc: 'Достичь прироста Престижа с цифрами 777',
+    check: (s) => String(computeGain(s.runTokens, s.generation)).includes('777'),
   },
   {
     // Шутка, и условие здесь единственно возможное: выигрыш зависит от того, открывал ли

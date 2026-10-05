@@ -46,6 +46,15 @@ export const INCOME_BASE = 0.1;
 export const INCOME_STEP = 6.5;
 export const MOD_SPREAD = 0.3;
 
+/**
+ * Делитель прироста Compute в единицах масштаба Поколения.
+ *
+ * Живёт здесь, а не в движке: это единственное число, по которому формула Престижа совпадает в
+ * самом Престиже и в Достижении «Счастливый Compute», а две копии константы разъезжаются
+ * при первой же правке баланса.
+ */
+export const PRESTIGE_DIVISOR_UNITS = 1e5;
+
 export const genScale = (index: number) => Math.pow(GEN_SCALE, index);
 
 const median = (xs: number[]) => {
@@ -113,3 +122,18 @@ export const MODEL_BY_ID: Record<string, Model> = Object.fromEntries(
 );
 
 export const LAST_GENERATION = CATALOG.length - 1;
+
+/** Делитель прироста Compute, приведённый к масштабу Поколения. */
+export const prestigeDivisor = (generation: number): number =>
+  PRESTIGE_DIVISOR_UNITS * CATALOG[generation].scale;
+
+/**
+ * Сколько Compute даёт Забег: кубический корень от заработка через делитель своего Поколения.
+ *
+ * Живёт здесь рядом с делителем и читается тремя местами — самим Престижем, порогом следующей
+ * единицы Compute в интерфейсе и теневым Достижением «Счастливый Compute». Формула одна: три копии
+ * разошлись бы при первой же правке баланса, а цикл импортов обойти нечем — модуль ничего не
+ * импортирует, поэтому копия не была вынуждена.
+ */
+export const computeGain = (runTokens: number, generation: number): number =>
+  Math.floor(Math.cbrt(runTokens / prestigeDivisor(generation)));

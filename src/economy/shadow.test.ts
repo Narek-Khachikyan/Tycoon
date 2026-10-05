@@ -5,10 +5,11 @@ import {
   awardShadowAchievements,
   newlyEarned,
   newlyEarnedShadows,
+  nonShadowCount,
   ordinaryEarned,
   shadowEarned,
 } from './achievements';
-import { CATALOG, LAST_GENERATION, type Model } from './catalog';
+import { CATALOG, LAST_GENERATION, prestigeDivisor, type Model } from './catalog';
 import {
   advance,
   applyOffline,
@@ -132,6 +133,15 @@ const REACH: Record<string, () => GameState> = {
     ),
   shadow_run_clicks_100k: () => advance(autoClicking(newGame(T0)), 100_000),
   shadow_compute_hoarder: () => prestige(buyAgents(rich(newGame(T0), 1e30), g0.flagship.id, 1), T0),
+  // Четыре тени из ранней ветки: id те же, условия переписаны под контракт таблицы теней —
+  // одно состояние, ноль Date.now. Миллион без единого Клика: Агент-флагман Поколения 1 зарабатывает
+  // его за десяток секунд, поэтому «быстрее 15 минут» выполняется целиком, а не впритык.
+  sh_no_click: () => idle(buyAgents(rich(newGame(T0), 1e30), g0.flagship.id, 1), 1e6),
+  sh_speed: () => idle(buyAgents(rich(newGame(T0), 1e30), g0.flagship.id, 1), 1e6),
+  sh_hardcore: () => buyAgents(rich(newGame(T0), 1e30), g0.flagship.id, 1),
+  // 778³ × делитель — минимальный заработок, дающий прирост 777, и минус единица, чтобы
+  // кубический корень не перевалил через 778.
+  sh_777: () => ({ ...newGame(T0), runTokens: Math.pow(778, 3) * prestigeDivisor(0) - 1 }),
   // Числовая лестница: Доход последнего Поколения доводит общий счёт до любого рубежа.
   shadow_tok_33: () => idle(lateGame(), 1e33),
   shadow_tok_45: () => idle(lateGame(), 1e45),
@@ -215,8 +225,21 @@ describe('теневая лестница не трогает обычные д�
     const loaded = migrate(raw, T0);
     expect(loaded.achievements).toEqual([UNREACHABLE, 'click_1', 'неизвестный-id']);
     expect(ordinaryEarned(loaded)).toBe(1);
-    // Тени не заводят новую версию сохранения: форма GameState не менялась.
-    expect(SAVE_VERSION).toBe(2);
+    // Тени не заводят новую версию сохранения: форма GameState не менялась, а запись id теней
+    // пережила загрузку на той же версии, на которой была записана.
+    expect(loaded.version).toBe(SAVE_VERSION);
+    expect(shadowEarned(loaded)).toBe(1);
+  });
+
+  it('держит id теней из ранней ветки: переименование осиротило бы запись в сохранении', () => {
+    // Эти четыре id уже могут лежать у живого игрока в `state.achievements`. migrate отбрасывает
+    // только Модели, Апгрейды и Перки, а теневой id не проверяется ничем — то есть переименованная
+    // тень не была бы отброшена как положено, а просто исчезла бы из своего счётчика навсегда.
+    const ids = SHADOW_ACHIEVEMENTS.map((a) => a.id);
+    for (const id of ['sh_no_click', 'sh_speed', 'sh_hardcore', 'sh_777']) expect(ids).toContain(id);
+    const written = ids.reduce((acc, id) => ({ ...acc, achievements: [...acc.achievements, id] }), newGame(T0));
+    expect(shadowEarned(migrate(written, T0))).toBe(SHADOW_ACHIEVEMENTS.length);
+    expect(nonShadowCount(migrate(written, T0))).toBe(0);
   });
 });
 
@@ -281,6 +304,47 @@ describe('каждое теневое достижение достижимо', 
     // Записанная тень не отнимается и не выдаётся заново.
     expect(shadowEarned(afterPrestige)).toBe(shadowEarned(earned));
     expect(awardShadowAchievements(afterPrestige).awarded).not.toContain('shadow_purist_25k');
+  });
+});
+
+describe('тени, пришедшие из ранней ветки', () => {
+  const check = (id: string) => SHADOW_ACHIEVEMENTS.find((a) => a.id === id)!.check;
+
+  it('sh_no_click: миллион за Забег не более чем за 15 Кликов', () => {
+    const ok: GameState = { ...newGame(T0), runTokens: 1e6, runClicks: 15 };
+    expect(check('sh_no_click')(ok)).toBe(true);
+    expect(check('sh_no_click')({ ...ok, runClicks: 16 })).toBe(false);
+    // Порог по заработку тот же: без миллиона тень не выдаётся ни при каких Кликах.
+    expect(check('sh_no_click')({ ...newGame(T0), runClicks: 0 })).toBe(false);
+  });
+  it('sh_speed: тот же миллион, но уложиться в 15 минут Забега', () => {
+    const ok: GameState = { ...newGame(T0), runTokens: 1e6, lastTick: T0 + 900_000, runStartedAt: T0 };
+    expect(check('sh_speed')(ok)).toBe(true);
+    expect(check('sh_speed')({ ...ok, lastTick: T0 + 900_001 })).toBe(false);
+    // Часы идут от lastTick, а не от Date.now: простой приводит lastTick к текущему времени,
+    // и после двух часов в закрытом окне спринт засчитывать уже нечего.
+    const away = applyOffline({ ...newGame(T0), agents: { [g0.flagship.id]: 1 } }, T0 + HOUR).state;
+    expect(away.lastTick).toBe(T0 + HOUR);
+    expect(check('sh_speed')({ ...away, runTokens: 1e6 })).toBe(false);
+  });
+  it('sh_hardcore: Флагман текущего Поколения и ни одного Апгрейда', () => {
+    const s = buyAgents(rich(newGame(T0), 1e30), g0.flagship.id, 1);
+    expect(check('sh_hardcore')(s)).toBe(true);
+    // Любой купленный Апгрейд убивает чистый Забег, а не только флагманский.
+    expect(check('sh_hardcore')(buyUpgrade(s, clickUpgradeId(0, 0)))).toBe(false);
+    // Переход в следующее Поколение оставляет Флагмана позади: флагман Поколения 1 — не флагман
+    // Поколения 2, и условие без найма нового не выполняется.
+    expect(check('sh_hardcore')({ ...s, generation: 1, maxGeneration: 1 })).toBe(false);
+  });
+  it('sh_777: прирост Престижа с цифрами 777, и выдаётся только теньми', () => {
+    const gain = { ...newGame(T0), runTokens: Math.pow(778, 3) * prestigeDivisor(0) - 1 };
+    expect(check('sh_777')(gain)).toBe(true);
+    expect(newlyEarnedShadows(gain)).toContain('sh_777');
+    // Обычная выдача про это условие молчит: тень не смешивается с обычной лестницей.
+    expect(newlyEarned(gain)).not.toContain('sh_777');
+    // Соседний заработок даёт прирост 778 — условие проверяет число, а не форму записи.
+    expect(check('sh_777')({ ...gain, runTokens: Math.pow(779, 3) * prestigeDivisor(0) })).toBe(false);
+    expect(check('sh_777')({ ...newGame(T0), runTokens: 1e6 })).toBe(false);
   });
 });
 

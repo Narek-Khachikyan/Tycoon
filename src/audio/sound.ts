@@ -162,6 +162,46 @@ export function playAchievementSound(muted: boolean): void {
   });
 }
 
+/**
+ * Сигнал, что появилось Событие.
+ *
+ * Отдельный тембр, а не ещё один вызов playUpgradeSound: этот сигнал игрок обязан узнать на слух
+ * из соседней вкладки, а привычка «звук = покупка» сбила бы его с толку. Ноты E5–B5–E6 идут
+ * квартой вверх и квинтой — такой ход не совпадает ни с арпеджио Апгрейда, ни с треугольником
+ * покупки, поэтому сигнал узнаётся, а не путается.
+ *
+ * Жест игрока здесь тот же, что у всех остальных звуков: `getAudioContext` сам пробует resume,
+ * и если AudioContext остался suspended, сигнал просто не прозвучит. Это не баг, который надо
+ * чинить: браузер не даёт звучать без жеста, и никакой код этого не обойдёт.
+ */
+export function playEventAlertSound(muted: boolean): void {
+  if (muted) return;
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  const now = ctx.currentTime;
+  // E5, B5, E6: последняя нота тянется вдвое дольше предыдущих — окно короткое, и хвост нужен,
+  // чтобы сигнал не оборвался на полуфразе.
+  [659.25, 987.77, 1318.51].forEach((freq, idx) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const start = now + idx * 0.06;
+    const hold = idx === 2 ? 0.22 : 0.07;
+
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(freq, start);
+
+    gain.gain.setValueAtTime(0.09, start);
+    gain.gain.exponentialRampToValueAtTime(0.001, start + hold);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start(start);
+    osc.stop(start + hold);
+  });
+}
+
 // Отказ по недоступной покупке — низкий короткий buzz, а не высокий тик: высокий тик
 // совпал бы по тембру с покупкой и читался бы как подтверждение, а не как отказ.
 export function playDenySound(muted: boolean): void {

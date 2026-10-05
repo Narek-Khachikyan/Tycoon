@@ -16,7 +16,23 @@ import {
 } from '../economy/engine';
 import { availableUpgrades, labAgents, PAIR_SYNERGY_MULT, SYNERGY_MIN_AGENTS, UPGRADES_BY_GEN } from '../economy/upgrades';
 import { countGenPerks, genPerkCost, genPerkGeneration, genPerkId, isGenPerkId, PERK_BY_ID, PERKS } from '../economy/perks';
-import { formatCount, formatNumber } from '../economy/format';
+import {
+  canLicense,
+  canPledge,
+  LICENSE_INCOME_TAX,
+  licenseCost,
+  PLEDGE_GROWTH,
+  PLEDGE_MAX,
+  pledgeCost,
+  revokeCost,
+} from '../economy/glitches';
+import {
+  CRYSTAL_STOCK_CAP,
+  CRYSTAL_UPGRADES,
+  crystalCycleMs,
+  crystalIncomeMult,
+} from '../economy/crystal';
+import { formatCount, formatDuration, formatNumber } from '../economy/format';
 import type { Notation } from '../economy/state';
 import { MascotSprite } from './MascotSprite';
 import { Num } from './Num';
@@ -34,6 +50,24 @@ const SPARK = Array.from({ length: SPARK_COUNT }, (_, i) => {
 });
 
 let sparkCounter = 0;
+
+/** Раскладка строки откупа: текст слева, кнопка справа, обе по верху — кнопка не должна
+ *  прыгать, когда описание становится на строку длиннее. */
+const PLEDGE_ROW: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  justifyContent: 'space-between',
+  gap: '10px',
+  flexWrap: 'wrap',
+};
+
+const PLEDGE_TEXT: React.CSSProperties = { flex: 1, minWidth: 0 };
+
+const PLEDGE_DESC: React.CSSProperties = {
+  fontSize: '0.8rem',
+  color: 'var(--text-muted)',
+  marginTop: '2px',
+};
 
 /**
  * Строка «Не хватает N Токенов».
@@ -194,6 +228,10 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const sellAgents = useGameStore((s) => s.sellAgents);
   const buyUpgrade = useGameStore((s) => s.buyUpgrade);
   const buyPerk = useGameStore((s) => s.buyPerk);
+  const buyPledge = useGameStore((s) => s.buyPledge);
+  const buyLicense = useGameStore((s) => s.buyLicense);
+  const revokeLicense = useGameStore((s) => s.revokeLicense);
+  const buyCrystalUpgrade = useGameStore((s) => s.buyCrystalUpgrade);
   const requestPrestige = useGameStore((s) => s.requestPrestige);
 
   const gen = CATALOG[state.generation];
@@ -219,6 +257,19 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   });
   const boughtGenPerks = countGenPerks(state.perks);
   const nextGenPerkCost = genPerkCost(state.perks);
+
+  // Откупы: остаток уже купленного глушения — по игровым часам, как всё остальное окно
+  // события, поэтому подпись не убегает от реальности после возвращения из простоя.
+  const pledgeLeftMs = Math.max(0, state.pledgeUntil - state.lastTick);
+
+  // Кристаллы. Зреет максимум один кристалл за раз, поэтому «следующий» — единственный,
+  // и обе величины считаются по lastTick: у него же стор двигает рост кристалла.
+  const crystalCycle = crystalCycleMs(state);
+  const crystalGrownMs =
+    state.crystalPlantedAt === 0 ? 0 : Math.max(0, state.lastTick - state.crystalPlantedAt);
+  const crystalLeftSec = Math.max(0, crystalCycle - crystalGrownMs) / 1000;
+  const crystalProgress = crystalCycle > 0 ? Math.min(1, crystalGrownMs / crystalCycle) : 0;
+  const crystalBonusPct = Math.round((crystalIncomeMult(state) - 1) * 100);
 
   // Престиж открывает окно подтверждения, а не выполняется здесь: сброс Забега необратим,
   // и игрок должен увидеть, сколько Compute начислит, что сгорит и в какое Поколение он
@@ -263,10 +314,11 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
       node.classList.add('deny-flash');
     };
 
-  // Отказ по недоступному Перку — тем же приёмом, что у Моделей/Апгрейдов, но вспышка висит
-  // на самой кнопке: строки дефицита у Перков нет и мигать рядом нечему. Купленный Перк —
-  // статус, а не ошибка, поэтому обёртка получает owned || canAfford и по «Куплено» молчит.
-  const handlePerkDeny =
+  // Отказ по недоступной покупке без строки дефицита: тем же приёмом, что у Моделей, но
+  // вспышка висит на самой кнопке. Служат карточки Перков, Откупов и Кристаллов — у них под
+  // кнопкой нечего мигать: у Перков нет строки дефицита, у Откупов и Кристаллов валюта не
+  // Токены, и «Не хватает N Токенов» было бы неправдой.
+  const handleBuyDeny =
     (affordable: boolean) => (e: React.MouseEvent<HTMLDivElement>) => {
       if (affordable) return;
       playDenySound(muted);
@@ -895,6 +947,276 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               )}
             </div>
 
+            {/* ОТКУПЫ. Блок виден всегда, а не только во время Восстания: скрытая покупка —
+                дверь в одну сторону, и игрок не узнал бы, что от красных событий вообще
+                можно откупиться. */}
+            <div
+              className="pixel-card"
+              style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}
+            >
+              <div style={{ fontSize: '1rem', color: 'var(--text-main)' }}>
+                Откупы от Восстания моделей
+              </div>
+
+              {state.uprising === 0 ? (
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                  Откупы открываются с начала Восстания: найми 1 агента флагмана и сделай
+                  Престиж. Пока красных событий не бывает — покупать нечего.
+                </div>
+              ) : (
+                <>
+                  {/* Лобби. Цена растёт в восемь раз за покупку, и подпись показывает и саму
+                      цену, и её рост, и сколько покупок в этом забеге ещё доступно: иначе
+                      рост цены был бы виден только задним числом. */}
+                  <div style={PLEDGE_ROW}>
+                    <div style={PLEDGE_TEXT}>
+                      <div style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>Лобби</div>
+                      <div style={PLEDGE_DESC}>
+                        Глушит красные события на полчаса. Второе продлевает, а не заменяет.
+                      </div>
+                      <div style={PLEDGE_DESC}>
+                        Куплено <Num>{state.pledgeBought}</Num> из <Num>{PLEDGE_MAX}</Num>,
+                        каждая следующая дороже в <Num>{PLEDGE_GROWTH}</Num> раз.
+                      </div>
+                      {/* Под «Лицензией» кнопка молчит, но не прячет цену и условие: игрок
+                          обязан прочитать, что Лобби стал недоступен и почему. */}
+                      {state.covenant && (
+                        <div style={PLEDGE_DESC}>
+                          «Лицензия» глушит всё, поэтому Лобби за{' '}
+                          <Num>{formatNumber(pledgeCost(state), notation)}</Num> не продаётся.
+                        </div>
+                      )}
+                      {pledgeLeftMs > 0 && (
+                        <div style={{ ...PLEDGE_DESC, color: 'var(--green)' }}>
+                          Глушит ещё {formatDuration(pledgeLeftMs / 1000)}
+                        </div>
+                      )}
+                    </div>
+                    <div
+                      onClickCapture={handleBuyDeny(canPledge(state))}
+                      style={{ flexShrink: 0 }}
+                    >
+                      <button
+                        onClick={buyPledge}
+                        disabled={!canPledge(state)}
+                        className="pixel-btn pixel-btn-accent"
+                        style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                      >
+                        {state.covenant ? (
+                          'Есть Лицензия'
+                        ) : (
+                          <>
+                            Откупиться (<Num>{formatNumber(pledgeCost(state), notation)}</Num>)
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Лицензия. Её размен назван прямо и ДО покупки, потому что налог на Доход
+                      платится постоянно, а не разово: игрок обязан видеть, что именно он
+                      покупает вместе с вечным глушением. */}
+                  {state.covenant ? (
+                    <div style={PLEDGE_ROW}>
+                      <div style={PLEDGE_TEXT}>
+                        <div style={{ fontSize: '0.95rem', color: 'var(--green)' }}>
+                          Лицензия активна
+                        </div>
+                        <div style={PLEDGE_DESC}>
+                          Красные события глушатся, Глюки не заводятся. Налог на Доход{' '}
+                          −<Num>{formatNumber(Math.round(LICENSE_INCOME_TAX * 100), notation)}</Num>%{' '}
+                          платится, пока Лицензия не отозвана.
+                        </div>
+                      </div>
+                      <div
+                        onClickCapture={handleBuyDeny(state.tokens >= revokeCost(state))}
+                        style={{ flexShrink: 0 }}
+                      >
+                        <button
+                          onClick={revokeLicense}
+                          disabled={state.tokens < revokeCost(state)}
+                          className="pixel-btn"
+                          style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                        >
+                          Отозвать (<Num>{formatNumber(revokeCost(state), notation)}</Num>)
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={PLEDGE_ROW}>
+                      <div style={PLEDGE_TEXT}>
+                        <div style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>
+                          Лицензия
+                        </div>
+                        <div style={PLEDGE_DESC}>
+                          Вечное «Лобби»: красные события глушатся навсегда, а все Глюки
+                          лопаются разом и выплачивают общий котёл.
+                        </div>
+                        <div style={{ ...PLEDGE_DESC, color: '#fca5a5' }}>
+                          Постоянный налог на Доход −
+                          <Num>{formatNumber(Math.round(LICENSE_INCOME_TAX * 100), notation)}</Num>%:
+                          отзыв обойдётся в{' '}
+                          <Num>{formatNumber(revokeCost(state), notation)}</Num>.
+                        </div>
+                      </div>
+                      <div
+                        onClickCapture={handleBuyDeny(canLicense(state))}
+                        style={{ flexShrink: 0 }}
+                      >
+                        <button
+                          onClick={buyLicense}
+                          disabled={!canLicense(state)}
+                          className="pixel-btn pixel-btn-gold"
+                          style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                        >
+                          Взять Лицензию (
+                          <Num>{formatNumber(licenseCost(state), notation)}</Num>)
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* КРИСТАЛЛЫ. Здесь показан весь размен ускорителя, а не только его польза:
+                кристалл в запасе даёт +1% к общему Доходу, поэтому покупка забирает часть
+                этого бонуса навсегда. Без этой строки игрок покупал бы ускоритель, думая,
+                что он ничего не стоит. */}
+            <div
+              className="pixel-card"
+              style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}
+            >
+              <div style={{ fontSize: '1rem', color: 'var(--text-main)' }}>
+                Compute-кристаллы
+              </div>
+
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                В запасе <Num>{formatNumber(state.crystals, notation)}</Num>, каждый целый
+                кристалл даёт +1% к общему Доходу навсегда. Сейчас это{' '}
+                <span style={{ color: 'var(--green)', fontWeight: 600 }}>
+                  +<Num>{formatNumber(crystalBonusPct, notation)}</Num>%
+                </span>
+                , потолок запаса — <Num>{CRYSTAL_STOCK_CAP}</Num>. Кристалл зреет в реальном
+                времени и переживает Престиж.
+              </div>
+
+              {/* Рост следующего: одна полоса и честный остаток. Сбор ленивый — зреет максимум
+                  один кристалл, — поэтому обещать «через N» можно только про один. */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-main)' }}>
+                  {state.crystalPlantedAt === 0 ? (
+                    'Первый кристалл только сеется'
+                  ) : (
+                    <>Следующий зреет ещё {formatDuration(crystalLeftSec)}</>
+                  )}
+                </div>
+                <div
+                  role="progressbar"
+                  aria-label="Рост следующего кристалла"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(crystalProgress * 100)}
+                  style={{
+                    width: '100%',
+                    height: '8px',
+                    backgroundColor: 'var(--bg-void)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '4px',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${crystalProgress * 100}%`,
+                      height: '100%',
+                      backgroundColor: 'var(--accent-color)',
+                      // Переход ширины — не движение: при выключенном он остаётся, потому что
+                      // ни сдвига, ни тряски тут нет.
+                      transition: 'width 0.2s linear',
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {CRYSTAL_UPGRADES.map((u) => {
+                  const owned = state.crystalUpgrades.includes(u.id);
+                  const canAfford = !owned && state.crystals >= u.cost;
+                  // Цена ускорителя: сколько процентов бонуса за запас уйдёт навсегда. Это разница двух
+                  // бонусов от самой экономики, а не «цена ×1%», посчитанная в компоненте, —
+                  // правило «сколько даёт целый кристалл в запасе» живёт поэтому в одном месте,
+                  // в crystalIncomeMult, и строка переживёт его правку.
+                  // Запас для обеих точек берётся равным цене, а не текущему: ускоритель покупают
+                  // когда кристаллов хватает, и до тех пор его цена не должна скакать вместе с
+                  // кошельком — иначе «забирает 3%» превратилось бы в «забирает 10%» ровно тогда,
+                  // когда игрок дождался возможности купить.
+                  const lostPct = Math.round(
+                    (crystalIncomeMult({ ...state, crystals: u.cost }) -
+                      crystalIncomeMult({ ...state, crystals: 0 })) *
+                      100,
+                  );
+                  return (
+                    <div
+                      key={u.id}
+                      style={{
+                        backgroundColor: 'var(--bg-card)',
+                        border: owned ? '1px solid var(--green)' : '1px solid var(--border)',
+                        borderRadius: '6px',
+                        padding: '10px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '6px',
+                      }}
+                    >
+                      <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>
+                        {u.name}
+                      </span>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{u.desc}</div>
+                      {/* Размен назван прямо и без смягчений: ускоритель отнимает бонус за
+                          запас навсегда, и это его настоящая цена. Уже купленного скидывать
+                          не стоит — предупреждение там, где решение ещё можно принять. */}
+                      <div
+                        style={{
+                          fontSize: '0.8rem',
+                          color: owned ? 'var(--text-muted)' : '#fca5a5',
+                        }}
+                      >
+                        {owned
+                          ? 'Куплено: бонус за запас уже урезан'
+                          : (
+                              <>
+                                Забирает <Num>{formatNumber(lostPct, notation)}</Num>% бонуса за
+                                запас навсегда
+                              </>
+                            )}
+                      </div>
+                      <div
+                        onClickCapture={handleBuyDeny(owned || canAfford)}
+                        style={{ display: 'flex', justifyContent: 'flex-end' }}
+                      >
+                        <button
+                          onClick={() => buyCrystalUpgrade(u.id)}
+                          disabled={owned || !canAfford}
+                          className={`pixel-btn ${owned ? '' : 'pixel-btn-accent'}`}
+                          style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                        >
+                          {owned ? (
+                            'Куплено'
+                          ) : (
+                            <>
+                              Купить (<Num>{formatNumber(u.cost, notation)}</Num>{' '}
+                              {formatCount(u.cost, 'кристалл', 'кристалла', 'кристаллов')})
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* Магазин Перков */}
             <div>
               <div
@@ -932,7 +1254,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                           (строки дефицита здесь нет). По «Куплено» обёртка молчит: owned гасит
                           и звук, и вспышку. */}
                       <div
-                        onClickCapture={handlePerkDeny(owned || canAfford)}
+                        onClickCapture={handleBuyDeny(owned || canAfford)}
                         style={{
                           display: 'flex',
                           flexDirection: 'column',
@@ -1036,7 +1358,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       )}
 
                       <div
-                        onClickCapture={handlePerkDeny(owned || canAfford)}
+                        onClickCapture={handleBuyDeny(owned || canAfford)}
                         style={{
                           display: 'flex',
                           flexDirection: 'column',

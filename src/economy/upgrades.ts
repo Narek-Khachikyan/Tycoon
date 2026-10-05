@@ -1,5 +1,6 @@
-import { CATALOG, type Generation } from './catalog';
+import { CATALOG, type Generation, type Model } from './catalog';
 import { LAB_IDS, LABS, type LabId } from '../data/labs';
+import { nonShadowCount } from './achievements';
 import type { GameState } from './state';
 
 // Слайг спрайта живёт рядом со строкой, которую он изображает, а не в компоненте: список
@@ -45,6 +46,54 @@ export const PAIR_SYNERGY_MULT = 1.5;
  *  самых представленных Лабораторий. */
 export const MAX_PAIR_SYNERGIES_PER_GEN = 3;
 
+// Флагман тянет младших: пороги открытия и сила бонуса.
+export const FLAGSHIP_MIN_FLAGSHIP_AGENTS = 10;
+export const FLAGSHIP_MIN_JUNIOR_AGENTS = 15;
+export const FLAGSHIP_PER_JUNIOR = 0.02;
+/**
+ * Верхняя граница бонуса Флагмана: он растёт с числом младших Агентов, а у их числа нет потолка,
+ * и без границы при 1000 младших множитель стал бы ×21. Стек с Синергией Лаборатории (×11 на 1000
+ * её Агентах) и Compute (×11 на 1000 единиц) доводит такую Лабораторию до ×2564, а со всеми пятью
+ * тирами Модели — до ×82 000, и достаётся это всё одному Агенту Лаборатории, а не Поколению.
+ *
+ * Потолок не про шаг ×1000 между Поколениями: все три множителя одинаковы в каждом Поколении и
+ * порядок Поколений перевернуть не могут. Он про то, что ×21 ещё надо заслужить: 1000 младших
+ * Агентов самой дешёвой Модели Поколения 1 стоят около 1e62 Токенов забега, а 2000 — около 1e122,
+ * и ни то ни другое ничем не ограничено. Граница срабатывает ровно на сотне младших, где
+ * 1 + 2% × 100 = 3.
+ */
+export const FLAGSHIP_MULT_CAP = 3;
+export const FLAGSHIP_COST_MULT = 500;
+
+// Агенты-ассистенты: пороги, сила и цены в единицах масштаба Поколения.
+// Ассисты считаются от общего числа Агентов Поколения, а тиры Модели — от Агентов одной Модели,
+// поэтому числа не совпадают напрямую. Но 100 — это верхняя ступень лестницы Модели, и при самом
+// узком росте, когда все Агенты куплены одной Моделью, она открывается на 100 общих Агентах, то
+// есть раньше ассистов. Линейка уходит выше 100, чтобы её первая ступень не слилась с последней
+// ступенью Модели.
+export const ASSIST1_THRESHOLD = 150;
+export const ASSIST2_THRESHOLD = 400;
+export const ASSIST_PER_AGENT = 0.1;
+export const ASSIST2_MULT = 5;
+export const ASSIST1_UNITS = 250;
+export const ASSIST2_UNITS = 50_000;
+
+/**
+ * Датасет: пороги по числу НЕтеневых Достижений и цены в единицах масштаба Поколения.
+ *
+ * НЕтеневых Достижений в игре двадцать одно, и лестница рассчитана на их число: 5 и 10 закрываются
+ * за первый забег, 15 и 20 требуют почти всего списка. Цена растёт быстрее порога — ×25, ×20, ×20, —
+ * так что каждый следующий тир обходится дороже предыдущего и по усилию, и по деньгам, а множитель
+ * Датасета платит только за купленные тиры.
+ *
+ * Верхний порог обязан оставаться достижимым: это единственное место, где лестница может разойтись
+ * со списком Достижений, и проверяет его тест по числу НЕтеневых.
+ */
+export const DATASET_THRESHOLDS = [5, 10, 15, 20] as const;
+export const DATASET_UNITS = [1_000, 25_000, 500_000, 10_000_000] as const;
+export const DATASET_PER_ACHIEVEMENT = 0.05;
+export const DATASET_PER_DATASET = 0.1;
+
 export type Upgrade =
   | {
       id: string;
@@ -56,21 +105,63 @@ export type Upgrade =
       tier: number;
       sprite: string;
     }
-  | { id: string; kind: 'click'; name: string; desc: string; cost: number; effect: 'x2' | 'pct'; sprite: string }
+  | {
+      id: string;
+      kind: 'click';
+      name: string;
+      desc: string;
+      cost: number;
+      effect: 'x2' | 'pct' | 'assist1' | 'assist2';
+      sprite: string;
+    }
   // Парная синергия — тот же kind: `lab` держит первую Лабораторию для совместимости
   // (магазин и ростер читают её как раньше), вторая лежит в `pairLab`, если он есть.
   // Спрайт тот же, что у одиночной: это тоже общий датасет, различается только подпись.
-  | { id: string; kind: 'synergy'; name: string; desc: string; cost: number; lab: LabId; sprite: string; pairLab?: LabId };
+  | { id: string; kind: 'synergy'; name: string; desc: string; cost: number; lab: LabId; sprite: string; pairLab?: LabId }
+  // Новые виды берут спрайт из готового набора: рисовать PNG ради трёх карточек не за чем, они
+  // отличаются подписью. Датасет — тот же общий датасет, ассисты — команда и дирижёр, Флагман —
+  // «Tool use», потому что отдельной короны в наборе нет, а путь к несуществующему файлу показал бы
+  // игроку пустую рамку.
+  | { id: string; kind: 'flagship'; name: string; desc: string; cost: number; lab: LabId; modelId: string; sprite: string }
+  | { id: string; kind: 'dataset'; name: string; desc: string; cost: number; tier: number; sprite: string };
 
 export const modelUpgradeId = (modelId: string, tier: number) => `m:${modelId}:${tier}`;
 export const clickUpgradeId = (gen: number, i: number) => `c:${gen}:${i}`;
 export const synergyUpgradeId = (gen: number, lab: LabId) => `s:${gen}:${lab}`;
+export const flagshipUpgradeId = (gen: number, lab: LabId) => `f:${gen}:${lab}`;
+export const assistUpgradeId = (gen: number, n: 1 | 2) => `c:${gen}:assist${n}`;
+export const datasetUpgradeId = (gen: number, i: number) => `d:${gen}:${i}`;
 /** Канонический id пары: Лаборатории всегда отсортированы, чтобы `A×B` и `B×A`
  *  не давали два разных Апгрейда на одну и ту же пару. */
 export const pairSynergyUpgradeId = (gen: number, a: LabId, b: LabId) => {
   const [first, second] = a < b ? [a, b] : [b, a];
   return `s:${gen}:${first}x${second}`;
 };
+/** Все Агенты текущего Поколения. */
+export function totalAgents(state: GameState): number {
+  return CATALOG[state.generation].models.reduce((s, m) => s + (state.agents[m.id] ?? 0), 0);
+}
+
+/** Сильнейшая Модель Лаборатории в Поколении — локальный флагман для синергии. */
+export function labFlagship(gen: Generation, lab: LabId): Model | undefined {
+  let best: Model | undefined;
+  for (const m of gen.models) {
+    if (m.lab !== lab) continue;
+    if (!best || m.rank > best.rank) best = m;
+  }
+  return best;
+}
+
+/** Агенты младших Моделей Лаборатории (все, кроме её флагмана). */
+export function juniorAgents(state: GameState, lab: LabId): number {
+  const gen = CATALOG[state.generation];
+  const flag = labFlagship(gen, lab);
+  return gen.models
+    .filter((m) => m.lab === lab && m.id !== flag?.id)
+    .reduce((s, m) => s + (state.agents[m.id] ?? 0), 0);
+}
+
+const ROMAN = ['I', 'II', 'III', 'IV'] as const;
 
 export function upgradesFor(gen: Generation): Upgrade[] {
   const list: Upgrade[] = [];
@@ -99,6 +190,26 @@ export function upgradesFor(gen: Generation): Upgrade[] {
       sprite: c.sprite,
     }),
   );
+  // Клик-ветка ассистентов: flat-бонус за каждого Агента и его усиление.
+  // Спрайты из существующего набора: первая ступень — команда, вторая — дирижёр.
+  list.push({
+    id: assistUpgradeId(gen.index, 1),
+    kind: 'click',
+    name: 'Агенты-ассистенты',
+    desc: 'Клик +0,1 × масштаб за каждого Агента',
+    cost: ASSIST1_UNITS * gen.scale,
+    effect: 'assist1',
+    sprite: 'multi-agent-prompt',
+  });
+  list.push({
+    id: assistUpgradeId(gen.index, 2),
+    kind: 'click',
+    name: 'Синхрон ассистентов',
+    desc: 'бонус Агентов-ассистентов ×5',
+    cost: ASSIST2_UNITS * gen.scale,
+    effect: 'assist2',
+    sprite: 'prompt-orchestrator',
+  });
   for (const lab of LAB_IDS) {
     const labModels = gen.models.filter((m) => m.lab === lab);
     if (labModels.length < 2) continue;
@@ -155,6 +266,34 @@ export function upgradesFor(gen: Generation): Upgrade[] {
       sprite: SYNERGY_SPRITE,
     });
   }
+  // Флагман тянет младших: доход локального флагмана растёт с числом младших Агентов.
+  for (const lab of LAB_IDS) {
+    const labModels = gen.models.filter((m) => m.lab === lab);
+    if (labModels.length < 2) continue;
+    const flag = labFlagship(gen, lab)!;
+    list.push({
+      id: flagshipUpgradeId(gen.index, lab),
+      kind: 'flagship',
+      name: `Флагман ${LABS[lab].name}`,
+      desc: `Доход флагмана ${LABS[lab].name} ×(1 + 2% за каждого младшего агента той же Лаборатории)`,
+      cost: flag.baseCost * FLAGSHIP_COST_MULT,
+      lab,
+      modelId: flag.id,
+      sprite: 'tool-use',
+    });
+  }
+  // Датасет: множитель к Доходу и Клику, растущий с числом Достижений.
+  DATASET_THRESHOLDS.forEach((_, tier) =>
+    list.push({
+      id: datasetUpgradeId(gen.index, tier),
+      kind: 'dataset',
+      name: `Датасет ${ROMAN[tier]}`,
+      desc: 'Доход и Клик ×(1 + 10% от Датасета за каждый Датасет)',
+      cost: DATASET_UNITS[tier] * gen.scale,
+      tier,
+      sprite: SYNERGY_SPRITE,
+    }),
+  );
   return list;
 }
 
@@ -195,6 +334,14 @@ export function isUpgradeUnlocked(state: GameState, u: Upgrade): boolean {
     case 'model':
       return (state.agents[u.modelId] ?? 0) >= MODEL_TIERS[u.tier].threshold;
     case 'click': {
+      // Ветка ассистентов открывается числом Агентов, а не цепочкой клик-апгрейдов.
+      if (u.effect === 'assist1') return totalAgents(state) >= ASSIST1_THRESHOLD;
+      if (u.effect === 'assist2') {
+        return (
+          state.upgrades.includes(assistUpgradeId(state.generation, 1)) &&
+          totalAgents(state) >= ASSIST2_THRESHOLD
+        );
+      }
       const i = Number(u.id.split(':')[2]);
       const prevOk = i === 0 || state.upgrades.includes(clickUpgradeId(state.generation, i - 1));
       return prevOk && state.runTokens >= u.cost / 4;
@@ -206,6 +353,14 @@ export function isUpgradeUnlocked(state: GameState, u: Upgrade): boolean {
         return labAgents(state, u.lab) >= SYNERGY_MIN_AGENTS && labAgents(state, u.pairLab) >= SYNERGY_MIN_AGENTS;
       }
       return labAgents(state, u.lab) >= SYNERGY_MIN_AGENTS;
+    case 'flagship':
+      return (
+        (state.agents[u.modelId] ?? 0) >= FLAGSHIP_MIN_FLAGSHIP_AGENTS &&
+        juniorAgents(state, u.lab) >= FLAGSHIP_MIN_JUNIOR_AGENTS
+      );
+    case 'dataset':
+      // Порог — число НЕтеневых Достижений: теневые множитель не раздувают.
+      return nonShadowCount(state) >= DATASET_THRESHOLDS[u.tier];
   }
 }
 
