@@ -31,7 +31,7 @@ export const Footer: React.FC = () => {
         </a>
       </span>
       <span>•</span>
-      <span>AI Tycoon MVP</span>
+      <span>Token Clicker MVP</span>
     </footer>
   );
 };

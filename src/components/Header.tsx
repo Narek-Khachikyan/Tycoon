@@ -59,7 +59,7 @@ export const Header: React.FC<HeaderProps> = ({
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
         {/* Логотип — единственное место, где пиксельный шрифт законен на словах (ADR-0003). */}
         <h1 className="pixel-font" style={{ fontSize: '1.4rem', color: 'var(--accent-color)', letterSpacing: '1px' }}>
-          AI TYCOON
+          TOKEN CLICKER
         </h1>
         {/* Бейдж Поколения: key пересоздаёт узел на смене Поколения, появление — только
             opacity через toast-fade, а пульс — классом tab-badge--pulse (scale при движении,

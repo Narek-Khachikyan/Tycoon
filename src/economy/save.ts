@@ -5,7 +5,7 @@ import { PERK_BY_ID } from './perks';
 import { EVENT_KINDS, newGame, SAVE_VERSION, type ActiveEvent, type EventKind, type GameState, type Glitch } from './state';
 import { UPGRADE_BY_ID } from './upgrades';
 
-export const SAVE_KEY = 'ai-tycoon-save';
+export const SAVE_KEY = 'ai-tycoon-save'; // Имя ключа — наследие AI Tycoon: переименование сотрёт живые прохождения, поэтому ключ не меняется вместе с названием игры.
 
 type Migration = (raw: Record<string, unknown>) => Record<string, unknown>;
 

@@ -24,7 +24,7 @@ async function fetchFromAA(key) {
       headers: {
         'x-api-key': key,
         'Accept': 'application/json',
-        'User-Agent': 'AITycoonSync/1.0',
+        'User-Agent': 'TokenClickerSync/1.0',
       },
     });
     if (res.ok) {

@@ -427,7 +427,7 @@ export const useGameStore = create<GameStore>((set, get) => {
     chatHistory: [
       {
         id: 0,
-        userPrompt: 'Запуск системы AI Tycoon...',
+        userPrompt: 'Запуск системы Token Clicker...',
         aiResponse: 'Добро пожаловать в эру искусственного интеллекта! Нажми «Отправить промпт».',
       },
     ],

@@ -1,6 +1,6 @@
 # Issue tracker: GitHub
 
-Issues and specs for this repo live as GitHub issues in `Narek-Khachikyan/Tycoon`. Use the `gh` CLI for all operations.
+Issues and specs for this repo live as GitHub issues in `Narek-Khachikyan/token-clicker`. Use the `gh` CLI for all operations.
 
 ## Conventions
 
@@ -11,7 +11,7 @@ Issues and specs for this repo live as GitHub issues in `Narek-Khachikyan/Tycoon
 - **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
 - **Close**: `gh issue close <number> --comment "..."`
 
-Scope every call to `--repo Narek-Khachikyan/Tycoon` (or run from inside the clone, where `gh` infers it from `git remote -v`).
+Scope every call to `--repo Narek-Khachikyan/token-clicker` (or run from inside the clone, where `gh` infers it from `git remote -v`).
 
 ## Pull requests as a triage surface
 

@@ -102,7 +102,7 @@ Most code changes do not need a documentation change. Agents can read the code.
 
 # Part 2. This project
 
-## AI Tycoon
+## Token Clicker
 
 A browser idle/clicker game in the spirit of Cookie Clicker: the player hires real AI models that generate Tokens and climbs through Generations of AI via Prestige. It is a single-page client — React 19 + Vite + Zustand, no backend, no accounts — with the Russian-language player experience shipped as a static bundle. The only external system is Artificial Analysis, whose metrics are baked into a committed snapshot at release time (ADR-0001).
 
@@ -119,7 +119,7 @@ Every change is judged against these first.
 ## Glossary
 
 - **you** means the agent reading this file and changing the codebase.
-- **we / maintainers** mean the repo owner working solo on `Narek-Khachikyan/Tycoon`.
+- **we / maintainers** mean the repo owner working solo on `Narek-Khachikyan/token-clicker`.
 - **user / player** means the person playing the game in a browser. All player-facing text is Russian.
 - **Domain terms** — Токен, Клик, Доход, Оффлайн-доход, Лаборатория, Модель, Агент, Ранг, Флагман, Маскот, Сцена, Апгрейд, Синергия, Поколение, Забег, Престиж, Compute, Перк, Достижение, Новостная лента, Справка AA — mean exactly what `CONTEXT.md` says, including the synonyms it tells us to avoid.
 - **seed** means one row in `src/data/generations.ts`: a real model, its Lab, its manual Generation cut, and fallback AA values.
@@ -171,7 +171,7 @@ Beyond "Ways to hurt yourself":
 ## Pull requests
 
 - Title format: Conventional Commits with a scope, matching the history — `feat(economy): …`, `feat(ui): …`, `fix(format): …`, `fix: …`. Say what the player sees.
-- Body: the problem in a sentence or two, how you fixed it, and the alternatives you rejected and why. Close issues with `Closes #N`; the tracker is GitHub Issues in `Narek-Khachikyan/Tycoon`, driven by `gh`. End with the model and harness that did the work.
+- Body: the problem in a sentence or two, how you fixed it, and the alternatives you rejected and why. Close issues with `Closes #N`; the tracker is GitHub Issues in `Narek-Khachikyan/token-clicker`, driven by `gh`. End with the model and harness that did the work.
 - Macroscope appends its own summary and review sections to PR bodies between invisible markers. Leave them alone, and never paste them into another document.
 - Evidence: before/after screenshots for UI changes, uploaded to the PR. Never commit screenshots, build output, or working notes.
 - One concern per PR. If the description says "also", split it.
@@ -219,7 +219,7 @@ Project preferences, not universal truths.
 
 ## Issue tracker
 
-Issues live in this repo's GitHub Issues (`Narek-Khachikyan/Tycoon`), driven by the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues live in this repo's GitHub Issues (`Narek-Khachikyan/token-clicker`), driven by the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ## Triage labels
 
