@@ -24,6 +24,7 @@ import {
 import { GEN_PERK_BASE_COST, GEN_PERK_STEP_COST, isGenPerkId, PERKS } from './perks';
 import { migrate } from './save';
 import { newGame, SAVE_VERSION, type GameState } from './state';
+import { QUIPS } from '../data/quips';
 import { SHADOW_ACHIEVEMENTS } from './shadow';
 import { CLICK_UPGRADES, clickUpgradeId } from './upgrades';
 
@@ -156,6 +157,14 @@ const REACH: Record<string, () => GameState> = {
   // Спринт: все Престижи за шесть секунд игровых часов. Счётчик Престижей упирается в
   // число Поколений (Престиж запрещён на последнем), поэтому ускоряется здесь только время.
   shadow_all_prestiges_15m: () => prestigeToFrontier(1_000),
+  // Три тени «Говорящих Моделей»: состояния собираются из той же таблицы реплик,
+  // что и игра, а не из захардкоженных id, иначе правка таблицы тихо роняла бы тест.
+  shadow_quips_5: () => ({ ...newGame(T0), quipsSeen: QUIPS.slice(0, 5).map((q) => q.id) }),
+  shadow_quips_50: () => ({ ...newGame(T0), quipsSeen: QUIPS.slice(0, 50).map((q) => q.id) }),
+  shadow_quips_lab: () => ({
+    ...newGame(T0),
+    quipsSeen: QUIPS.filter((q) => q.lab === 'openai').map((q) => q.id),
+  }),
 };
 
 /** Тень, условие которой нельзя выполнить ни в какой момент игры. */
@@ -182,7 +191,9 @@ describe('теневая лестница не трогает обычные д�
     expect(ACHIEVEMENTS.length).toBe(21);
     expect(new Set(ACHIEVEMENTS.map((a) => a.id)).size).toBe(21);
     expect(SHADOW_ACHIEVEMENTS.length).toBeGreaterThanOrEqual(24);
-    expect(SHADOW_ACHIEVEMENTS.length).toBeLessThanOrEqual(32);
+    // Потолок поднят под три тени реплик (31 + 3 = 34): лестница растёт, а знаменатель
+    // обычных Достижений обязан стоять — иначе тени снова слились бы с обычными.
+    expect(SHADOW_ACHIEVEMENTS.length).toBeLessThanOrEqual(35);
   });
 
   it('не смешивает id двух лестниц', () => {

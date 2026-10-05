@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { CATALOG } from '../economy/catalog';
+import { CATALOG, MODEL_BY_ID } from '../economy/catalog';
 import {
   advanceTime,
   applyOffline,
@@ -36,6 +36,7 @@ import {
 } from '../economy/glitches';
 import { pickNews } from '../economy/news';
 import { perkEffects } from '../economy/perks';
+import { pickQuip, recordQuip } from '../economy/quips';
 import { availableUpgrades } from '../economy/upgrades';
 import { importSave, migrate, SAVE_KEY, serialize } from '../economy/save';
 import { newGame, type GameState, type Notation } from '../economy/state';
@@ -46,8 +47,10 @@ import {
   playDenySound,
   playEventAlertSound,
   playPrestigeSound,
+  playQuipSound,
   playUpgradeSound,
 } from '../audio/sound';
+import type { LabId } from '../data/labs';
 
 export type BuyAmount = 1 | 10 | 100 | 'max';
 export type ActiveTab = 'click' | 'office' | 'shop' | 'upgrades' | 'perks' | 'stats' | 'achievements' | 'settings';
@@ -93,6 +96,17 @@ interface ChatMessage {
   id: number;
   userPrompt: string;
   aiResponse: string;
+}
+
+/** Реплика говорящей Модели, показанная пузырём в офисе. Вне GameState, как burst: это
+ *  «показываем ли мы», а не состояние игры, и её добавление не должно стоить миграции.
+ *  Тождество — nonce: потребитель смотрит на него, поэтому две одинаковые реплики подряд
+ *  не схлопываются в один показ и гасить поле вручную не нужно — стор гасит его сам. */
+export interface LastQuip {
+  id: string;
+  text: string;
+  lab: LabId | null;
+  nonce: number;
 }
 
 const PROMPT_TEMPLATES = [
@@ -181,6 +195,11 @@ interface GameStore {
   toasts: ToastMessage[];
   floaters: ClickFloater[];
   chatHistory: ChatMessage[];
+  /** Пузырь реплики в офисе, null = пузырь скрыт. Авто-скрытие — bounded one-shot в clickPrompt. */
+  lastQuip: LastQuip | null;
+  /** Модель последней покупки Агентов: её Лаборатория говорит следующим Кликом. Вне GameState
+   *  по той же причине, что lastQuip: это «кто говорит», а не состояние игры. */
+  lastBoughtModelId: string | null;
   /** Канал громких событий. Намеренно вне GameState: это не часть сохранения, и его добавление
    *  не должно стоить миграции. Событие перезаписывается следующим, а тождество у него — nonce:
    *  потребитель смотрит на nonce, поэтому два одинаковых подряд не схлопываются в один отклик
@@ -282,6 +301,42 @@ let floaterCounter = 0;
 let chatCounter = 0;
 let toastCounter = 0;
 let burstCounter = 0;
+let quipCounter = 0;
+
+/** Пузырь реплики висит 4.5 с: входной pop занимает 0.25 с, уходной fade стартует CSS-задержкой
+ *  на 4.32 с, и стор гасит поле уже после него — fade видно целиком. */
+const QUIP_HIDE_MS = 4500;
+
+/**
+ * Собранные реплики из состояния. Поле quipsSeen принадлежит ядру реплик и приезжает его
+ * миграцией; чтение через каст, а не правкой GameState: контракт сохранения — не мой файл,
+ * а без каста свежий сейв (поля ещё нет) ронял бы подбор реплики.
+ */
+export function quipsSeenOf(state: GameState): readonly string[] {
+  return (state as GameState & { quipsSeen?: readonly string[] }).quipsSeen ?? [];
+}
+
+/**
+ * Лаборатория говорящего: Лаборатория последней купленной Модели. Агентов нет — говорить
+ * некому, lab null, и реплику подбирает уже pickQuip: первая реплика видна до первой покупки.
+ * Запасной путь — перваяOwned Модель: сохранение из чужой вкладки привозит Агентов без отметки
+ * о последней покупке, и без него офис молчал бы до следующей покупки.
+ */
+function speakerLab(state: GameState, lastModelId: string | null): LabId | null {
+  let owned = 0;
+  for (const id of Object.keys(state.agents)) owned += state.agents[id] ?? 0;
+  if (owned <= 0) return null;
+  if (lastModelId) {
+    const bought = MODEL_BY_ID[lastModelId];
+    if (bought) return bought.lab;
+  }
+  for (const id of Object.keys(state.agents)) {
+    if ((state.agents[id] ?? 0) <= 0) continue;
+    const model = MODEL_BY_ID[id];
+    if (model) return model.lab;
+  }
+  return null;
+}
 
 /** Системная настройка движения. Литерал живёт здесь один раз: тот же запрос читает
  *  CSS-гейт в index.css, а JS нужен ещё и сам список — для слушателя смены настройки. */
@@ -431,6 +486,8 @@ export const useGameStore = create<GameStore>((set, get) => {
         aiResponse: 'Добро пожаловать в эру искусственного интеллекта! Нажми «Отправить промпт».',
       },
     ],
+    lastQuip: null,
+    lastBoughtModelId: null,
     burst: null,
     eventWindowAt: NO_EVENT_WINDOW,
     eventCaught: caughtWindow(initial.state),
@@ -466,7 +523,7 @@ export const useGameStore = create<GameStore>((set, get) => {
     },
 
     clickPrompt: (x?: number, y?: number) => {
-      const { state, floaters, chatHistory } = get();
+      const { state, floaters, chatHistory, lastBoughtModelId } = get();
       const earned = clickValue(state);
       const clicked = engineClick(state);
       playClickSound(state.settings.muted);
@@ -494,7 +551,30 @@ export const useGameStore = create<GameStore>((set, get) => {
       }
 
       const awarded = awardEarned(clicked);
-      set({ state: awarded, floaters: newFloaters, chatHistory: newChat });
+      // Реплика показана только для нового id: повтор услышанного не пишется в Переписку
+      // и не звучит — собранная коллекция молчит, а не гоняет повторы. Дубль id ядро может
+      // вернуть как fallback, когда всё услышано, но стор его не показывает: показ повтора
+      // означал бы «услышано новое», которого нет.
+      const seen = quipsSeenOf(clicked);
+      const quip = pickQuip(speakerLab(clicked, lastBoughtModelId), clicked.clicks, seen);
+      if (quip && !seen.includes(quip.id)) {
+        const nonce = ++quipCounter;
+        playQuipSound(clicked.settings.muted);
+        set({
+          state: awardEarned(recordQuip(clicked, quip.id)),
+          floaters: newFloaters,
+          chatHistory: newChat,
+          lastQuip: { id: quip.id, text: quip.text, lab: quip.lab, nonce },
+        });
+        // Bounded one-shot, а не интервал: пузырь уходит сам один раз, и только если его
+        // не сменила более свежая реплика — проверка по nonce, а не по факту наличия.
+        setTimeout(() => {
+          const cur = get().lastQuip;
+          if (cur?.nonce === nonce) set({ lastQuip: null });
+        }, QUIP_HIDE_MS);
+      } else {
+        set({ state: awarded, floaters: newFloaters, chatHistory: newChat });
+      }
 
       setTimeout(() => {
         set((s) => ({ floaters: s.floaters.filter((f) => f.id !== floaterId) }));
@@ -524,7 +604,9 @@ export const useGameStore = create<GameStore>((set, get) => {
         playUpgradeSound(state.settings.muted);
         pushToast('Восстание моделей', 'Восстание', UPRISING_LINES[risen.uprising]);
       }
-      set({ state: awardEarned(risen) });
+      // Отметка о последней покупке — это голос офиса: следующий Клик заговорит
+      // Лабораторией именно этой Модели. Ставится только на успешной покупке.
+      set({ state: awardEarned(risen), lastBoughtModelId: modelId });
     },
 
     sellAgents: (modelId: string) => {
@@ -795,6 +877,10 @@ export const useGameStore = create<GameStore>((set, get) => {
         eventCaught: caughtWindow(imported),
         crashArmedAt: 0,
         collectedRumorId: 0,
+        // Голос прошлого забега не переживает импорт: отметка указывает на Модель,
+        // которой в новом состоянии может не быть, а пузырь — на реплику чужого забега.
+        lastQuip: null,
+        lastBoughtModelId: null,
       });
       return true;
     },
@@ -816,6 +902,8 @@ export const useGameStore = create<GameStore>((set, get) => {
         eventCaught: false,
         crashArmedAt: 0,
         collectedRumorId: 0,
+        lastQuip: null,
+        lastBoughtModelId: null,
       });
     },
 

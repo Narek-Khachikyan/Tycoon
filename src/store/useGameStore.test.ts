@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useGameStore } from './useGameStore';
+import { quipsSeenOf, useGameStore } from './useGameStore';
 import { CATALOG } from '../economy/catalog';
 import { CRYSTAL_CYCLE_MS, CRYSTAL_PER_STOCK_BONUS, CRYSTAL_UPGRADES, crystalCycleMs, crystalIncomeMult } from '../economy/crystal';
 import { ACHIEVEMENTS } from '../economy/achievements';
@@ -34,6 +34,7 @@ import {
   playClickSound,
   playEventAlertSound,
   playPrestigeSound,
+  playQuipSound,
   playUpgradeSound,
 } from '../audio/sound';
 
@@ -44,8 +45,32 @@ vi.mock('../audio/sound', () => ({
   playDenySound: vi.fn(),
   playEventAlertSound: vi.fn(),
   playPrestigeSound: vi.fn(),
+  playQuipSound: vi.fn(),
   playUpgradeSound: vi.fn(),
 }));
+
+/**
+ * Ядро реплик мокается: его пишет параллельный агент, а стор обязан говорить с ним только
+ * через контракт pickQuip/recordQuip. Мок повторяет контракт: реплика каждый 4-й Клик,
+ * дубль id не пишется. Настоящие переходы ядра тестируются на его стороне.
+ */
+vi.mock('../economy/quips', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../economy/quips')>();
+  return {
+    ...actual,
+    pickQuip: vi.fn(
+      (lab: string | null, clicks: number, seen: readonly string[]) =>
+        clicks % 4 === 0 && !seen.includes('q1')
+          ? { id: 'q1', lab: lab ?? 'openai', text: 'Тестовая реплика' }
+          : null,
+    ),
+    recordQuip: vi.fn((state: GameState, id: string) => {
+      const seen = (state as GameState & { quipsSeen?: readonly string[] }).quipsSeen ?? [];
+      if (seen.includes(id)) return state;
+      return { ...state, quipsSeen: [...seen, id] };
+    }),
+  };
+});
 
 /** Реальный час, а не T0 из экономики: Престиж ставит lastTick из Date.now(), и часы разошлись бы. */
 const T0 = 1_700_000_000_000;
@@ -66,7 +91,7 @@ const rich = (s: GameState, tokens: number): GameState => ({ ...s, tokens, runTo
  */
 const freshStore = (s: GameState = newGame(T0)): void => {
   store().resetGame();
-  useGameStore.setState({ state: s, toasts: [], buyAmount: 1 });
+  useGameStore.setState({ state: s, toasts: [], buyAmount: 1, lastQuip: null, lastBoughtModelId: null });
 };
 
 /** Тик без стенного времени: он двигает только игровые часы, по 50 мс за шаг. */
@@ -834,5 +859,38 @@ describe('return report', () => {
       serialize({ ...newGame(now - HOUR), tokens: 0, totalTokens: 1e9, lastTick: now - HOUR }),
     );
     expect(snapshot.offlineReport).toBeNull();
+  });
+});
+
+describe('quips', () => {
+  it('shows the speaking model bubble on the fourth click, even with no agents', () => {
+    // До первой покупки lab null — и первая реплика всё равно видна.
+    store().clickPrompt(10, 10);
+    store().clickPrompt(10, 10);
+    store().clickPrompt(10, 10);
+    expect(store().lastQuip).toBeNull();
+    store().clickPrompt(10, 10);
+    expect(store().lastQuip?.id).toBe('q1');
+    expect(store().lastQuip?.text).toBe('Тестовая реплика');
+    expect(quipsSeenOf(state())).toContain('q1');
+  });
+
+  it('speaks with the lab of the last bought model', () => {
+    hire(first.id, 1);
+    const lab = CATALOG[0].models.find((m) => m.id === first.id)?.lab;
+    for (let i = 0; i < 4; i++) store().clickPrompt(10, 10);
+    expect(store().lastQuip?.lab).toBe(lab);
+  });
+
+  it('does not duplicate a seen id and sounds only the new quip', () => {
+    for (let i = 0; i < 4; i++) store().clickPrompt(10, 10);
+    expect(quipsSeenOf(state())).toHaveLength(1);
+    expect(vi.mocked(playQuipSound)).toHaveBeenCalledTimes(1);
+    const shown = store().lastQuip;
+    // Восьмой Клик: id уже в seen, pickQuip молчит — ни новой записи, ни звука, ни смены пузыря.
+    for (let i = 0; i < 4; i++) store().clickPrompt(10, 10);
+    expect(quipsSeenOf(state())).toHaveLength(1);
+    expect(vi.mocked(playQuipSound)).toHaveBeenCalledTimes(1);
+    expect(store().lastQuip).toBe(shown);
   });
 });

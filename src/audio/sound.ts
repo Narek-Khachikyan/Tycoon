@@ -226,3 +226,38 @@ export function playDenySound(muted: boolean): void {
   osc.start(now);
   osc.stop(now + 0.12);
 }
+
+/**
+ * Стрекот печатной машинки поверх реплики говорящей Модели.
+ *
+ * Шесть коротких square-блёсток через 35 мс: печатка стучит очередью, а не нотой, поэтому
+ * частот шесть и все высокие (1.7–2.6 кГц) — ни одна не совпадает с тембрами покупки,
+ * Апгрейда и Достижения. Gain 0.05 вдвое тише Клика: стрекот идёт поверх него на том же
+ * нажатии и не должен его перекрикивать. Как остальные: при muted молчит, а при
+ * suspended AudioContext просто не звучит — жеста не было, и это не баг.
+ */
+export function playQuipSound(muted: boolean): void {
+  if (muted) return;
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  const now = ctx.currentTime;
+  const ticks = [2100, 1700, 2400, 1900, 2600, 2200];
+  ticks.forEach((freq, idx) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const start = now + idx * 0.035;
+
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(freq, start);
+
+    gain.gain.setValueAtTime(0.05, start);
+    gain.gain.exponentialRampToValueAtTime(0.001, start + 0.03);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start(start);
+    osc.stop(start + 0.03);
+  });
+}

@@ -1513,3 +1513,56 @@ body {
     bottom: 132px;
   }
 }
+
+/* Пузырь реплики говорящей Модели. Вход — pop пружиной 0.25с (opacity+scale),
+   уход — fade 0.18с с задержкой 4.32с: стор гасит lastQuip через 4.5с, и fade видно
+   целиком. Хвостик — статичный треугольник, а не движение, поэтому при reducedMotion
+   остаётся. При выключенном движении вход — тот же opacity-кадр, что у слухов
+   (rumor-in): scale там запрещён, fade вестибулярно нейтрален. */
+@keyframes quip-pop {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
+  }
+}
+
+@keyframes quip-fade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.quip-bubble::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -8px;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  background-color: inherit;
+  border-right: 2px solid var(--border);
+  border-bottom: 2px solid var(--border);
+  transform: rotate(45deg);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .quip-bubble {
+    animation:
+      quip-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
+      quip-fade 0.18s ease-in 4.32s forwards;
+  }
+}
+
+[data-motion='reduced'] .quip-bubble {
+  animation:
+    rumor-in 0.25s ease-out,
+    quip-fade 0.18s ease-in 4.32s forwards;
+}

@@ -2,17 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { buildCatalog, CATALOG, computeGain, genScale, PRESTIGE_DIVISOR_UNITS, prestigeDivisor, softMod } from './catalog';
 import {
   advance, advanceTime, applyOffline, assistClickBonus, BASE_OFFLINE_HOURS, bulkCost, buyAgents, buyPerk, buyUpgrade, canPrestige, click,
-  clickValue, computeShortfall, datasetMult, datasetValue, earnTokens, flagshipMult, generationBoostMult, incomeGain, isContentFinale,
+  clickValue, computeShortfall, datasetMult, datasetValue, discountMult, earnTokens, flagshipMult, generationBoostMult, incomeGain, isContentFinale,
   labIncomeShare, maxAffordable, modelIncome, offlineCapHours, offlineIncome, offlineRateMult, prestige, prestigeGain, prestigePreview,
-  progressToNextAgent, sellAgents, totalIncome,
+  progressToNextAgent, sellAgents, START_PRICE_MULT, totalIncome,
 } from './engine';
 import {
   collectCrystals, buyCrystalUpgrade, CRYSTAL_CYCLE_MS, CRYSTAL_PER_STOCK_BONUS, CRYSTAL_STOCK_CAP, CRYSTAL_UPGRADES,
   crystalCycleMs, crystalIncomeMult,
 } from './crystal';
 import {
-  activeSpec, catchUpClick, clickMultiplierFor, downtimeIncomeMult, EVENT_MAX_MS, EVENT_MIN_MS, EVENT_TABLES, eventMultiplierFor,
-  grantAmount, isEventActive, pickSurgeModel, rollEventKind, surgeMultFor,
+  activeSpec, catchUpClick, clickMultiplierFor, COMBO_CAP, COMBO_WINDOW_MS, comboMultFor, downtimeIncomeMult, ENCORE_CHANCE, ENCORE_MAX_MS,
+  ENCORE_MIN_MS, EVENT_MAX_MS, EVENT_MIN_MS, EVENT_TABLES, eventMultiplierFor, eventWindowMs, FIRST_EVENT_MAX_MS, FIRST_EVENT_MIN_MS,
+  grantAmount, GRANT_FLOOR_WALLET_CAP, isEventActive, pickEncoreWindow, pickEventWindow, pickFirstEventWindow, pickSurgeModel, rollEventKind,
+  RUMOR_MIN_PAYOUT, surgeMultFor,
 } from './events';
 import {
   advanceGlitches, buyLicense, buyPledge, canLicense, canPledge, covenantIncomeMult, crashAmount, glitchDrainMult, glitchPayout,
@@ -124,13 +126,14 @@ describe('prices', () => {
     const cost = bulkCost(first, 0, 1);
     // Кошелёк пуст: не хватает всей цены, то есть доли 1.
     expect(progressToNextAgent(s, first)).toBe(1);
-    // Ровно половина цены — ровно половина полосы, а не «почти» и не доля от максимума.
-    expect(progressToNextAgent({ ...s, tokens: cost / 2 }, first)).toBeCloseTo(0.5);
+    // Ровно половина чистой цены — но полоса считает цену со стартовой скидкой, поэтому доля
+    // меньше половины: скидка действует и на кнопку, и на полосу, иначе они бы разошлись.
+    expect(progressToNextAgent({ ...s, tokens: cost / 2 }, first)).toBeCloseTo(1 - 1 / (2 * START_PRICE_MULT));
     expect(progressToNextAgent({ ...s, tokens: cost }, first)).toBe(0);
     expect(progressToNextAgent({ ...s, tokens: cost * 10 }, first)).toBe(0);
     // Скидка Перка уменьшает цену, а полоса считает ровно ту же цену, что и кнопка покупки.
     const withDiscount = { ...s, tokens: cost / 2, perks: ['discount'] };
-    const sale = cost * 0.95; // «Оптовые GPU» снимают 5% с цены
+    const sale = cost * 0.95 * START_PRICE_MULT; // «Оптовые GPU» снимают 5% поверх стартовых 30%
     expect(progressToNextAgent(withDiscount, first)).toBeCloseTo((sale - cost / 2) / sale);
     // Уже купленные Агенты подняли цену, поэтому полоса считается от следующей, а не от первой.
     const hired = buyAgents(rich(s), first.id, 10);
@@ -138,6 +141,39 @@ describe('prices', () => {
     expect(nextCost).toBeGreaterThan(cost);
     expect(progressToNextAgent({ ...hired, tokens: nextCost / 2 }, first)).toBeCloseTo(0.5);
     expect(progressToNextAgent({ ...hired, tokens: 0 }, first)).toBe(1);
+  });
+});
+
+describe('early game prices', () => {
+  it('discounts the first two agents by thirty percent and charges full price after', () => {
+    expect(START_PRICE_MULT).toBe(0.7);
+    const s = newGame(T0);
+    expect(discountMult(s)).toBe(START_PRICE_MULT);
+    // Кошелёк — миллион, а не 1e50: на порядке 1e50 разница в десятки Токенов тонет в мантиссе.
+    const wallet = (x: GameState, tokens = 1e6): GameState => ({ ...x, tokens, runTokens: tokens });
+    // Первый Агент обошёлся в 0,7 чистой цены — яма 2–5 минут начинается раньше.
+    const one = buyAgents(wallet(s), first.id, 1);
+    expect(one.agents[first.id]).toBe(1);
+    expect(wallet(s).tokens - one.tokens).toBeCloseTo(bulkCost(first, 0, 1) * START_PRICE_MULT);
+    // Второй — тоже: скидка держится, пока Агентов меньше двух.
+    expect(discountMult(one)).toBe(START_PRICE_MULT);
+    const two = buyAgents(one, first.id, 1);
+    expect(one.tokens - two.tokens).toBeCloseTo(bulkCost(first, 1, 1) * START_PRICE_MULT);
+    // Третий — уже полный: скидка только стартовая, а не вечная.
+    expect(discountMult(two)).toBe(1);
+    const three = buyAgents(two, first.id, 1);
+    expect(two.tokens - three.tokens).toBeCloseTo(bulkCost(first, 2, 1));
+  });
+
+  it('keeps the rank order under the uniform discount', () => {
+    // Множитель общий для всех Моделей, поэтому дешёвая Модель не обгоняет дорогую:
+    // порядок цен — тот же, что в каталоге, и монотонность по Рангу не ломается.
+    const s = rich(newGame(T0));
+    for (let i = 1; i < g0.models.length; i++) {
+      const cheap = bulkCost(g0.models[i - 1], 0, 1, discountMult(s));
+      const pricey = bulkCost(g0.models[i], 0, 1, discountMult(s));
+      expect(pricey).toBeGreaterThan(cheap);
+    }
   });
 });
 
@@ -668,17 +704,63 @@ describe('red events', () => {
 });
 
 describe('event schedule', () => {
-  it('plans the first window itself and spawns one event into it', () => {
+  it('plans the first window short and spawns one event into it', () => {
     const planned = advanceTime(hired(), 0.05, () => 0);
-    expect(planned.nextEventAt).toBe(T0 + 50 + EVENT_MIN_MS);
+    expect(planned.nextEventAt).toBe(T0 + 50 + FIRST_EVENT_MIN_MS);
     expect(planned.event).toBeNull();
-    expect(advanceTime(planned, 60, () => 0).event).toBeNull();
-    const spawned = advanceTime(planned, EVENT_MIN_MS / 1000, () => 0);
+    expect(planned.combo).toBe(0);
+    // Через 30 с окно ещё не наступило: первое Событие приходит не мгновенно, а в первую минуту.
+    expect(advanceTime(planned, 30, () => 0).event).toBeNull();
+    const spawned = advanceTime(planned, FIRST_EVENT_MIN_MS / 1000, () => 0);
     expect(spawned.eventsSeen).toBe(1);
     expect(spawned.event).not.toBeNull();
     expect(spawned.nextEventAt).toBeGreaterThan(spawned.lastTick);
-    // Окно берётся из таблицы пауз, а не из случайного числа: иначе розыгрыш был бы непроверяем.
-    expect(advanceTime(hired(), 0.05, () => 1).nextEventAt).toBe(T0 + 50 + EVENT_MAX_MS);
+    // Окно берётся из таблицы коротких пауз, а не из случайного числа: иначе розыгрыш был бы
+    // непроверяем. Верхняя граница — 90 с: новичок видит Золотой Токен в первую минуту.
+    expect(FIRST_EVENT_MAX_MS).toBeLessThanOrEqual(90_000);
+    expect(advanceTime(hired(), 0.05, () => 1).nextEventAt).toBe(T0 + 50 + FIRST_EVENT_MAX_MS);
+    expect(pickFirstEventWindow(() => 0)).toBe(FIRST_EVENT_MIN_MS);
+    expect(pickFirstEventWindow(() => 0.999)).toBeLessThanOrEqual(FIRST_EVENT_MAX_MS);
+  });
+
+  it('spaces later windows two to ten minutes apart', () => {
+    // Пропущенное окно: Событие было, но его не поймали, — следующее идёт в устоявшемся режиме.
+    const missed: GameState = {
+      ...hired(),
+      nextEventAt: T0,
+      event: { kind: 'hype', startedAt: T0 - 600_000, red: false },
+    };
+    const low = advanceTime(missed, 0.05, () => 0);
+    expect(low.eventsSeen).toBe(1);
+    expect(low.combo).toBe(0);
+    expect(low.nextEventAt - low.lastTick).toBe(EVENT_MIN_MS);
+    // Пауза берётся из таблицы пауз, а не из случайного числа: иначе розыгрыш был бы непроверяем.
+    const high = advanceTime(missed, 0.05, () => 1);
+    expect(high.nextEventAt - high.lastTick).toBe(EVENT_MAX_MS);
+    expect(EVENT_MIN_MS).toBe(2 * 60_000);
+    expect(EVENT_MAX_MS).toBe(10 * 60_000);
+    expect(pickEventWindow(() => 0)).toBe(EVENT_MIN_MS);
+  });
+
+  it('schedules a quick encore after a caught event, but only by chance', () => {
+    // «Грант» поймали минуту назад: окно протухло, отметка о поимке на месте.
+    const caught: GameState = {
+      ...hired(),
+      nextEventAt: T0,
+      event: { kind: 'grant', startedAt: T0 - 60_000, red: false },
+      eventCaughtAt: T0 - 60_000,
+    };
+    const quick = advanceTime(caught, 0.05, () => 0);
+    expect(quick.eventsSeen).toBe(1);
+    expect(quick.nextEventAt - quick.lastTick).toBe(ENCORE_MIN_MS);
+    expect(pickEncoreWindow(() => 1)).toBe(ENCORE_MAX_MS);
+    expect(ENCORE_MIN_MS).toBeLessThan(COMBO_WINDOW_MS);
+    expect(ENCORE_CHANCE).toBeGreaterThan(0);
+    expect(ENCORE_CHANCE).toBeLessThan(1);
+    // Не повезло с шансом — обычное окно в устоявшемся режиме, а не серия.
+    const slow = advanceTime(caught, 0.05, () => 0.99);
+    expect(slow.nextEventAt - slow.lastTick).toBeGreaterThan(ENCORE_MAX_MS);
+    expect(slow.nextEventAt - slow.lastTick).toBeLessThanOrEqual(EVENT_MAX_MS);
   });
 
   it('never displaces a live event, even if the schedule says the window is due', () => {
@@ -716,6 +798,80 @@ describe('event schedule', () => {
       last = kind;
     }
     expect(repeats / sample).toBeLessThan(0.15);
+  });
+});
+
+describe('event combo', () => {
+  /** Окно, наступившее в `at`, чьё предыдущее окно поймали: «Грант» 15 с, протух заведомо. */
+  const dueAfterCatch = (at: number, prevStart: number, combo = 0): GameState => ({
+    ...hired(),
+    nextEventAt: at,
+    event: { kind: 'grant', startedAt: prevStart, red: false },
+    eventCaughtAt: prevStart,
+    combo,
+  });
+
+  it('grows while caught windows land within thirty seconds of the previous end', () => {
+    const aStart = T0;
+    // B стартует через 20 с после конца A: цепочка из одного пойманного продолжается.
+    const bStart = aStart + EVENT_TABLES.grant.durationMs + 20_000;
+    const b = advanceTime(dueAfterCatch(bStart, aStart), (bStart - T0) / 1000, () => 0.99);
+    expect(b.eventsSeen).toBe(1);
+    expect(b.combo).toBe(1);
+    // Цепочка из одного — ещё не комбо: живой эффект платит без множителя.
+    expect(comboMultFor(b)).toBe(1);
+    // C стартует через 20 с после конца B, и B тоже поймали: второе подряд даёт ×2.
+    const bEnd = bStart + eventWindowMs(b.event!);
+    const cStart = bEnd + 20_000;
+    const cState: GameState = { ...b, nextEventAt: cStart, eventCaughtAt: b.event!.startedAt };
+    const c = advanceTime(cState, (cStart - b.lastTick) / 1000, () => 0.99);
+    expect(c.combo).toBe(2);
+    expect(comboMultFor(c)).toBe(2);
+    // Живой эффект умножается на комбо — на «Волне хайпа», «Клик-рывке» и «Прорыве».
+    const hyped: GameState = { ...c, event: { kind: 'hype', startedAt: c.lastTick, red: false } };
+    expect(eventMultiplierFor(hyped)).toBe(EVENT_TABLES.hype.incomeMult * 2);
+    const rushed: GameState = { ...c, event: { kind: 'clickRush', startedAt: c.lastTick, red: false } };
+    expect(clickMultiplierFor(rushed)).toBe(EVENT_TABLES.clickRush.clickMult * 2);
+    const surged: GameState = { ...c, event: { kind: 'surge', startedAt: c.lastTick, red: false, modelId: first.id } };
+    expect(surgeMultFor(surged, first.id)).toBe(EVENT_TABLES.surge.incomeMult * 2);
+  });
+
+  it('restarts the chain on a stale catch and resets it on a miss', () => {
+    const aStart = T0;
+    // B стартует через минуту после конца A: A поймали, но цепочка не сложилась — B начинает заново.
+    const bStart = aStart + EVENT_TABLES.grant.durationMs + 60_000;
+    const b = advanceTime(dueAfterCatch(bStart, aStart), (bStart - T0) / 1000, () => 0.99);
+    expect(b.combo).toBe(1);
+    // A вовсе не поймали: цепочки нет.
+    const missed = advanceTime({ ...dueAfterCatch(bStart, aStart), eventCaughtAt: 0 }, (bStart - T0) / 1000, () => 0.99);
+    expect(missed.combo).toBe(0);
+    expect(comboMultFor(missed)).toBe(1);
+  });
+
+  it('caps the multiplier at eight, however long the chain', () => {
+    expect(COMBO_CAP).toBe(8);
+    const eighth: GameState = {
+      ...hired(),
+      combo: 8,
+      event: { kind: 'hype', startedAt: T0, red: false },
+    };
+    expect(comboMultFor(eighth)).toBe(8);
+    expect(eventMultiplierFor(eighth)).toBe(EVENT_TABLES.hype.incomeMult * 8);
+    // Девятое пойманное подряд не поднимает выше потолка.
+    const ninth = advanceTime(dueAfterCatch(T0 + 20_000, T0, 8), 20, () => 0.99);
+    expect(ninth.combo).toBe(8);
+    expect(comboMultFor(ninth)).toBe(8);
+  });
+
+  it('never multiplies a lump payout, only income and click', () => {
+    // Разовые суммы считаются без комбо: «Грант» делит запас, а не умножает Доход.
+    expect(grantAmount(1000, 60)).toBeCloseTo(150);
+    const comboState: GameState = { ...hired(), combo: 5, event: null };
+    expect(comboMultFor(comboState)).toBe(5);
+    // Но платить ему нечего: без живого эффекта все множители — единицы.
+    expect(eventMultiplierFor(comboState)).toBe(1);
+    expect(clickMultiplierFor(comboState)).toBe(1);
+    expect(surgeMultFor(comboState, first.id)).toBe(1);
   });
 });
 
@@ -988,6 +1144,20 @@ describe('earnTokens', () => {
     expect(grantAmount(1e9, 60)).toBeCloseTo(60 * 15 * 60);
     expect(crashAmount(1e9, 60)).toBeCloseTo(-Math.min(1e9 * 0.05, 60 * 10 * 60));
   });
+
+  it('floors a small wallet grant at five tokens, but pays an idle fortune honestly', () => {
+    expect(RUMOR_MIN_PAYOUT).toBe(5);
+    // Новичок до первого Агента: Доход нулевой, формула — ноль, а выплата — пять.
+    expect(grantAmount(30, 0)).toBe(RUMOR_MIN_PAYOUT);
+    expect(grantAmount(3, 0.1)).toBe(RUMOR_MIN_PAYOUT);
+    // Кошелёк ниже порога, но формула выше него: платится формула, а не порог.
+    expect(grantAmount(900, 60)).toBeCloseTo(135);
+    // Пустой кошелёк делить нечего: ноль остаётся нулём.
+    expect(grantAmount(0, 0)).toBe(0);
+    // Большой праздный кошелёк без Дохода — честный ноль по формуле: мелочь делится с бедными.
+    expect(grantAmount(1e6, 0)).toBe(0);
+    expect(GRANT_FLOOR_WALLET_CAP).toBe(1000);
+  });
 });
 
 describe('compute crystals', () => {
@@ -1114,6 +1284,18 @@ describe('prestige', () => {
   it('gives starting tokens scaled to the new generation with the perk', () => {
     const s = { ...buyAgents(rich(newGame(T0), 1e15), g0.flagship.id, 1), perks: ['start_tokens'] };
     expect(prestige(s, T0).tokens).toBe(1000 * 1000);
+  });
+  it('restarts the event schedule and the combo, so the new run gets its first event fast', () => {
+    let s = buyAgents(rich(newGame(T0), 1e15), g0.flagship.id, 1);
+    s = { ...s, combo: 5, nextEventAt: T0 + 600_000, eventsSeen: 9 };
+    const p = prestige(s, T0 + 1);
+    // Цепочка прошлого забега в новый не переезжает, а счётчик выпадений — общий.
+    expect(p.combo).toBe(0);
+    expect(p.nextEventAt).toBe(0);
+    expect(p.eventsSeen).toBe(9);
+    // Первый тик планирует короткое окно: первое Событие каждого забега — в первую минуту.
+    const planned = advanceTime(p, 0.05, () => 0);
+    expect(planned.nextEventAt).toBe(T0 + 1 + 50 + FIRST_EVENT_MIN_MS);
   });
   it('stays in the last generation at the content finale', () => {
     const last = CATALOG.length - 1;

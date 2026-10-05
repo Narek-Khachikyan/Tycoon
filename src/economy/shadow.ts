@@ -2,6 +2,8 @@ import { CATALOG, computeGain, LAST_GENERATION } from './catalog';
 import { canPrestige, clickValue } from './engine';
 import { PERKS } from './perks';
 import type { GameState } from './state';
+import type { LabId } from '../data/labs';
+import { QUIPS } from '../data/quips';
 import { CLICK_UPGRADES, clickUpgradeId } from './upgrades';
 
 /**
@@ -224,5 +226,31 @@ export const SHADOW_ACHIEVEMENTS: ShadowAchievement[] = [
     id: 'shadow_blind_modal', name: 'Слепой список',
     desc: 'Ни разу не открыть окно Достижений. Условие ложно всегда: чтобы прочитать эту строку, окно уже открыто.',
     check: () => false,
+  },
+  // Три тени «Говорящих Моделей»: условия читают только quipsSeen и, как все тени,
+  // ничего не увеличивают — коллекция собирается ради гордости, а не ради Дохода.
+  {
+    id: 'shadow_quips_5', name: 'Первые слова', desc: 'Услышать 5 реплик Моделей',
+    check: (s) => (s.quipsSeen ?? []).length >= 5,
+  },
+  {
+    id: 'shadow_quips_50', name: 'Болтун', desc: 'Услышать 50 реплик Моделей',
+    check: (s) => (s.quipsSeen ?? []).length >= 50,
+  },
+  {
+    // Полный набор одной Лаборатории: id группируются из той же таблицы, что и
+    // pickQuip, поэтому правка таблицы реплик не рассинхронизирует условие с игрой.
+    id: 'shadow_quips_lab', name: 'Свои люди', desc: 'Собрать все реплики одной Лаборатории',
+    check: (s) => {
+      const heard = new Set(s.quipsSeen ?? []);
+      const byLab = new Map<LabId, string[]>();
+      for (const q of QUIPS) {
+        const ids = byLab.get(q.lab);
+        if (ids) ids.push(q.id);
+        else byLab.set(q.lab, [q.id]);
+      }
+      for (const ids of byLab.values()) if (ids.every((id) => heard.has(id))) return true;
+      return false;
+    },
   },
 ];

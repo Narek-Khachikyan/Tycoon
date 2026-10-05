@@ -51,9 +51,43 @@ export const EVENT_TABLES: { [K in EventKind]: Extract<EventSpec, { kind: K }> }
   },
 };
 
-/** Пауза между событиями: от пяти до пятнадцати минут. */
-export const EVENT_MIN_MS = 5 * 60_000;
-export const EVENT_MAX_MS = 15 * 60_000;
+/** Пауза между событиями в устоявшемся режиме: от двух до десяти минут. */
+export const EVENT_MIN_MS = 2 * 60_000;
+export const EVENT_MAX_MS = 10 * 60_000;
+
+/**
+ * Окно первого События забега: 45–90 с. Новый игрок обязан увидеть Золотой Токен на первой
+ * минуте, а не на пятнадцатой: половина новичков иначе уходит, так и не встретив главную
+ * механику азарта.
+ */
+export const FIRST_EVENT_MIN_MS = 45_000;
+export const FIRST_EVENT_MAX_MS = 90_000;
+
+/**
+ * Комбо пойманных подряд Событий: следующее окно продолжает цепочку, если началось не позже
+ * 30 с после конца предыдущего пойманного окна. Отсчёт от конца окна, а не от поимки: время
+ * поимки в состоянии не хранится, а начало окна — хранится, и при быстрой ловле они почти
+ * совпадают.
+ */
+export const COMBO_WINDOW_MS = 30_000;
+/** Потолок комбо: эффекты Событий умножаются не выше чем на восемь. */
+export const COMBO_CAP = 8;
+
+/** Догоняющее окно после пойманного События: 15–25 с. Без него цепочка не сложилась бы никогда:
+ * устоявшиеся паузы в минуты выводят любой следующий улов за пределы комбо-окна. */
+export const ENCORE_MIN_MS = 15_000;
+export const ENCORE_MAX_MS = 25_000;
+/** Шанс догоняющего окна после пойманного: цепочки случаются, но не каждое Событие тянет серию. */
+export const ENCORE_CHANCE = 0.4;
+
+/**
+ * Мелочь слухов: разовая выплата не ниже пяти Токенов, пока кошелёк меньше тысячи. Порог —
+ * помощь новичка до первого Агента, у которого формула даёт ноль из-за нулевого Дохода.
+ * Большой праздный кошелёк (тестовое состояние «миллион без Агентов») получает честный ноль
+ * по формуле: мелочь делится с бедными, а не печатается богатым.
+ */
+export const RUMOR_MIN_PAYOUT = 5;
+export const GRANT_FLOOR_WALLET_CAP = 1000;
 
 /** Вес вида, который только что выпадал: не ноль, иначе шанс перестал бы что-то значить. */
 const REPEAT_PENALTY = 0.35;
@@ -75,6 +109,31 @@ function specOf(event: ActiveEvent): EventSpec | RedSpec {
 export function isEventActive(event: ActiveEvent | null, now: number): boolean {
   if (!event) return false;
   return now < event.startedAt + specOf(event).durationMs;
+}
+
+/**
+ * Множитель комбо для эффектов Событий: длина цепочки, но не выше потолка, и 1 вне цепочки.
+ *
+ * Комбо усиливает только живые эффекты — «Волну хайпа», «Клик-рывок» и «Прорыв», — а не базу:
+ * вызывающие уже проверили, что их эффект жив, поэтому голая цифра здесь не платит ничего.
+ * Разовые выплаты («Грант», «Крах», возврат «Ночного кодинга») не умножаются: комбо — это
+ * множитель Дохода и Кликов, а не печатный станок.
+ */
+export function comboMultFor(state: GameState, now: number = state.lastTick): number {
+  void now;
+  if (state.combo < 2) return 1;
+  return Math.min(state.combo, COMBO_CAP);
+}
+
+/**
+ * Длительность окна события в миллисекундах по его собственному флагу.
+ *
+ * Нужна движку, чтобы мерить свежесть цепочки от конца предыдущего окна: живое ли оно сейчас —
+ * другой вопрос, и isEventActive на него отвечает отдельно.
+ */
+export function eventWindowMs(event: ActiveEvent): number {
+  const table = event.red ? RED_TABLES[event.kind] : EVENT_TABLES[event.kind];
+  return table.durationMs;
 }
 
 /** Активное событие вместе с его описанием или null, если события нет либо оно истекло. */
@@ -113,7 +172,8 @@ export function isDowntime(state: GameState, now: number): boolean {
 export function eventMultiplierFor(state: GameState, now: number = state.lastTick): number {
   const event = state.event;
   if (!event || event.kind !== 'hype' || !isEventActive(event, now)) return 1;
-  return event.red ? RED_TABLES.hype.incomeMult : EVENT_TABLES.hype.incomeMult;
+  const mult = event.red ? RED_TABLES.hype.incomeMult : EVENT_TABLES.hype.incomeMult;
+  return mult * comboMultFor(state, now);
 }
 
 /**
@@ -134,7 +194,7 @@ export function downtimeIncomeMult(state: GameState, now: number = state.lastTic
 export function clickMultiplierFor(state: GameState, now: number = state.lastTick): number {
   const event = state.event;
   if (!event || event.red || event.kind !== 'clickRush' || !isEventActive(event, now)) return 1;
-  return EVENT_TABLES.clickRush.clickMult;
+  return EVENT_TABLES.clickRush.clickMult * comboMultFor(state, now);
 }
 
 /**
@@ -148,7 +208,8 @@ export function surgeMultFor(state: GameState, modelId: string, now: number = st
   const event = state.event;
   if (!event || event.kind !== 'surge' || !event.modelId || event.modelId !== modelId) return 1;
   if (!isEventActive(event, now)) return 1;
-  return event.red ? RED_TABLES.surge.incomeMult : EVENT_TABLES.surge.incomeMult;
+  const mult = event.red ? RED_TABLES.surge.incomeMult : EVENT_TABLES.surge.incomeMult;
+  return mult * comboMultFor(state, now);
 }
 
 /**
@@ -173,11 +234,15 @@ export function catchUpClick(state: GameState, incomePerSec: number, now: number
  * Разовый бонус «Гранта»: 15% запаса Токенов, но не больше пятнадцати минут Дохода.
  *
  * Обе величины приходят числами от вызывающего, сам запас Токенов не трогается: деньги двигает
- * движок, а здесь только формула суммы.
+ * движок, а здесь только формула суммы. Пока кошелёк меньше тысячи, выплата не ниже пяти Токенов:
+ * иначе первая находка новичка до первого Агента платит ноль из-за нулевого Дохода и наказывает
+ * за то, что игрок ещё ничего не купил.
  */
 export function grantAmount(tokens: number, incomePerSec: number): number {
   const spec = EVENT_TABLES.grant;
-  return Math.min(tokens * spec.share, incomePerSec * spec.minutes * 60);
+  const amount = Math.min(tokens * spec.share, incomePerSec * spec.minutes * 60);
+  if (tokens > 0 && tokens < GRANT_FLOOR_WALLET_CAP) return Math.max(amount, RUMOR_MIN_PAYOUT);
+  return amount;
 }
 
 /**
@@ -214,4 +279,14 @@ export function pickSurgeModel(state: GameState, rnd: () => number): string {
 /** Пауза до следующего события в миллисекундах. */
 export function pickEventWindow(rnd: () => number): number {
   return Math.floor(EVENT_MIN_MS + rnd() * (EVENT_MAX_MS - EVENT_MIN_MS));
+}
+
+/** Окно первого События забега: первое впечатление нельзя откладывать на минуты. */
+export function pickFirstEventWindow(rnd: () => number): number {
+  return Math.floor(FIRST_EVENT_MIN_MS + rnd() * (FIRST_EVENT_MAX_MS - FIRST_EVENT_MIN_MS));
+}
+
+/** Догоняющее окно после пойманного События: цепочка комбо держится только на коротких паузах. */
+export function pickEncoreWindow(rnd: () => number): number {
+  return Math.floor(ENCORE_MIN_MS + rnd() * (ENCORE_MAX_MS - ENCORE_MIN_MS));
 }

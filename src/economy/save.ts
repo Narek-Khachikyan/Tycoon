@@ -3,6 +3,7 @@ import { CRYSTAL_UPGRADE_BY_ID } from './crystal';
 import { uprisingStage } from './glitches';
 import { PERK_BY_ID } from './perks';
 import { EVENT_KINDS, newGame, SAVE_VERSION, type ActiveEvent, type EventKind, type GameState, type Glitch } from './state';
+import { QUIPS_SEEN_CAP } from './quips';
 import { UPGRADE_BY_ID } from './upgrades';
 
 export const SAVE_KEY = 'ai-tycoon-save'; // Имя ключа — наследие AI Tycoon: переименование сотрёт живые прохождения, поэтому ключ не меняется вместе с названием игры.
@@ -54,6 +55,13 @@ const MIGRATIONS: Record<number, Migration> = {
     eventCaughtAt: 0,
     catchUpPaid: 0,
     nextGlitchAt: 0,
+  }),
+  // Переписка появилась в v5: у живого сохранения её не было, а пустой список означает
+  // «ничего не слышал» — то же, чем состояние было до реплик. Чистое добавление.
+  4: (raw) => ({
+    ...raw,
+    version: 5,
+    quipsSeen: [],
   }),
 };
 
@@ -204,6 +212,11 @@ export function migrate(input: unknown, now: number): GameState {
     pledgeUntil: stamp(raw.pledgeUntil),
     pledgeBought: count(raw.pledgeBought),
     covenant: !!raw.covenant,
+    // Переписка — как Достижения, а не как Перки: id проверяются только на тип, а не на
+    // известность каталогу, поэтому запись переживает правку таблицы реплик. Дубль
+    // схлопывается, хвост длиннее капа обрезается спереди — это те же правила, что в
+    // recordQuip, иначе загрузка вернула бы состояние, которое игра никогда не пишет.
+    quipsSeen: [...new Set(strList(raw.quipsSeen))].slice(-QUIPS_SEEN_CAP),
     lastTick: num(raw.lastTick, now),
     startedAt: num(raw.startedAt, now),
     runStartedAt: num(raw.runStartedAt, now),

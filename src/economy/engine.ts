@@ -7,11 +7,17 @@ import { nonShadowCount } from './achievements';
 import {
   catchUpClick,
   clickMultiplierFor,
+  COMBO_CAP,
+  COMBO_WINDOW_MS,
   downtimeIncomeMult,
+  ENCORE_CHANCE,
   eventMultiplierFor,
+  eventWindowMs,
   isDowntime,
   isEventActive,
+  pickEncoreWindow,
   pickEventWindow,
+  pickFirstEventWindow,
   pickSurgeModel,
   rollEventKind,
   surgeMultFor,
@@ -62,8 +68,15 @@ export const OFFLINE_THRESHOLD_SEC = 10;
 
 // ---------- Цены ----------
 
+/** Стартовая цена первых Агентов: ×0,7, пока у игрока меньше двух Агентов. */
+export const START_PRICE_MULT = 0.7;
+
 export function discountMult(state: GameState): number {
-  return perkEffects(state.perks).reduce((m, e) => (e.kind === 'discount' ? m * (1 - e.pct) : m), 1);
+  const perk = perkEffects(state.perks).reduce((m, e) => (e.kind === 'discount' ? m * (1 - e.pct) : m), 1);
+  // Стартовая скидка: первые два Агента забега дешевле на 30%. Яма 2–5 минут — это дорога от
+  // первого Агента (0,1/сек) до второго за 172 Токена; скидка срезает её треть, не трогая лестницу
+  // Рангов (множитель общий для всех Моделей) и ±30% (модификаторы каталога не меняются).
+  return perk * (totalAgents(state) < 2 ? START_PRICE_MULT : 1);
 }
 
 /** Цена следующих `n` Агентов при `owned` уже купленных. */
@@ -537,19 +550,29 @@ export function applyOffline(state: GameState, now: number): { state: GameState;
  * этом не видно и не платит — `isEventActive` отсекает его по времени.
  */
 function advanceEvents(state: GameState, now: number, rnd: () => number): GameState {
-  // У нового сохранения окна нет, поэтому первое назначается здесь же: иначе события не было бы
-  // никогда.
-  if (state.nextEventAt === 0) return { ...state, nextEventAt: now + pickEventWindow(rnd) };
+  // У нового сохранения окна нет, поэтому первое назначается здесь же коротким — иначе первого
+  // события не было бы никогда, а ждать его пришлось бы минуты.
+  if (state.nextEventAt === 0) return { ...state, nextEventAt: now + pickFirstEventWindow(rnd), combo: 0 };
   if (state.nextEventAt > now) return state;
   const event = state.event;
   // Слот события один: живое событие новое не вытесняет, окно просто пропускается.
   if (event && isEventActive(event, now)) return state;
+  // Цепочка комбо считается на спавне, а не на поимке: слот один, и к моменту поимки следующее
+  // окно уже назначено. Пойманное окно продолжает цепочку (свежее — наращивает, протухшее —
+  // начинает заново), пропущенное обнуляет.
+  const prevCaught = !!event && state.eventCaughtAt === event.startedAt;
+  const fresh = !!event && prevCaught && now - (event.startedAt + eventWindowMs(event)) <= COMBO_WINDOW_MS;
+  const combo = prevCaught ? (fresh ? Math.min(state.combo + 1, COMBO_CAP) : 1) : 0;
+  // Догоняющее окно — только за пойманное и только по шансу: иначе цепочки не сложились бы
+  // никогда (устоявшиеся паузы выводят за комбо-окно), а каждое Событие тянуло бы серию.
+  const encore = prevCaught && rnd() < ENCORE_CHANCE;
   const kind = rollEventKind(event ? [event.kind] : [], rnd);
   return {
     ...state,
     // Окно переносится на новое, а не остаётся в прошлом: иначе события сыпались бы каждый тик.
-    nextEventAt: now + pickEventWindow(rnd),
+    nextEventAt: now + (encore ? pickEncoreWindow(rnd) : pickEventWindow(rnd)),
     eventsSeen: state.eventsSeen + 1,
+    combo,
     // Котёл возврата за Клик принадлежит окну, а не забегу: без обнуления следующее «Ночной кодинг»
     // начал бы с урезанным объёмом и недоплатил бы игроку. Отметка о пойманном окне обнуляется здесь
     // же по той же причине, хотя и сравнивается с началом окна, а не считывается как флаг.
@@ -682,6 +705,10 @@ export function prestige(state: GameState, now: number): GameState {
     upgrades: [],
     // Кристаллы и их ускорители, как и Достижения, переживают Престиж: они растут в реальном
     // времени, и сброс забега не должен отнимать у игрока то, за что он ждал в стену часами.
+    // Окно событий и комбо, наоборот, начинаются заново: первое Событие нового забега приходит
+    // коротким (45–90 с), а цепочка прошлого забега в новый не переезжает.
+    nextEventAt: 0,
+    combo: 0,
     runStartedAt: now,
     lastTick: now,
   };

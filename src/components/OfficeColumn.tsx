@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useGameStore } from '../store/useGameStore';
+import { quipsSeenOf, useGameStore } from '../store/useGameStore';
 import { CATALOG } from '../economy/catalog';
 import { LABS, LAB_IDS, type LabId } from '../data/labs';
 import { canPrestige, isContentFinale, labIncomeShare } from '../economy/engine';
@@ -7,6 +7,7 @@ import { labAgents, labWork, SYNERGY_PER_AGENT, synergyUpgradeId } from '../econ
 import { formatCount, formatNumber } from '../economy/format';
 import { MascotSprite } from './MascotSprite';
 import { Num } from './Num';
+import { QuipBubble, QuipLogModal } from './QuipBubble';
 import { SceneDrone, SceneGlitchBand, SceneGlitchSwarm } from './SceneEvents';
 import { OFFICE_COL_MIN } from '../layout';
 
@@ -140,6 +141,11 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
 
   const activeLabs = LAB_IDS.filter((l) => labAgents(state, l) > 0);
   const totalAgents = activeLabs.reduce((sum, l) => sum + labAgents(state, l), 0);
+
+  // Окно «Переписки» — локальный UI-слой колонки, а не стор: кроме неё оно никому не нужно,
+  // а счётчик собранных реплик читается прямо из состояния.
+  const [quipLogOpen, setQuipLogOpen] = useState(false);
+  const quipsSeenCount = quipsSeenOf(state).length;
 
   // Прыжок Маскота при покупке Агента его Лаборатории. Предыдущие числа — в ref, как
   // prevOwned в ModelRow: магазин перерисовывается каждый тик, и отмечать покупку в сторе
@@ -387,6 +393,11 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
           <SceneGlitchBand />
         </div>
 
+        {/* Пузырь реплики говорящей Модели: поверх Сцены (zIndex 4 — выше HUD-полосы и
+            Маскотов), но вне HUD-обёртки, чтобы не ломать её скрим из ADR-0002. Клики
+            не перехватывает, поэтому Глюки и Золотой Токен ловятся сквозь него. */}
+        <QuipBubble />
+
         {/* Маскоты стоят на общей линии у нижнего края Сцены, а подписи Лабораторий живут
             в ростере под ней — на ровной поверхности, где контраст не зависит от Сцены. */}
         <div
@@ -543,11 +554,21 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
           gap: '8px',
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
           <span style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>СОСТАВ ЛАБОРАТОРИЙ</span>
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-            {activeLabs.length}{' '}
-            {formatCount(activeLabs.length, 'Лаборатория', 'Лаборатории', 'Лабораторий')} в офисе
+          <span style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              {activeLabs.length}{' '}
+              {formatCount(activeLabs.length, 'Лаборатория', 'Лаборатории', 'Лабораторий')} в офисе
+            </span>
+            {/* Кнопка коллекции реплик: счётчик — длина quipsSeen, окно — локальное. */}
+            <button
+              className="pixel-btn"
+              onClick={() => setQuipLogOpen(true)}
+              style={{ fontSize: '0.8rem', padding: '4px 10px' }}
+            >
+              Переписка ({quipsSeenCount})
+            </button>
           </span>
         </div>
 
@@ -627,6 +648,8 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
           </div>
         )}
       </div>
+
+      <QuipLogModal isOpen={quipLogOpen} onClose={() => setQuipLogOpen(false)} />
     </div>
   );
 };

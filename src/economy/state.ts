@@ -1,4 +1,4 @@
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
 
 export type Notation = 'short' | 'sci';
 
@@ -59,6 +59,13 @@ export interface GameState {
   /** Мс Unix, когда ждать следующего события; 0 = событие не запланировано. */
   nextEventAt: number;
   event: ActiveEvent | null;
+  /**
+   * Длина цепочки пойманных подряд Событий, считая текущее окно (0 = цепочки нет).
+   * Растёт только на спавне: пойманное окно продолжает цепочку, пропущенное обнуляет.
+   * Перезагрузка обнуляет цепочку вместе с состоянием (поле не читается из сохранения):
+   * цепочка — награда за непрерывное внимание, а не за прошлое.
+   */
+  combo: number;
   /** Счётчик id Глюков, чтобы их не переименовывать после перезагрузки. */
   glitchSeq: number;
   /** Мс Unix, когда заводить следующего Глюка; 0 = окно ещё не назначено. */
@@ -72,6 +79,9 @@ export interface GameState {
   pledgeBought: number;
   /** Бессрочный откуп ценой налога на Доход. */
   covenant: boolean;
+  /** Услышанные реплики Моделей для «Переписки»: id из таблицы в data/quips.ts.
+   *  Переживает Престиж вместе с Достижениями — коллекция собирается всю игру, а не Забег. */
+  quipsSeen: string[];
   lastTick: number;
   startedAt: number;
   runStartedAt: number;
@@ -103,6 +113,7 @@ export function newGame(now: number): GameState {
     catchUpPaid: 0,
     nextEventAt: 0,
     event: null,
+    combo: 0,
     glitchSeq: 0,
     nextGlitchAt: 0,
     glitches: [],
@@ -110,6 +121,8 @@ export function newGame(now: number): GameState {
     pledgeUntil: 0,
     pledgeBought: 0,
     covenant: false,
+    // Переписка переживает Престиж, поэтому в newGame она пуста только для новой игры.
+    quipsSeen: [],
     lastTick: now,
     startedAt: now,
     runStartedAt: now,
