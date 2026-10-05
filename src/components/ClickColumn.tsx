@@ -172,7 +172,7 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
       ))}
 
       {/* Токены и Доход */}
-      <div style={{ textAlign: 'center', width: '100%' }}>
+      <div className="click-counter" style={{ textAlign: 'center', width: '100%' }}>
         {/* Пустой узел: текст сюда пишет только requestAnimationFrame, и любой ререндер
             React затирал бы его своими детьми на каждом тике. */}
         <div
@@ -236,7 +236,7 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
         ref={btnRef}
         onClick={handleClick}
         onAnimationEnd={handleSquashEnd}
-        className="pixel-btn pixel-btn-accent pulse-glow"
+        className="pixel-btn pixel-btn-accent pulse-glow click-btn"
         style={{
           width: '100%',
           padding: '24px 16px',
@@ -255,7 +255,12 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
             fontWeight: 400,
           }}
         >
-          +<Num>{formatNumber(cVal, notation)}</Num> Токенов за клик
+          {/* Существительное склоняется по числу: «+1 Токенов за клик» — ошибка, которую игрок
+              видит буквально на первой кнопке первой минуты. Величина может быть дробной
+              («1,44 B»), и там множественное верно, поэтому одна форма на «1» сломала бы
+              вторую половину диапазона. */}
+          +<Num>{formatNumber(cVal, notation)}</Num>{' '}
+          {formatCount(Math.floor(cVal), 'Токен', 'Токена', 'Токенов')} за клик
         </span>
       </button>
 
