@@ -900,7 +900,11 @@ describe('return report', () => {
     // навсегда игрок всё равно получил.
     expect(snapshot.offlineReport?.crystals).toBe(1);
     expect(snapshot.offlineReport?.earned).toBe(0);
-    expect(snapshot.offlineReport?.seconds).toBeCloseTo(HOUR / 1000, 1);
+    // Допуск здесь — 2 с, а не стандартные 0.05: между этим `Date.now()` и тем, который берёт
+    // стор при перезагрузке, стоит асинхронная запись в localStorage, и любая заминка машины
+    // выпадала из 50-миллисекундного окна. Две секунды не спутать с ошибкой единиц: там был бы
+    // промах в 3 600, а здесь — ровно час отсутствия плюс честная задержка.
+    expect(Math.abs((snapshot.offlineReport?.seconds ?? 0) - HOUR / 1000)).toBeLessThan(2);
     expect(snapshot.state.crystals).toBe(1);
   });
 

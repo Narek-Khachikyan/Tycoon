@@ -1824,7 +1824,11 @@ it('awards every achievement from a single maximal run, and nothing on a second 
     const firstAgent = ACHIEVEMENTS.find((a) => a.id === 'agents_1')!;
     expect(firstAgent.name).toContain('Агент');
     expect(firstAgent.name).not.toContain('сотрудник');
-  });
+    // Срок задан явно: тест разыгрывает забег до максимума по всем Поколениям (10 000 Кликов
+    // и полный зоопарк), и на загруженной машине он занимает 7–9 с. Дефолтные 5 с превращали
+    // тяжёлую, но самую полезную проверку набора в источник случайных красных прогонов.
+    // Исключение местное: остальные тесты файла укладываются в дефолт с запасом.
+  }, 30_000);
 });
 
 describe('flagship synergy', () => {

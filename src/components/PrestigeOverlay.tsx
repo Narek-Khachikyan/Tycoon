@@ -190,7 +190,10 @@ export const PrestigeOverlay: React.FC = () => {
         <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', letterSpacing: '4px' }}>
           ПРЕСТИЖ
         </div>
-        <div className="pixel-font" style={{ fontSize: '1.6rem', color: 'var(--accent-color)' }}>
+        {/* Без pixel-font: строка целиком кириллическая, а в Pixelify Sans нет даже «П»,
+            и буквы брали бы запасной шрифт по одной — микс внутри строки (ADR-0003).
+            Пиксельным остаётся число ниже, обёрнутое в Num. */}
+        <div style={{ fontSize: '1.6rem', color: 'var(--accent-color)' }}>
           Поколение {shown.generation + 1}: {gen.name}
         </div>
         <div style={{ fontSize: '1rem', color: 'var(--text-main)' }}>

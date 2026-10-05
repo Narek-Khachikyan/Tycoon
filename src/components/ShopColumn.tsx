@@ -76,6 +76,10 @@ const PLEDGE_DESC: React.CSSProperties = {
  * Живёт под кнопкой покупки и всегда занимает строку, даже когда дефицита нет: иначе карточка
  * прыгала бы по высоте на каждом тике, а с ней и кнопка под ней. aria-live не ставится — число
  * меняется двадцать раз в секунду и иначе читалось бы вслух.
+ *
+ * Дефицит печатается режимом `'price'`, как и цена над ним: половина Токена в «не хватает» не
+ * значит ничего, а округление вверх у дефицита и у цены одно — иначе карточка считалась бы по
+ * двум разным правилам, а читались бы рядом два числа, которых стыкуются только на глаз.
  */
 const TokenDeficit: React.FC<{ amount: number; notation: Notation }> = ({ amount, notation }) => {
   // Снятие deny-вспышки по концу анимации, а не по таймеру: таймеры в компонентах запрещены.
@@ -83,8 +87,8 @@ const TokenDeficit: React.FC<{ amount: number; notation: Notation }> = ({ amount
   const handleDenyEnd = (e: React.AnimationEvent<HTMLDivElement>) => {
     e.currentTarget.classList.remove('deny-flash');
   };
-  // Math.ceil защищает от округления вниз при дробных остатках, чтобы не обещать целое
-  // число, которого на самом деле не хватит для покупки.
+  // Скругление вверх защищает от обещания целого числа, которого не хватит на покупку, и
+  // задаёт цифры для обеих строк: форма считается по тому же числу, что и печать.
   const displayAmount = Math.ceil(amount);
   return (
     <div
@@ -99,9 +103,9 @@ const TokenDeficit: React.FC<{ amount: number; notation: Notation }> = ({ amount
     >
       {amount > 0 && (
         <>
-          Не хватает <Num>{formatNumber(displayAmount, notation)}</Num>{' '}
+          Не хватает <Num>{formatNumber(displayAmount, notation, 'price')}</Num>{' '}
           {/* Нотация обязательна: форма считается по цифрам той же записи, что и число. */}
-          {formatCount(displayAmount, 'Токен', 'Токена', 'Токенов', notation)}
+          {formatCount(displayAmount, 'Токен', 'Токена', 'Токенов', notation, 'price')}
         </>
       )}
     </div>
@@ -221,7 +225,9 @@ const ModelRow: React.FC<{
 
 export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const [tab, setTab] = useState<'models' | 'upgrades' | 'perks'>('models');
-  const [expandedAA, setExpandedAA] = useState<Record<string, boolean>>({});
+  // Раскрытые подробности карточек Моделей, по id: ключ — сама Модель, а не её позиция в списке,
+  // иначе перестановка каталога закрыла бы то, что игрок открыл.
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   const state = useGameStore((s) => s.state);
   const buyAmount = useGameStore((s) => s.buyAmount);
@@ -281,8 +287,8 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   // попадёт. Один путь на обе колонки — свой взвод здесь означал бы два разных подтверждения
   // одного и того же действия. Сам переход живёт в triggerPrestige, его зовёт окно.
 
-  const toggleAA = (id: string) => {
-    setExpandedAA((prev) => ({ ...prev, [id]: !prev[id] }));
+  const toggleDetails = (id: string) => {
+    setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
   // Звук получает не флаг мьюта, а настройки целиком: громкость — полноценная настройка игрока,
@@ -488,7 +494,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
       )}
 
       {/* Контент активной вкладки. key по вкладке: переключение даёт короткое появление
-          только через opacity toast-fade, состояние tab и expandedAA не трогаем. */}
+          только через opacity toast-fade, состояние tab и expanded не трогаем. */}
       <div
         key={tab}
         style={{
@@ -512,7 +518,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               // Продажа ограничена тем, что есть: sellAgents берёт min(n, owned), и подпись про
               // большую сделку, чем возможна, вводила бы в заблуждение.
               const gain = incomeGain(state, m.id, sellMode ? Math.min(count, owned) : count);
-              const isAAOpen = !!expandedAA[m.id];
+              const isDetailsOpen = !!expanded[m.id];
               const lab = LABS[m.lab];
 
               // Дефицит: при фиксированном множителе он считается на всю сумму покупки, а при Max
@@ -544,12 +550,19 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
 
               return (
                 <ModelRow key={m.id} owned={owned} isFlagship={m.isFlagship} canAfford={canAfford}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {/* Шапка карточки — первый слой чтения, и ровно он: название, Ранг, Лаборатория,
+                      число Агентов. Всё, что ниже, объяснение; всё, что за раскрытием, справка.
+                      Ранг стоит рядом с названием, а не в строке Лаборатории: он объясняет цену,
+                      и игрок ищет его вместе с ней, а Лабораторию — по цвету и Маскоту. */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
                       <MascotSprite lab={m.lab} size={28} />
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                           <span style={{ fontSize: '1rem', color: 'var(--text-main)' }}>{m.name}</span>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                            Ранг <Num>{m.rank + 1}</Num>
+                          </span>
                           {m.isFlagship && (
                             <span
                               style={{
@@ -565,14 +578,12 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                             </span>
                           )}
                         </div>
-                        <div style={{ fontSize: '0.8rem', color: lab.color }}>
-                          {lab.name} • Ранг {m.rank + 1}
-                        </div>
+                        <div style={{ fontSize: '0.8rem', color: lab.color }}>{lab.name}</div>
                       </div>
                     </div>
 
                     {/* Подпись обязательна: голое число не отличить от счётчика чего-то другого. */}
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'right' }}>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'right', flexShrink: 0 }}>
                       <div style={{ fontSize: '1.2rem' }}>
                         <Num>{owned}</Num>
                       </div>
@@ -615,10 +626,10 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       aria-label={
                         sellMode
                           ? count > 0
-                            ? `Продать ${count} ${formatCount(count, 'Агента', 'Агентов', 'Агентов')} Модели ${m.name} за ${formatNumber(refund, notation)} ${formatCount(refund, 'Токен', 'Токена', 'Токенов', notation)}`
+                            ? `Продать ${count} ${formatCount(count, 'Агента', 'Агентов', 'Агентов')} Модели ${m.name} за ${formatNumber(refund, notation, 'price')} ${formatCount(refund, 'Токен', 'Токена', 'Токенов', notation, 'price')}`
                             : `Продать Агентов Модели ${m.name}`
                           : count > 0
-                            ? `Купить ${count} ${formatCount(count, 'Агента', 'Агентов', 'Агентов')} Модели ${m.name} за ${formatNumber(cost, notation)} ${formatCount(cost, 'Токен', 'Токена', 'Токенов', notation)}`
+                            ? `Купить ${count} ${formatCount(count, 'Агента', 'Агентов', 'Агентов')} Модели ${m.name} за ${formatNumber(cost, notation, 'price')} ${formatCount(cost, 'Токен', 'Токена', 'Токенов', notation, 'price')}`
                             : `Купить Агента Модели ${m.name}`
                       }
                       className={`pixel-btn pixel-btn-accent model-row__buy`}
@@ -632,16 +643,20 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         pointerEvents: canAfford ? undefined : 'none',
                       }}
                     >
-                      {/* «Купить ×0» обещало бы покупку, которой не будет. */}
+                      {/* «Купить ×0» обещало бы покупку, которой не будет.
+                          Цена в режиме `'price'`: округление вверх, а не вниз. bulkCost отдаёт
+                          дробь (10,5 за первого Агента со стартовой скидкой), и обычная печать
+                          резала её до целого: кнопка обещала «10» и отказывала при десяти
+                          Токенах в кошельке. */}
                       {sellMode ? (
                         count > 0 ? (
-                          <>Продать (<Num>{formatNumber(refund, notation)}</Num>)</>
+                          <>Продать (<Num>{formatNumber(refund, notation, 'price')}</Num>)</>
                         ) : (
                           <>Продать</>
                         )
                       ) : count > 0 ? (
                         <>
-                          Купить ×<Num>{count}</Num> (<Num>{formatNumber(cost, notation)}</Num>)
+                          Купить ×<Num>{count}</Num> (<Num>{formatNumber(cost, notation, 'price')}</Num>)
                         </>
                       ) : (
                         <>Купить</>
@@ -670,82 +685,25 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                   </div>
                   </div>
 
-                  {/* Прогресс до синергий Лаборатории: одиночный датасет — счёт одной лабы,
-                      совместный — состав пары. Только чтение состояния, без своих таймеров. */}
-                  {(singleSynergy !== undefined || pairSynergies.length > 0) && (
-                    <div
-                      style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '2px',
-                        fontSize: '0.8rem',
-                        color: 'var(--text-muted)',
-                      }}
-                    >
-                      {singleSynergy !== undefined &&
-                        (singleBought ? (
-                          <div>Общий датасет активен</div>
-                        ) : (
-                          <div>
-                            <Num>{singleCount}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num>{' '}
-                            {formatCount(singleCount, 'Агент', 'Агента', 'Агентов')} до датасета
-                            {singleCount >= SYNERGY_MIN_AGENTS
-                              ? ' — забирай во вкладке Апгрейды'
-                              : ' — каждый Датасет из Достижений и купленный Датасет множит Доход'}
-                          </div>
-                        ))}
-                      {pairSynergies.map((u) => {
-                        if (u.kind !== 'synergy' || u.pairLab === undefined) return null;
-                        const first = labAgents(state, u.lab);
-                        const second = labAgents(state, u.pairLab);
-                        const bought = state.upgrades.includes(u.id);
-                        const ready =
-                          first >= SYNERGY_MIN_AGENTS && second >= SYNERGY_MIN_AGENTS;
-                        const pairName = `${LABS[u.lab].name} × ${LABS[u.pairLab].name}`;
-                        if (bought) {
-                          return (
-                            <div key={u.id}>
-                              {ready ? (
-                                <>
-                                  Совместный датасет {pairName} активен (×
-                                  <Num>{formatNumber(PAIR_SYNERGY_MULT, notation)}</Num>)
-                                </>
-                              ) : (
-                                <>
-                                  Совместный датасет {pairName} ждёт состав{' '}
-                                  <Num>{first}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num> +{' '}
-                                  <Num>{second}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num>
-                                </>
-                              )}
-                            </div>
-                          );
-                        }
-                        return (
-                          <div key={u.id}>
-                            <Num>{first}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num> +{' '}
-                            <Num>{second}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num> до совместного
-                            датасета {pairName}
-                            {ready ? ' — забирай во вкладке Апгрейды' : ''}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* Справка AA переключатель */}
-                  {/* Волосяная линия остаётся литералом: 6% белого — это заведомо слабее
-                     любой ступени лестницы рамок, и --border здесь превратил бы её в
-                     самостоятельную рамку. */}
+                  {/* Раскрытие подробностей — единственное, что осталось от шума: раньше три
+                      строки датасетов висели в каждой карточке и читались как сплошной текст.
+                      Теперь они живут здесь, вместе со Справкой AA, и карточка держит три строки:
+                      шапка, цена с приростом, полоса цели.
+                      Волосяная линия остаётся литералом: 6% белого — это заведомо слабее любой
+                      ступени лестницы рамок, и --border здесь превратил бы её в самостоятельную
+                      рамку. */}
                   <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '6px' }}>
                     {/* Кнопка, а не div с обработчиком: раскрытие должно быть достижимо с
                         клавиатуры и обязано объявлять состояние. Имя Artificial Analysis остаётся
-                        видимым текстом — атрибуция обязательна (ADR-0001). */}
+                        видимым текстом — атрибуция обязательна (ADR-0001) и не должна прятаться
+                        за раскрытие, поэтому строка подписи не меняется. */}
                     <button
-                      onClick={() => toggleAA(m.id)}
-                      aria-expanded={isAAOpen}
-                      aria-controls={`aa-${m.id}`}
-                      id={`aa-toggle-${m.id}`}
-                      aria-label={isAAOpen ? `Скрыть справку Artificial Analysis для ${m.name}` : `Показать справку Artificial Analysis для ${m.name}`}
+                      onClick={() => toggleDetails(m.id)}
+                      className="link-toggle"
+                      aria-expanded={isDetailsOpen}
+                      aria-controls={`details-${m.id}`}
+                      id={`details-toggle-${m.id}`}
+                      aria-label={isDetailsOpen ? `Скрыть подробности о Модели ${m.name}` : `Показать подробности о Модели ${m.name}: Справка Artificial Analysis`}
                       style={{
                         width: '100%',
                         background: 'none',
@@ -764,35 +722,107 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         <Icon name="info" size={13} />
                         Справка Artificial Analysis
                       </span>
-                      <span>{isAAOpen ? '▲ скрыть' : '▼ подробнее'}</span>
+                      <span>{isDetailsOpen ? '▲ скрыть' : '▼ подробнее'}</span>
                     </button>
 
-                    {isAAOpen && (
+                    {isDetailsOpen && (
                       <div
-                        id={`aa-${m.id}`}
-                        aria-labelledby={`aa-toggle-${m.id}`}
+                        id={`details-${m.id}`}
+                        aria-labelledby={`details-toggle-${m.id}`}
                         style={{
                           marginTop: '6px',
                           padding: '6px 8px',
                           backgroundColor: 'var(--bg-void)',
                           borderRadius: '4px',
                           fontSize: '0.8rem',
-                          display: 'grid',
-                          gridTemplateColumns: 'repeat(3, 1fr)',
-                          gap: '6px',
                         }}
                       >
-                        <div>
-                          <div style={{ color: 'var(--text-muted)' }}>Intelligence:</div>
-                          <div style={{ color: 'var(--gold)', fontWeight: 700 }}>{m.iq} IQ</div>
-                        </div>
-                        <div>
-                          <div style={{ color: 'var(--text-muted)' }}>Скорость:</div>
-                          <div style={{ color: 'var(--accent-color)', fontWeight: 700 }}>{m.speed} t/s</div>
-                        </div>
-                        <div>
-                          <div style={{ color: 'var(--text-muted)' }}>Цена API:</div>
-                          <div style={{ color: 'var(--green)', fontWeight: 700 }}>${m.price}/1M</div>
+                        {/* Прогресс до датасетов Лаборатории: одиночный — счёт одной лабы,
+                            совместный — состав пары. Только чтение состояния, без своих таймеров.
+                            Одинаков для всех Моделей лабы, поэтому в карточке он и стоит один
+                            раз — по кнопке, а не стеной на каждой Модели. */}
+                        {(singleSynergy !== undefined || pairSynergies.length > 0) && (
+                          <div
+                            style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '2px',
+                              color: 'var(--text-muted)',
+                            }}
+                          >
+                            {singleSynergy !== undefined &&
+                              (singleBought ? (
+                                <div>Общий датасет активен</div>
+                              ) : (
+                                <div>
+                                  <Num>{singleCount}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num>{' '}
+                                  {formatCount(singleCount, 'Агент', 'Агента', 'Агентов')} до датасета
+                                  {singleCount >= SYNERGY_MIN_AGENTS
+                                    ? ' — забирай во вкладке Апгрейды'
+                                    : ' — каждый Датасет из Достижений и купленный Датасет множит Доход'}
+                                </div>
+                              ))}
+                            {pairSynergies.map((u) => {
+                              if (u.kind !== 'synergy' || u.pairLab === undefined) return null;
+                              const first = labAgents(state, u.lab);
+                              const second = labAgents(state, u.pairLab);
+                              const bought = state.upgrades.includes(u.id);
+                              const ready =
+                                first >= SYNERGY_MIN_AGENTS && second >= SYNERGY_MIN_AGENTS;
+                              const pairName = `${LABS[u.lab].name} × ${LABS[u.pairLab].name}`;
+                              if (bought) {
+                                return (
+                                  <div key={u.id}>
+                                    {ready ? (
+                                      <>
+                                        Совместный датасет {pairName} активен (×
+                                        <Num>{formatNumber(PAIR_SYNERGY_MULT, notation)}</Num>)
+                                      </>
+                                    ) : (
+                                      <>
+                                        Совместный датасет {pairName} ждёт состав{' '}
+                                        <Num>{first}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num> +{' '}
+                                        <Num>{second}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num>
+                                      </>
+                                    )}
+                                  </div>
+                                );
+                              }
+                              return (
+                                <div key={u.id}>
+                                  <Num>{first}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num> +{' '}
+                                  <Num>{second}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num> до совместного
+                                  датасета {pairName}
+                                  {ready ? ' — забирай во вкладке Апгрейды' : ''}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* Справка AA: реальные характеристики Модели, а не игровые. Отдельной
+                            строкой от датасетов, потому что это другой вопрос — и подпись под
+                            панелью остаётся видимой и в закрытом виде. */}
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(3, 1fr)',
+                            gap: '6px',
+                            paddingTop: '6px',
+                          }}
+                        >
+                          <div>
+                            <div style={{ color: 'var(--text-muted)' }}>Intelligence:</div>
+                            <div style={{ color: 'var(--gold)', fontWeight: 700 }}>{m.iq} IQ</div>
+                          </div>
+                          <div>
+                            <div style={{ color: 'var(--text-muted)' }}>Скорость:</div>
+                            <div style={{ color: 'var(--accent-color)', fontWeight: 700 }}>{m.speed} t/s</div>
+                          </div>
+                          <div>
+                            <div style={{ color: 'var(--text-muted)' }}>Цена API:</div>
+                            <div style={{ color: 'var(--green)', fontWeight: 700 }}>${m.price}/1M</div>
+                          </div>
                         </div>
                       </div>
                     )}
@@ -861,7 +891,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                     <button
                       onClick={() => buyUpgrade(u.id)}
                       disabled={!canAfford}
-                      aria-label={`Купить апгрейд ${u.name} за ${formatNumber(u.cost, notation)} ${formatCount(u.cost, 'Токен', 'Токена', 'Токенов', notation)}`}
+                      aria-label={`Купить апгрейд ${u.name} за ${formatNumber(u.cost, notation, 'price')} ${formatCount(u.cost, 'Токен', 'Токена', 'Токенов', notation, 'price')}`}
                       className="pixel-btn pixel-btn-accent"
                       style={{
                         padding: '6px 10px',
@@ -872,7 +902,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                     >
                       {/* Цена живёт в кнопке на всех вкладках магазина: в шапке карточки её
                           больше нет, поэтому искать её приходилось в двух разных местах. */}
-                      Улучшить (<Num>{formatNumber(u.cost, notation)}</Num>)
+                      Улучшить (<Num>{formatNumber(u.cost, notation, 'price')}</Num>)
                     </button>
 
                     <TokenDeficit amount={missing} notation={notation} />
@@ -1018,7 +1048,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       {state.covenant && (
                         <div style={PLEDGE_DESC}>
                           «Лицензия» глушит всё, поэтому Лобби за{' '}
-                          <Num>{formatNumber(pledgeCost(state), notation)}</Num> не продаётся.
+                          <Num>{formatNumber(pledgeCost(state), notation, 'price')}</Num> не продаётся.
                         </div>
                       )}
                       {pledgeLeftMs > 0 && (
@@ -1034,7 +1064,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       <button
                         onClick={buyPledge}
                         disabled={!canPledge(state)}
-                        aria-label={state.covenant ? 'Лицензия уже активна' : `Откупиться от красных событий за ${formatNumber(pledgeCost(state), notation)} Токенов`}
+                        aria-label={state.covenant ? 'Лицензия уже активна' : `Откупиться от красных событий за ${formatNumber(pledgeCost(state), notation, 'price')} Токенов`}
                         className="pixel-btn pixel-btn-accent"
                         style={{ padding: '6px 10px', fontSize: '0.85rem' }}
                       >
@@ -1042,7 +1072,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                           'Есть Лицензия'
                         ) : (
                           <>
-                            Откупиться (<Num>{formatNumber(pledgeCost(state), notation)}</Num>)
+                            Откупиться (<Num>{formatNumber(pledgeCost(state), notation, 'price')}</Num>)
                           </>
                         )}
                       </button>
@@ -1071,11 +1101,11 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         <button
                           onClick={revokeLicense}
                           disabled={state.tokens < revokeCost(state)}
-                          aria-label={`Отозвать Лицензию за ${formatNumber(revokeCost(state), notation)} Токенов`}
+                          aria-label={`Отозвать Лицензию за ${formatNumber(revokeCost(state), notation, 'price')} Токенов`}
                           className="pixel-btn"
                           style={{ padding: '6px 10px', fontSize: '0.85rem' }}
                         >
-                          Отозвать (<Num>{formatNumber(revokeCost(state), notation)}</Num>)
+                          Отозвать (<Num>{formatNumber(revokeCost(state), notation, 'price')}</Num>)
                         </button>
                       </div>
                     </div>
@@ -1093,7 +1123,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                           Постоянный налог на Доход −
                           <Num>{formatNumber(Math.round(LICENSE_INCOME_TAX * 100), notation)}</Num>%:
                           отзыв обойдётся в{' '}
-                          <Num>{formatNumber(revokeCost(state), notation)}</Num>.
+                          <Num>{formatNumber(revokeCost(state), notation, 'price')}</Num>.
                         </div>
                       </div>
                       <div
@@ -1103,12 +1133,12 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         <button
                           onClick={buyLicense}
                           disabled={!canLicense(state)}
-                          aria-label={`Взять Лицензию за ${formatNumber(licenseCost(state), notation)} Токенов`}
+                          aria-label={`Взять Лицензию за ${formatNumber(licenseCost(state), notation, 'price')} Токенов`}
                           className="pixel-btn pixel-btn-gold"
                           style={{ padding: '6px 10px', fontSize: '0.85rem' }}
                         >
                           Взять Лицензию (
-                          <Num>{formatNumber(licenseCost(state), notation)}</Num>)
+                          <Num>{formatNumber(licenseCost(state), notation, 'price')}</Num>)
                         </button>
                       </div>
                     </div>

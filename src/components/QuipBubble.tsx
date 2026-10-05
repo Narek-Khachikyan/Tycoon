@@ -4,6 +4,7 @@ import { QUIPS } from '../data/quips';
 import { quipsSeenOf, useGameStore } from '../store/useGameStore';
 import { Icon } from './Icon';
 import { MascotSprite } from './MascotSprite';
+import { Num } from './Num';
 import { useDialogFocus } from './useDialogFocus';
 import { THREE_COL_MIN } from '../layout';
 
@@ -101,10 +102,15 @@ interface QuipLogProps {
  * «Переписка»: собранные реплики говорящих Моделей с портретами Маскотов.
  *
  * Читает quipsSeen из состояния и QUIPS из данных: порядок — каталожный, счётчик —
- * «N собрано». Пустая — тоже состояние, а не отсутствие окна: новичок должен увидеть,
- * что коллекция существует, до первой реплики. Оформление — как остальные модалки
+ * «N / всего». Пустая — тоже состояние, а не отсутствие окна: новичок должен увидеть,
+ * что коллекция существует, до первой реплики. Оформление — как остальные окна
  * (скрим, pixel-card, вход toast-fade — только opacity, поэтому при reducedMotion
  * картина та же). Фокус — через useDialogFocus, как везде.
+ *
+ * Каркас окна лежит в Modals.tsx, и этот файл его не импортирует: общий файл компонентов
+ * завести нельзя, а копия шести окон — это ровно то расхождение, из-за которого Переписка
+ * выглядела шире соседних окон. Поэтому размеры, отступы и шапка здесь повторяют значения
+ * Modals.tsx буквально: если каркас поменяется, это место надо поправить вместе с ним.
  */
 export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
   const state = useGameStore((s) => s.state);
@@ -124,6 +130,8 @@ export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
+        // Тот же слой, что у окон в Modals.tsx: тосты лежат выше (100), оверлей Престижа
+        // ниже (40), а Переписка с остальными окнами не пересекается.
         zIndex: 50,
         padding: "16px",
         animation: "toast-fade 0.18s ease-out",
@@ -138,8 +146,10 @@ export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
         className="pixel-card"
         style={{
           width: "100%",
-          maxWidth: "560px",
-          maxHeight: "80vh",
+          // 520 и 85vh — те же значения, что у пяти окон в Modals.tsx: одинаковая ширина
+          // и высота означают, что переход в Переписку не «прыгает» карточкой на экране.
+          maxWidth: "520px",
+          maxHeight: "85vh",
           display: "flex",
           flexDirection: "column",
           padding: "20px",
@@ -148,22 +158,53 @@ export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h2 id="quiplog-title" style={{ fontSize: "1.3rem", color: "var(--gold)" }}>
-            ПЕРЕПИСКА ({seen.size} собрано)
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: "10px",
+            flexShrink: 0,
+          }}
+        >
+          <h2
+            id="quiplog-title"
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "center",
+              gap: "8px",
+              minWidth: 0,
+              fontSize: "1.2rem",
+              color: "var(--gold)",
+              // Капс даёт text-transform, а не текст в DOM: иначе скринридер читал бы
+              // «П Е Р Е П И С К А» по буквам, а имя окна — это то, что он произносит.
+              textTransform: "uppercase",
+            }}
+          >
+            Переписка <QuipCount seen={seen.size} total={QUIPS.length} />
           </h2>
           <button
             className="pixel-btn"
             onClick={onClose}
             aria-label="Закрыть"
             title="Закрыть"
-            style={{ padding: "4px 10px" }}
+            style={{ padding: "4px 10px", flexShrink: 0 }}
           >
             <Icon name="close" />
           </button>
         </div>
 
-        <div style={{ overflowY: "auto", display: "flex", flexDirection: "column", gap: "8px" }}>
+        <div
+          style={{
+            flex: 1,
+            minHeight: 0,
+            overflowY: "auto",
+            display: "flex",
+            flexDirection: "column",
+            gap: "8px",
+          }}
+        >
           {found.length === 0 ? (
             <div style={{ fontSize: "0.9rem", color: "var(--text-muted)" }}>
               Пока пусто — кликай, и Модели заговорят.
@@ -172,7 +213,14 @@ export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
             found.map((q) => (
               <div
                 key={q.id}
-                style={{ display: "flex", alignItems: "center", gap: "10px" }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  padding: "8px 10px",
+                  backgroundColor: "var(--bg-card)",
+                  borderRadius: "6px",
+                }}
               >
                 <MascotSprite lab={q.lab} size={28} />
                 <div style={{ minWidth: 0 }}>
@@ -186,10 +234,25 @@ export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
           )}
         </div>
 
-        <button className="pixel-btn" onClick={onClose} style={{ alignSelf: "flex-end" }}>
+        <button
+          className="pixel-btn"
+          onClick={onClose}
+          style={{ alignSelf: "flex-end", flexShrink: 0 }}
+        >
           Закрыть
         </button>
       </div>
     </div>
   );
 };
+
+/**
+ * Счётчик у названия Переписки: «7 из 42». Слово «из», а не слеш, — и для глаза, и для
+ * произносимого вслух. Цифры пиксельным шрифтом, который по ADR-0003 выдерживает только
+ * строку без кириллицы, поэтому «из» стоит рядом числом, а не внутри него.
+ */
+const QuipCount: React.FC<{ seen: number; total: number }> = ({ seen, total }) => (
+  <span style={{ fontSize: "0.9rem", color: "var(--text-muted)", fontWeight: 400 }}>
+    (<Num>{seen}</Num> из <Num>{total}</Num>)
+  </span>
+);

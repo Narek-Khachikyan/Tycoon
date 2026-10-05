@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { motionAllowed, useGameStore, type ActiveTab } from './store/useGameStore';
 import { Header } from './components/Header';
 import { NewsTicker } from './components/NewsTicker';
@@ -20,7 +20,16 @@ import { Icon, type IconName } from './components/Icon';
 import { CATALOG } from './economy/catalog';
 import { totalIncome } from './economy/engine';
 import { startMusic, updateMusic } from './audio/music';
-import { clickColWidth, shopColWidth, THREE_COL_MIN } from './layout';
+import {
+  clickColWidth,
+  HEADER_H,
+  NARROW_MAX,
+  shopColWidth,
+  TAB_BAR_H,
+  TAP_MIN,
+  THREE_COL_MIN,
+  TOAST_CLEARANCE,
+} from './layout';
 
 /**
  * Насколько «включилась» игра для музыки: логарифм Дохода, зажатый в 0..1.
@@ -49,9 +58,14 @@ export const App: React.FC = () => {
   // Первый кадр обязан быть верным, поэтому ширина читается сразу, а не по умолчанию: с
   // `single: true` по умолчанию на десктопе игра на долю секунды показывала одноколоночный
   // режим и потом переключалась, то есть моргала при каждой загрузке.
+  //
+  // `narrow` — второй порог того же модуля (NARROW_MAX): ниже него шапка обязана уместиться в
+  // один ряд. Раньше этот вопрос решался медиазапросом в CSS, где ширину пришлось продублировать
+  // числом; теперь признак вычисляется здесь и уезжает в CSS атрибутом, поэтому ответ на «какая
+  // раскладка» у обоих один.
   const [viewport, setViewport] = useState(() => {
     const width = typeof window === 'undefined' ? 0 : window.innerWidth;
-    return { width, single: width < THREE_COL_MIN };
+    return { width, single: width < THREE_COL_MIN, narrow: width <= NARROW_MAX };
   });
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -61,7 +75,11 @@ export const App: React.FC = () => {
       const width = window.innerWidth;
       // Та же проверка, что и раньше, но порог приходит из модуля раскладки: отдельное число
       // здесь разошлось бы с минимумами колонок при первом же изменении сетки.
-      setViewport((prev) => (prev.width === width ? prev : { width, single: width < THREE_COL_MIN }));
+      setViewport((prev) =>
+        prev.width === width
+          ? prev
+          : { width, single: width < THREE_COL_MIN, narrow: width <= NARROW_MAX },
+      );
     };
     measure();
     window.addEventListener('resize', measure);
@@ -140,16 +158,49 @@ export const App: React.FC = () => {
     return () => node.removeEventListener('animationend', done);
   }, []);
 
-  // Единственное, что перекрашивается при смене Поколения (ADR-0002). Ставится на корневой
-  // элемент, поэтому производные --accent-hover / --tint-accent из .app-root видят тот же цвет.
-  // Ширины колонок живут здесь же по той же причине: кастомное свойство подставляется на том
-  // элементе, где объявлено, поэтому колонки не пересчитывают базис сами.
-  // Приведение нужно потому, что кастомных свойств нет в React.CSSProperties.
+  // Ширины колонок и размеры тапа — из модуля раскладки: CSS не умеет взять константу,
+  // поэтому числа приезжают кастомными свойствами. Отступ стека тостов здесь не задаётся: он
+  // зависит от высоты подвала, а та переносится по ширине окна, и ниже её меряет
+  // ResizeObserver. Приведение нужно потому, что кастомных свойств нет в React.CSSProperties.
   const accent = {
     '--accent-color': CATALOG[generation].theme.accent,
     '--col-click': `${clickColWidth(viewport.width)}px`,
     '--col-shop': `${shopColWidth(viewport.width)}px`,
+    '--tap-min': `${TAP_MIN}px`,
+    '--header-h': `${HEADER_H}px`,
+    '--tab-bar-h': `${TAB_BAR_H}px`,
   } as React.CSSProperties;
+
+  // Отступ стека тостов равен высоте полос внизу оболочки: подвалу и, в одноколаночном
+  // режиме, панели вкладок. Высоту подвала нельзя задать числом — строка атрибуции
+  // Artificial Analysis переносится по ширине окна (замерено: 85 px на 390 и 33 px на 1440).
+  // Прежний код зашивал 72 и 132 px, то есть угадывал, и на 999 px панель вкладок
+  // оказывалась ровно под тостом. Меряем вместо угадывания: ResizeObserver не таймер и не
+  // второй цикл, он читает высоту после раскладки и ничего не запускает.
+  //
+  // Именно useLayoutEffect, а не useEffect: значение нужно уже к первому кадру, иначе стек
+  // один кадр рисуется с неразрешённым bottom — то есть вообще без отступа от низа.
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root || typeof ResizeObserver === 'undefined') return;
+    const bands = ['.tab-bar', '.footer-bar'];
+    const measure = () => {
+      const height = bands.reduce((sum, sel) => {
+        const band = root.querySelector(sel);
+        return sum + (band ? band.getBoundingClientRect().height : 0);
+      }, 0);
+      root.style.setProperty('--toast-bottom', `${Math.round(height + TOAST_CLEARANCE)}px`);
+    };
+    const observer = new ResizeObserver(measure);
+    for (const sel of bands) {
+      const band = root.querySelector(sel);
+      if (band) observer.observe(band);
+    }
+    // Панель вкладок появляется и исчезает вместе с режимом, поэтому после переключения
+    // меряем ещё раз: подписчик на её исчезновение не придёт.
+    measure();
+    return () => observer.disconnect();
+  }, [viewport.single, viewport.narrow]);
 
   return (
     <div
@@ -159,6 +210,10 @@ export const App: React.FC = () => {
       // только снимает анимацию, а @media (prefers-reduced-motion: no-preference) в index.css
       // добавляет её обратно там, где система её разрешает.
       data-motion={reducedMotion ? 'reduced' : 'full'}
+      // Второй порог раскладки (NARROW_MAX) приезжает признаком, а не медиазапросом: число
+      // ширины в CSS пришлось бы продублировать, и рано или поздно два ответа на один вопрос
+      // разошлись бы. Признак ставится на первый же кадр, потому что ширина читается сразу.
+      data-narrow={viewport.narrow ? 'true' : 'false'}
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -214,17 +269,10 @@ export const App: React.FC = () => {
         )}
       </main>
 
-      {/* Мобильная панель навигации внизу экрана */}
+      {/* Мобильная панель навигации внизу экрана. Ритм и высота — из index.css и layout.ts,
+          здесь только то, что знает JS: активная вкладка и разворачивание кнопки. */}
       {viewport.single && (
-        <nav
-          style={{
-            display: 'flex',
-            backgroundColor: 'var(--bg-panel)',
-            borderTop: '2px solid var(--border)',
-            padding: '4px',
-            gap: '4px',
-          }}
-        >
+        <nav className="tab-bar">
           {(
             [
               ['click', 'chat', 'Промпт'],
@@ -235,9 +283,9 @@ export const App: React.FC = () => {
             <button
               key={t}
               onClick={() => setActiveTab(t)}
-              className={`pixel-btn ${activeTab === t ? 'pixel-btn-accent' : ''}`}
+              className={`pixel-btn tab-bar__btn ${activeTab === t ? 'pixel-btn-accent' : ''}`}
               aria-label={label}
-              style={{ flex: 1, padding: '10px 4px', fontSize: '0.9rem' }}
+              style={{ flex: 1 }}
             >
               <Icon name={icon} />
               {label}

@@ -29,14 +29,43 @@ interface ModalProps {
   onClose: () => void;
 }
 
-/** Строка Достижения. Обычная запись и тень отличаются только видом, поэтому рисуются здесь,
- *  а не двумя списками. */
-const AchievementRow: React.FC<{
+/**
+ * Текст, который обязан звучать, но не обязан занимать место: клип по пикселю и
+ * отрицательные поля уводят подпись из потока, не выключая её для скринридера.
+ */
+const SR_ONLY: React.CSSProperties = {
+  position: 'absolute',
+  width: '1px',
+  height: '1px',
+  margin: '-1px',
+  padding: 0,
+  overflow: 'hidden',
+  clipPath: 'inset(50%)',
+  whiteSpace: 'nowrap',
+  border: 0,
+};
+
+/**
+ * Карточка Достижения. Обычная запись и тень отличаются только видом, поэтому рисуются
+ * здесь, а не двумя списками.
+ *
+ * Заработанное и недостигнутое обязаны различаться за долю секунды, и различаться не
+ * только цветом: заливка зелёным и золотом — это два оттенка серого для части игроков и
+ * для всех на выцветшем экране. Поэтому состояние несёт ещё и форма: у заработанного
+ * сплошная рамка в цвет награды и печать, у недостигнутого — пунктирная рамка, приглушённая
+ * подложка и замок. Три признака вместо одного, и ни один не спрятан.
+ *
+ * Название и описание недостигнутого НЕ выключаются: игрок идёт к Достижению, глядя на это
+ * окно, и выключенный текст убрал бы ровно ту подсказку, ради которой окно открыто. От
+ * заработанного его отделяет форма рамки и печать, а не нечитаемость.
+ */
+const AchievementCard: React.FC<{
   name: string;
   desc: string;
   unlocked: boolean;
-  /** Тень не входит в счёт обычных и не даёт силы, поэтому вид у неё другой и без цвета:
-   *  зелёной печати у тени нет, а рамка пунктирная. */
+  /** Тень не входит в счёт обычных и не даёт силы, поэтому вид у неё другой: у тени
+   *  золотой цвет, пунктир остаётся за недостигнутым, а рамка заработанной тени —
+   *  сплошная золотая, как у обычной награды. */
   shadow: boolean;
 }> = ({ name, desc, unlocked, shadow }) => {
   const background = unlocked
@@ -44,43 +73,64 @@ const AchievementRow: React.FC<{
       ? 'var(--tint-gold)'
       : 'var(--tint-green)'
     : 'var(--bg-card)';
-  const border = shadow
-    ? `1px dashed ${unlocked ? 'var(--gold)' : 'var(--border-strong)'}`
-    : `1px solid ${unlocked ? 'var(--green)' : 'var(--border)'}`;
+  const borderColor = unlocked
+    ? shadow
+      ? 'var(--gold)'
+      : 'var(--green)'
+    : 'var(--border-strong)';
+  // Пунктир — признак «ещё не заработано» и у обычных, и у теней. Раньше пунктир означал
+  // «это тень», из-за чего незакрытая тень читалась как заработанная особая вещь.
+  const border = `1px ${unlocked ? 'solid' : 'dashed'} ${borderColor}`;
 
   return (
-    <div
+    <li
       style={{
         backgroundColor: background,
         border,
         borderRadius: '6px',
-        padding: '10px 12px',
+        padding: '8px 10px',
         display: 'flex',
-        alignItems: 'center',
-        gap: '12px',
+        alignItems: 'flex-start',
+        gap: '10px',
+        listStyle: 'none',
       }}
     >
-      <div aria-hidden="true" style={{ fontSize: '1.5rem', opacity: shadow ? 0.7 : 1 }}>
+      <span
+        aria-hidden="true"
+        style={{ fontSize: '1.1rem', lineHeight: 1.35, opacity: unlocked ? 1 : 0.55 }}
+      >
         {unlocked ? (shadow ? '🌑' : '🏆') : '🔒'}
-      </div>
-      <div style={{ flex: 1 }}>
+      </span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {/* Состояние и для слушающего, а не только для глаза: печать, цвет и рамку
+            скринридер не видит, и без этого слова заработанное и недостигнутое звучали
+            одинаково. */}
+        <span style={SR_ONLY}>
+          {unlocked ? (shadow ? 'Теневое получено' : 'Получено') : 'Ещё не получено'}
+        </span>
         {/* Без pixel-font: название Достижения по-русски, а в Pixelify Sans нет
             заглавных «О» и «П», и они молча уходили в фолбэк прямо посреди слова
             («Промпт-джуниор»). Это ровно то, что ADR-0003 запрещает. */}
         <div
-          /* Светлее --green намеренно: так открытое Достижение читается ярче
-             закрытой строки, а --green на подложке сравнялся бы с --text-muted
-             соседнего описания. */
+          /* Светлее --green намеренно: так открытое Достижение читается ярче закрытой
+             карточки, а --green на подложке сравнялся бы с --text-muted описания рядом.
+             Недостигнутое остаётся --text-main, а не приглушённым: подсказку «к чему
+             идти» выключать нельзя, отличие несёт рамка. */
           style={{
-            fontSize: '0.95rem',
-            color: unlocked ? (shadow ? 'var(--gold)' : '#86efac') : 'var(--text-muted)',
+            fontSize: '0.9rem',
+            fontWeight: unlocked ? 600 : 400,
+            color: unlocked
+              ? shadow
+                ? 'var(--gold)'
+                : 'var(--green-text)'
+              : 'var(--text-main)',
           }}
         >
           {name}
         </div>
-        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{desc}</div>
+        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{desc}</div>
       </div>
-    </div>
+    </li>
   );
 };
 
@@ -126,16 +176,115 @@ function useModalExit(
   return { closing, requestClose };
 }
 
-export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
-  const state = useGameStore((s) => s.state);
-  // Все пути закрытия (скрим, ✕, Esc из хука) идут через один запрос: мгновенного
-  // onClose больше нет ни на одном пути.
-  const { closing, requestClose } = useModalExit(isOpen, onClose);
-  // Хук обязан стоять до раннего выхода: иначе окно то открывалось бы с ловушкой, то без неё.
-  const cardRef = useDialogFocus<HTMLDivElement>(isOpen, requestClose);
+// Анатомия окна. Раньше шесть окон отличались шириной (560 / 520 / 500), высотой
+// (80 / 85 / 90vh), отступами (20 / 24), зазором (14 / 16), размером заголовка
+// (1.3 / 1.4rem), а крестик на экране финала вообще стоял отдельно от строки заголовка.
+// Итог был не «у окна есть оболочка», а шесть почти одинаковых, но разных каркасов:
+// игрок переучивался расположению крестика при каждом переходе.
+const MODAL_MAX_WIDTH = 520;
+const MODAL_MAX_HEIGHT = '85vh';
+const MODAL_PAD = 20;
+const MODAL_GAP = 14;
+const MODAL_TITLE_SIZE = '1.2rem';
+
+/** Слой окон. Тосты живут на 100 (см. useDialogFocus: тост о Достижении обязан пережить
+ *  открытое окно), оверлей Престижа — на 40, поэтому единого 50 хватает всем окнам. Бывшие
+ *  исключения 60 и 65 больше не нужны: экран финала открывается из Престижа, и при равном
+ *  слое его перекрывает порядок в DOM — FinaleModal смонтирован после PrestigeModal. */
+const MODAL_Z = 50;
+
+/**
+ * Тон окна. Обычные окна нейтральны; золото — трофейные и разрушающие (Достижения,
+ * Престиж, Финал контента), акцент Поколения — приветственное Окно Возвращения.
+ * Именно тон, а не три независимых цвета, держит рамку и заголовок согласованными:
+ * раньше они расходились (золотой заголовок при обычной рамке, акцентная рамка при
+ * золотом заголовке), и ни одно окно нельзя было описать одним словом.
+ */
+type ModalTone = 'plain' | 'gold' | 'accent';
+
+const TONE_BORDER: Record<ModalTone, string> = {
+  plain: '2px solid var(--border)',
+  gold: '2px solid var(--gold)',
+  accent: '2px solid var(--accent-color)',
+};
+
+const TONE_TITLE: Record<ModalTone, string> = {
+  plain: 'var(--text-main)',
+  gold: 'var(--gold)',
+  accent: 'var(--accent-color)',
+};
+
+interface ModalFrameProps {
+  /** Открыто ли окно: значение уходит в ловушку фокуса. */
+  isOpen: boolean;
+  /** Идёт ли кадр выхода (см. useModalExit). */
+  closing: boolean;
+  /** Запрос закрытия из скрима, крестика и Esc. Владелец окна зовёт его и сам — из своих
+   *  кнопок, поэтому закрытие изнутри идёт тем же путём выхода, а не мимо него. */
+  requestClose: () => void;
+  /** id заголовка — на него ссылается aria-labelledby окна, поэтому он обязателен. */
+  titleId: string;
+  /** Содержимое заголовка. Счётчик («12 / 21») передаётся сюда же узлом, а не строкой:
+   *  у окна одно доступное имя, и разрыв его на части сделал бы имя обрезанным. */
+  title: React.ReactNode;
+  /** Значок слева от заголовка. */
+  icon?: React.ReactNode;
+  /**
+   * Окно закрывается как обычное: крестик в шапке, Esc, клик по скриму. `false` оставляет
+   * только кнопку в «ногах» — так устроено Окно Возвращения, где игрок обязан сначала
+   * забрать начисленное и увидеть сумму.
+   */
+  dismissible?: boolean;
+  tone?: ModalTone;
+  /** Тело по центру: так оформлены приветствие и экран финала. */
+  centered?: boolean;
+  /** Действия под прокручиваемым телом — они не уезжают, пока тело листается. */
+  footer?: React.ReactNode;
+  children: React.ReactNode;
+}
+
+/**
+ * Единственный каркас окна. Оболочка владеет всем, что должно совпадать: скримом,
+ * шириной, высотой, отступами, шапкой с заголовком и крестиком, прокручиваемым телом
+ * и «ногами». Содержимое окон приходит children и своей разметкой не влияет ни на одну
+ * из этих величин.
+ *
+ * Оболочка без хуков намеренно, кроме ловушки фокуса: useModalExit остаётся у
+ * окна-владельца, потому что владельцу нужен его requestClose — Настройки и экран финала
+ * закрываются из своих кнопок, и закрытие обязано идти тем же кадром выхода, а не мимо
+ * него. Каркас, который сам открывает и закрывает окно, заставил бы каждое окно заводить
+ * обходной путь.
+ *
+ * Прокручиваемое тело — обязательная часть каркаса, а не украшение: без него содержимое
+ * длинных окон (Настройки, экран финала) выпирало за maxHeight, и крестик уезжал за край
+ * экрана вместе с хвостом настроек. Тело всегда с `flex: 1; minHeight: 0` — у
+ * флекс-элемента автоматический минимум равен содержимому, и без minHeight оно не
+ * сожмётся, а шапка выдавится наружу.
+ *
+ * Свой зазор внутри тела нужен не всем: окно с плотной собственной вёрсткой (Настройки)
+ * оборачивает содержимое в один div и задаёт ритм сам — оболочка не навязывает его
+ * содержимому, но и не запрещает ему свой.
+ */
+const ModalFrame: React.FC<ModalFrameProps> = ({
+  isOpen,
+  closing,
+  requestClose,
+  titleId,
+  title,
+  icon,
+  dismissible = true,
+  tone = 'plain',
+  centered = false,
+  footer,
+  children,
+}) => {
+  // Ловушка фокуса — единственный хук каркаса, и он про окно, а не про разметку.
+  const cardRef = useDialogFocus<HTMLDivElement>(isOpen, requestClose, dismissible);
   if (!isOpen) return null;
 
-  const unlockedSet = new Set(state.achievements);
+  // Вход и выход — существующий toast-fade, только opacity, поэтому при reducedMotion
+  // картина та же и нового CSS не требуется.
+  const fade = closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.18s ease-out';
 
   return (
     <div
@@ -146,100 +295,209 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        zIndex: 50,
+        zIndex: MODAL_Z,
         padding: '16px',
-        // Вход — существующий toast-fade, выход — тот же кадр в реверсе (только opacity,
-        // поэтому при reducedMotion картина та же, нового CSS ноль).
-        animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.18s ease-out',
+        animation: fade,
       }}
-      onClick={requestClose}
+      onClick={dismissible ? requestClose : undefined}
     >
       <div
         ref={cardRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="achievements-title"
+        aria-labelledby={titleId}
         className="pixel-card"
         style={{
           width: '100%',
-          maxWidth: '560px',
-          maxHeight: '80vh',
+          maxWidth: MODAL_MAX_WIDTH,
+          maxHeight: MODAL_MAX_HEIGHT,
           display: 'flex',
           flexDirection: 'column',
-          padding: '20px',
-          gap: '14px',
-          // Карточка ходит тем же кадром, что и скрим: вход — прямо, выход — в реверсе.
-          animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.18s ease-out',
+          padding: MODAL_PAD,
+          gap: MODAL_GAP,
+          // Ширина и высота заданы один раз для всех окон, поэтому окно не «прыгает» по
+          // ширине при переходе между вкладками.
+          border: TONE_BORDER[tone],
+          animation: fade,
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 id="achievements-title" style={{ fontSize: '1.3rem', color: 'var(--gold)' }}>
-            {/* Числитель — ordinaryEarned, а не achievements.length: id теней лежат в том же
-                списке, и прямой длиной счётчик шапал бы выше знаменателя. */}
-            <Icon name="trophy" /> ДОСТИЖЕНИЯ ({ordinaryEarned(state)} / {ACHIEVEMENTS.length})
-          </h2>
-          <button
-            className="pixel-btn"
-            onClick={requestClose}
-            aria-label="Закрыть"
-            title="Закрыть"
-            style={{ padding: '4px 10px' }}
-          >
-            <Icon name="close" />
-          </button>
-        </div>
-
-        <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {ACHIEVEMENTS.map((a) => (
-            <AchievementRow
-              key={a.id}
-              name={a.name}
-              desc={a.desc}
-              unlocked={unlockedSet.has(a.id)}
-              shadow={false}
-            />
-          ))}
-
-          {/* Отдельная секция, а не хвост общего списка: у теней другой счётчик и нулевая сила,
-              и вперемешку с обычными они читались бы как обычные. */}
-          <div
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: '10px',
+            flexShrink: 0,
+          }}
+        >
+          {/* Настоящий заголовок, а не крупный текст: h1 в игре один (логотип в шапке),
+              поэтому окно — второй уровень, и скринридер получает имя из aria-labelledby. */}
+          <h2
+            id={titleId}
             style={{
               display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'baseline',
+              alignItems: 'center',
               gap: '8px',
-              marginTop: '6px',
-              paddingTop: '10px',
-              borderTop: '1px solid var(--border)',
+              // Узкий экран: заголовок с длинным счётчиком переносится, а не выдавливает
+              // крестик, поэтому minWidth 0 плюс перенос, а не жёсткое nowrap.
+              flexWrap: 'wrap',
+              minWidth: 0,
+              fontSize: MODAL_TITLE_SIZE,
+              color: TONE_TITLE[tone],
+              // Капс даёт text-transform, а не текст в DOM: иначе скринридер читал бы
+              // «Д О С Т И Ж Е Н И Я» по буквам, а имя окна — это то, что он произносит.
+              textTransform: 'uppercase',
             }}
           >
-            {/* Без pixel-font: в строке есть кириллица, а по ADR-0003 пиксельный шрифт
-                допустим только там, где её нет. */}
-            <span style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>
-              <span aria-hidden="true">🌑</span> Теневые Достижения
-            </span>
-            {/* Счётчик — строка из одного числа, пиксельный шрифт тут разрешён. */}
-            <span className="pixel-font" style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>
-              {shadowEarned(state)} / {SHADOW_ACHIEVEMENTS.length}
-            </span>
-          </div>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-            Не дают силы и не входят в счёт выше — их берут ради рекордов.
-          </div>
-
-          {SHADOW_ACHIEVEMENTS.map((a) => (
-            <AchievementRow
-              key={a.id}
-              name={a.name}
-              desc={a.desc}
-              unlocked={unlockedSet.has(a.id)}
-              shadow
-            />
-          ))}
+            {icon}
+            {title}
+          </h2>
+          {dismissible && (
+            <button
+              className="pixel-btn"
+              onClick={requestClose}
+              aria-label="Закрыть"
+              title="Закрыть"
+              style={{ padding: '4px 10px', flexShrink: 0 }}
+            >
+              <Icon name="close" />
+            </button>
+          )}
         </div>
+
+        <div
+          style={{
+            flex: 1,
+            minHeight: 0,
+            overflowY: 'auto',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px',
+            // Растягивание по умолчанию нужно строкам статистики, а центрированному окну —
+            // по центру: иначе иконка-молния и кубок уехали бы в левый край вместо середины.
+            alignItems: centered ? 'center' : 'stretch',
+            textAlign: centered ? 'center' : 'left',
+          }}
+        >
+          {children}
+        </div>
+
+        {footer && (
+          <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>{footer}</div>
+        )}
       </div>
     </div>
+  );
+};
+
+/**
+ * Счётчик рядом с названием окна: «12 из 21». Слово «из», а не слеш, — и для читающего
+ * глаза, и для произносимого вслух (слеш скринридер читает как «слэш»). Цифры остаются
+ * пиксельным шрифтом: строка из одних чисел такой шрифт по ADR-0003 выдерживает.
+ */
+const ModalCount: React.FC<{ earned: number; total: number }> = ({ earned, total }) => (
+  <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)', fontWeight: 400 }}>
+    (<Num>{earned}</Num> из <Num>{total}</Num>)
+  </span>
+);
+
+export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
+  const state = useGameStore((s) => s.state);
+  // Все пути закрытия (скрим, ✕, Esc из хука) идут через один запрос: мгновенного
+  // onClose больше нет ни на одном пути.
+  const { closing, requestClose } = useModalExit(isOpen, onClose);
+  if (!isOpen) return null;
+
+  const unlockedSet = new Set(state.achievements);
+
+  return (
+    <ModalFrame
+      isOpen
+      closing={closing}
+      requestClose={requestClose}
+      titleId="achievements-title"
+      tone="gold"
+      icon={<Icon name="trophy" />}
+      /* Числитель — ordinaryEarned, а не achievements.length: id теней лежат в том же
+         списке, и прямой длиной счётчик шапал бы выше знаменателя. */
+      title={
+        <>
+          Достижения <ModalCount earned={ordinaryEarned(state)} total={ACHIEVEMENTS.length} />
+        </>
+      }
+    >
+      {/* role=list обязателен: у карточек list-style none, и без него Safari и VoiceOver
+          выбрасывают список из дерева доступности — вместе со счётчиком «сколько
+          осталось». */}
+      <ul
+        role="list"
+        style={{
+          display: 'grid',
+          // auto-fill вместо фиксированного числа колонок: на широком окне карточки идут
+          // в две, на узком — в одну, и пересчитывать вручную по ширине не нужно.
+          gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+          gap: '8px',
+          margin: 0,
+          padding: 0,
+        }}
+      >
+        {ACHIEVEMENTS.map((a) => (
+          <AchievementCard
+            key={a.id}
+            name={a.name}
+            desc={a.desc}
+            unlocked={unlockedSet.has(a.id)}
+            shadow={false}
+          />
+        ))}
+      </ul>
+
+      {/* Отдельная секция, а не хвост общего списка: у теней другой счётчик и нулевая сила,
+          и вперемешку с обычными они читались бы как обычные. */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'baseline',
+          gap: '8px',
+          marginTop: '4px',
+          paddingTop: '10px',
+          borderTop: '1px solid var(--border)',
+        }}
+      >
+        {/* Без pixel-font: в строке есть кириллица, а по ADR-0003 пиксельный шрифт
+            допустим только там, где её нет. */}
+        <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>
+          <span aria-hidden="true">🌑</span> Теневые Достижения
+        </span>
+        <ModalCount earned={shadowEarned(state)} total={SHADOW_ACHIEVEMENTS.length} />
+      </div>
+      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+        Не дают силы и не входят в счёт выше — их берут ради рекордов.
+      </div>
+
+      <ul
+        role="list"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+          gap: '8px',
+          margin: 0,
+          padding: 0,
+        }}
+      >
+        {SHADOW_ACHIEVEMENTS.map((a) => (
+          <AchievementCard
+            key={a.id}
+            name={a.name}
+            desc={a.desc}
+            unlocked={unlockedSet.has(a.id)}
+            shadow
+          />
+        ))}
+      </ul>
+    </ModalFrame>
   );
 };
 
@@ -248,7 +506,6 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   // Все пути закрытия (скрим, ✕, Esc из хука) идут через один запрос: мгновенного
   // onClose больше нет ни на одном пути.
   const { closing, requestClose } = useModalExit(isOpen, onClose);
-  const cardRef = useDialogFocus<HTMLDivElement>(isOpen, requestClose);
   if (!isOpen) return null;
 
   const now = Date.now();
@@ -324,154 +581,112 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   ];
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        backgroundColor: 'var(--bg-scrim)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 50,
-        padding: '16px',
-        // Вход — существующий toast-fade, выход — тот же кадр в реверсе (только opacity,
-        // поэтому при reducedMotion картина та же, нового CSS ноль).
-        animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.18s ease-out',
-      }}
-      onClick={requestClose}
+    <ModalFrame
+      isOpen
+      closing={closing}
+      requestClose={requestClose}
+      titleId="stats-title"
+      tone="accent"
+      icon={<Icon name="info" />}
+      title="Статистика"
     >
-      <div
-        ref={cardRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="stats-title"
-        className="pixel-card"
-        style={{
-          width: '100%',
-          maxWidth: '520px',
-          maxHeight: '80vh',
-          display: 'flex',
-          flexDirection: 'column',
-          padding: '20px',
-          gap: '14px',
-          animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.18s ease-out',
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 id="stats-title" style={{ fontSize: '1.3rem', color: 'var(--accent-color)' }}>
-            <Icon name="info" /> СТАТИСТИКА
-          </h2>
-          <button
-            className="pixel-btn"
-            onClick={requestClose}
-            aria-label="Закрыть"
-            title="Закрыть"
-            style={{ padding: '4px 10px' }}
-          >
-            <Icon name="close" />
-          </button>
-        </div>
-
-        <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          {/* План Престижа. Одно предложение вместо ещё трёх строк: строки выше дают числа,
-              а читать их вывод — работа игрока, и именно поэтому сброс выглядит наказанием.
-              Здесь вывод назван прямо, и он собран из тех же чисел, что и строки, поэтому
-              разойтись с ними он не может. Простои в знаменателе обоих темпов не вычитаются,
-              поэтому сравнение не выносит вердикта: решение принимается по выплате. */}
-          {(runRate !== null || pastRate !== null) && (
-            <div
-              style={{
-                padding: '8px 10px',
-                backgroundColor: 'var(--tint-gold)',
-                border: '1px solid var(--gold)',
-                borderRadius: '4px',
-                fontSize: '0.85rem',
-                color: 'var(--text-main)',
-              }}
-            >
-              {pastRate === null ? (
-                <>
-                  Это первый твой Забег, сравнивать не с чем. Престиж сейчас даст{' '}
-                  <Num>{formatNumber(gain, notation)}</Num> Compute — и это правильный момент:
-                  забег без первого Престижа копится впустую.
-                </>
-              ) : runRate === null ? (
-                <>
-                  Забег только начался, темпа Compute в нём пока нет. У времени до этого Забега он
-                  был <Num>{formatNumber(pastRate, notation)}</Num> в час — вместе с простоями, как
-                  и все числа здесь.
-                </>
-              ) : (
-                <>
-                  Сейчас <Num>{formatNumber(runRate, notation)}</Num> Compute в час против{' '}
-                  <Num>{formatNumber(pastRate, notation)}</Num> у времени до этого Забега. Оба
-                  числа считают и простои, поэтому ровнять на них решение нельзя — судить приходится
-                  по выплате: Престиж сейчас даст <Num>{formatNumber(gain, notation)}</Num> Compute.
-                </>
-              )}
-            </div>
+      {/* План Престижа. Одно предложение вместо ещё трёх строк: строки ниже дают числа,
+          а читать их вывод — работа игрока, и именно поэтому сброс выглядит наказанием.
+          Здесь вывод назван прямо, и он собран из тех же чисел, что и строки, поэтому
+          разойтись с ними он не может. Простои в знаменателе обоих темпов не вычитаются,
+          поэтому сравнение не выносит вердикта: решение принимается по выплате. */}
+      {(runRate !== null || pastRate !== null) && (
+        <div
+          style={{
+            padding: '8px 10px',
+            backgroundColor: 'var(--tint-gold)',
+            border: '1px solid var(--gold)',
+            borderRadius: '4px',
+            fontSize: '0.85rem',
+            color: 'var(--text-main)',
+          }}
+        >
+          {pastRate === null ? (
+            <>
+              Это первый твой Забег, сравнивать не с чем. Престиж сейчас даст{' '}
+              <Num>{formatNumber(gain, notation)}</Num> Compute — и это правильный момент:
+              забег без первого Престижа копится впустую.
+            </>
+          ) : runRate === null ? (
+            <>
+              Забег только начался, темпа Compute в нём пока нет. У времени до этого Забега он
+              был <Num>{formatNumber(pastRate, notation)}</Num> в час — вместе с простоями, как
+              и все числа здесь.
+            </>
+          ) : (
+            <>
+              Сейчас <Num>{formatNumber(runRate, notation)}</Num> Compute в час против{' '}
+              <Num>{formatNumber(pastRate, notation)}</Num> у времени до этого Забега. Оба
+              числа считают и простои, поэтому ровнять на них решение нельзя — судить приходится
+              по выплате: Престиж сейчас даст <Num>{formatNumber(gain, notation)}</Num> Compute.
+            </>
           )}
+        </div>
+      )}
 
-          {statRows.map(([label, val]) => (
+      {statRows.map(([label, val]) => (
+        <div
+          key={label}
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            padding: '6px 8px',
+            backgroundColor: 'var(--bg-card)',
+            borderRadius: '4px',
+            fontSize: '0.85rem',
+          }}
+        >
+          <span style={{ color: 'var(--text-muted)' }}>{label}</span>
+          <span style={{ color: 'var(--text-main)', fontWeight: 600 }}>{val}</span>
+        </div>
+      ))}
+
+      {/* Справка по словарю игры. Формулировки сверены с CONTEXT.md — он источник
+          правды для словаря, а не этот файл. Живёт в том же прокручиваемом теле,
+          чтобы окно не переполнялось на маленьком экране. */}
+      <div style={{ marginTop: '2px' }}>
+        {/* Заголовок раздела — тоже заголовок: без него скринридер читает СПРАВКУ
+            как ещё одну строку статистики, а не как вложенный раздел. */}
+        <h3 style={{ fontSize: '0.95rem', color: 'var(--text-main)', marginBottom: '6px' }}>
+          СПРАВКА
+        </h3>
+        <dl style={{ display: 'flex', flexDirection: 'column', gap: '6px', margin: 0 }}>
+          {GLOSSARY.map((g) => (
             <div
-              key={label}
+              key={g.term}
               style={{
-                display: 'flex',
-                justifyContent: 'space-between',
                 padding: '6px 8px',
                 backgroundColor: 'var(--bg-card)',
                 borderRadius: '4px',
                 fontSize: '0.85rem',
               }}
             >
-              <span style={{ color: 'var(--text-muted)' }}>{label}</span>
-              <span style={{ color: 'var(--text-main)', fontWeight: 600 }}>{val}</span>
+              <dt style={{ color: 'var(--text-main)', fontWeight: 600 }}>{g.term}</dt>
+              <dd style={{ color: 'var(--text-muted)', margin: '2px 0 0' }}>{g.text}</dd>
             </div>
           ))}
-
-          {/* Справка по словарю игры. Формулировки сверены с CONTEXT.md — он источник
-              правды для словаря, а не этот файл. Живёт в том же прокручиваемом теле,
-              чтобы окно не переполнялось на маленьком экране. */}
-          <div style={{ marginTop: '8px' }}>
-            <div style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: '6px' }}>
-              СПРАВКА
-            </div>
-            <dl style={{ display: 'flex', flexDirection: 'column', gap: '6px', margin: 0 }}>
-              {GLOSSARY.map((g) => (
-                <div
-                  key={g.term}
-                  style={{
-                    padding: '6px 8px',
-                    backgroundColor: 'var(--bg-card)',
-                    borderRadius: '4px',
-                    fontSize: '0.85rem',
-                  }}
-                >
-                  <dt style={{ color: 'var(--text-main)', fontWeight: 600 }}>{g.term}</dt>
-                  <dd style={{ color: 'var(--text-muted)', margin: '2px 0 0' }}>{g.text}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-        </div>
+        </dl>
       </div>
-    </div>
+    </ModalFrame>
   );
 };
 
 export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   const state = useGameStore((s) => s.state);
+  // Все пути закрытия (скрим, ✕, Esc из хука, удачные импорт/сброс) идут через один
+  // запрос: мгновенного onClose больше нет ни на одном пути.
+  const { closing, requestClose } = useModalExit(isOpen, onClose);
   const setNotation = useGameStore((s) => s.setNotation);
   const toggleMute = useGameStore((s) => s.toggleMute);
   const setVolume = useGameStore((s) => s.setVolume);
   const setReducedMotion = useGameStore((s) => s.setReducedMotion);
   const importSaveData = useGameStore((s) => s.importSaveData);
   const resetGame = useGameStore((s) => s.resetGame);
-  // Все пути закрытия (скрим, ✕, Esc из хука, удачные импорт/сброс) идут через один
-  // запрос: мгновенного onClose больше нет ни на одном пути.
-  const { closing, requestClose } = useModalExit(isOpen, onClose);
-  const cardRef = useDialogFocus<HTMLDivElement>(isOpen, requestClose);
 
   const [importCode, setImportCode] = useState('');
   const [copyStatus, setCopyStatus] = useState(false);
@@ -521,55 +736,18 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   };
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        backgroundColor: 'var(--bg-scrim)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 50,
-        padding: '16px',
-        // Вход — существующий toast-fade, выход — тот же кадр в реверсе (только opacity,
-        // поэтому при reducedMotion картина та же, нового CSS ноль).
-        animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.18s ease-out',
-      }}
-      onClick={requestClose}
+    <ModalFrame
+      isOpen
+      closing={closing}
+      requestClose={requestClose}
+      titleId="settings-title"
+      tone="plain"
+      icon={<Icon name="settings" />}
+      title="Настройки"
     >
-      <div
-        ref={cardRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="settings-title"
-        className="pixel-card"
-        style={{
-          width: '100%',
-          maxWidth: '500px',
-          maxHeight: '85vh',
-          display: 'flex',
-          flexDirection: 'column',
-          padding: '20px',
-          gap: '16px',
-          animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.18s ease-out',
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 id="settings-title" style={{ fontSize: '1.3rem', color: 'var(--text-main)' }}>
-            <Icon name="settings" /> НАСТРОЙКИ
-          </h2>
-          <button
-            className="pixel-btn"
-            onClick={requestClose}
-            aria-label="Закрыть"
-            title="Закрыть"
-            style={{ padding: '4px 10px' }}
-          >
-            <Icon name="close" />
-          </button>
-        </div>
-
+      {/* Своя колонка с зазором 16: блоков много, и общий зазор каркаса в 10px после
+          вёрстки этого окна прилипал к ползунку громкости. Ритм задаёт содержимое. */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
         {/* Настройка нотации чисел */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
@@ -762,7 +940,9 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
                   flex: 1,
                   backgroundColor: 'var(--red-solid)',
                   borderColor: 'var(--red)',
-                  color: '#ffffff',
+                  // --text-main на --red-solid держит 6.4:1, поэтому насыщенной заливке
+                  // хватает тёплого белого из темы, а литерал в коде не нужен.
+                  color: 'var(--text-main)',
                   padding: '8px',
                   fontSize: '0.85rem',
                   display: 'flex',
@@ -803,7 +983,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
           )}
         </div>
       </div>
-    </div>
+    </ModalFrame>
   );
 };
 
@@ -816,7 +996,6 @@ export const OfflineModal: React.FC = () => {
   // закрывается только своей кнопкой. Кнопка идёт через тот же closing-путь, что и
   // остальные окна: мгновенного dismiss больше нет.
   const { closing, requestClose } = useModalExit(offlineReport !== null, dismiss);
-  const cardRef = useDialogFocus<HTMLDivElement>(offlineReport !== null, requestClose, false);
 
   if (!offlineReport) return null;
 
@@ -855,221 +1034,195 @@ export const OfflineModal: React.FC = () => {
     : 0;
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        backgroundColor: 'var(--bg-scrim)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 60,
-        padding: '16px',
-        // Вход — существующий toast-fade, выход — тот же кадр в реверсе (только opacity,
-        // поэтому при reducedMotion картина та же, нового CSS ноль).
-        animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.2s ease-out',
-      }}
+    <ModalFrame
+      isOpen
+      closing={closing}
+      requestClose={requestClose}
+      titleId="offline-title"
+      tone="accent"
+      icon={<Icon name="bolt" size={22} />}
+      title="С возвращением!"
+      /* Окно выигрыша: забрать начисленное можно только своей кнопкой, поэтому ни крестика,
+         ни Esc, ни клика по скриму. Доступное имя у окна при этом обязано остаться. */
+      dismissible={false}
+      centered
     >
+      <div style={{ fontSize: '2.4rem', lineHeight: 1 }}>
+        <Icon name="bolt" size={40} />
+      </div>
+
+      <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>
+        Пока тебя не было (
+        <span style={{ color: 'var(--gold)', fontWeight: 700 }}>
+          {formatDuration(offlineReport.seconds)}
+        </span>
+        ), твои ИИ-Агенты усердно трудились и заработали:
+      </div>
+
+      {isCapped && (
+        <div
+          style={{
+            fontSize: '0.8rem',
+            color: 'var(--gold)',
+            backgroundColor: 'var(--tint-gold)',
+            border: '1px solid var(--gold)',
+            borderRadius: '4px',
+            padding: '6px 10px',
+            maxWidth: '420px',
+            alignSelf: 'center',
+          }}
+        >
+          Достигнут потолок Оффлайн-дохода (<Num>{capHours}</Num> ч). Время отсутствия сверх лимита было срезано потолком.
+        </div>
+      )}
+
       <div
-        ref={cardRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="offline-title"
-        className="pixel-card"
         style={{
-          width: '100%',
-          maxWidth: '520px',
-          maxHeight: '85vh',
-          padding: '24px',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          textAlign: 'center',
-          gap: '14px',
-          border: '2px solid var(--accent-color)',
-          animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.2s ease-out',
+          fontSize: '2rem',
+          color: 'var(--green-text)',
+          // Ореол — переменная со своим назначением: --tint-green это 10% подложка, а
+          // свечению нужно 50%, ради него и заведена --green-glow.
+          textShadow: '0 0 10px var(--green-glow)',
         }}
       >
-        <div style={{ fontSize: '3rem', lineHeight: 1 }}>
-          <Icon name="bolt" size={40} />
-        </div>
-        <h2 id="offline-title" style={{ fontSize: '1.4rem', color: 'var(--accent-color)' }}>
-          С ВОЗВРАЩЕНИЕМ!
-        </h2>
+        +<Num>{formatNumber(offlineReport.earned, notation)}</Num> Токенов
+      </div>
 
-        <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>
-          Пока тебя не было (
-          <span style={{ color: 'var(--gold)', fontWeight: 700 }}>
-            {formatDuration(offlineReport.seconds)}
-          </span>
-          ), твои ИИ-Агенты усердно трудились и заработали:
-        </div>
-
-        {isCapped && (
-          <div
-            style={{
-              fontSize: '0.8rem',
-              color: 'var(--gold)',
-              backgroundColor: 'var(--tint-gold)',
-              border: '1px solid var(--gold)',
-              borderRadius: '4px',
-              padding: '6px 10px',
-              maxWidth: '420px',
-            }}
-          >
-            Достигнут потолок Оффлайн-дохода (<Num>{capHours}</Num> ч). Время отсутствия сверх лимита было срезано потолком.
-          </div>
-        )}
-
-        <div
-          style={{
-            fontSize: '2rem',
-            color: 'var(--green)',
-            // Ореол остаётся литералом: --tint-green — это 10% подложка, а свечению нужно 50%.
-            textShadow: '0 0 10px var(--green-glow)',
-          }}
-        >
-          +<Num>{formatNumber(offlineReport.earned, notation)}</Num> Токенов
-        </div>
-
-        {/* Кристалл дозревает по стенным часам, и в простое он единственный, кто ещё что-то
-            принёс: доход за простой бывает нулевым (например, когда все Агенты проданы), а
-            кристалл всё равно один. Молчать о нём нельзя — игрок узнал бы только по прибавке
-            к Доходу на экране и не понял бы, откуда она. Строка стоит под крупной суммой
-            Токенов и до прокручиваемого разбора: кристалл ждал именно этих часов. */}
-        {offlineReport.crystals > 0 && (
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-            За простой дозрел{' '}
-            <span style={{ color: 'var(--gold)', fontWeight: 600 }}>
-              +<Num>{formatNumber(offlineReport.crystals, notation)}</Num>{' '}
-              {formatCount(
-                offlineReport.crystals,
-                'Compute-кристалл',
-                'Compute-кристалла',
-                'Compute-кристаллов',
-                notation
-              )}
-            </span>
-          </div>
-        )}
-
-        <div
-          style={{
-            width: '100%',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '12px',
-            textAlign: 'left',
-            // minHeight: 0 обязателен: у флекс-элемента автоматический минимум равен
-            // содержимому, и без него разбор не сжимался бы, а выпирал из-под кнопки.
-            flex: 1,
-            minHeight: 0,
-            overflowY: 'auto',
-          }}
-        >
-          {labRows.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {/* Без pixel-font: в заголовке есть кириллица, а по ADR-0003 пиксельный шрифт
-                  допустим только на строках без неё. */}
-              <div style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>Кто заработал</div>
-              {labRows.map((row) => (
-                <div
-                  key={row.lab}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    padding: '6px 8px',
-                    backgroundColor: 'var(--bg-card)',
-                    borderRadius: '4px',
-                    fontSize: '0.85rem',
-                  }}
-                >
-                  <MascotSprite lab={row.lab} size={20} />
-                  {/* Подпись Лаборатории — в --text-main, а не в её фирменный цвет: самый
-                      тёмный из восьми цветов на карточке даёт 1.08:1 и просто исчезает. */}
-                  <span style={{ flex: 1, minWidth: 0, color: 'var(--text-main)' }}>
-                    {LABS[row.lab].name}
-                  </span>
-                  {/* Строка целиком из числа: пиксельный шрифт тут разрешён (ADR-0003). */}
-                  <span className="pixel-font" style={{ color: 'var(--green)', fontWeight: 600 }}>
-                    +{formatNumber(row.earned, notation)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <div style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>Теперь доступно</div>
-
-            {bestModel && (
-              <div
-                style={{
-                  padding: '8px',
-                  backgroundColor: 'var(--tint-gold)',
-                  border: '1px solid var(--gold)',
-                  borderRadius: '4px',
-                  fontSize: '0.85rem',
-                }}
-              >
-                {/* Имя Модели без pixel-font: оно склеено со словом «Агент:», а по ADR-0003
-                    пиксельный шрифт допустим только на строках без кириллицы. */}
-                <div style={{ color: 'var(--text-main)' }}>
-                  Агент: <span>{bestModel.name}</span>
-                </div>
-                <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-                  {/* После «на» 1 и 2–4 стоят в родительном: 1 Агента, 2 Агента, 5 Агентов.
-                      Форма берётся по той же нотации, что и напечатанное число, иначе на
-                      больших числах слово и цифры разъедутся. */}
-                  Хватит на <Num>{formatNumber(bestCount, notation)}</Num>{' '}
-                  {formatCount(bestCount, 'Агента', 'Агента', 'Агентов', notation)} ·{' '}
-                  {LABS[bestModel.lab].name}
-                  {bestModel.isFlagship ? ' · Флагман открывает Престиж' : ''}
-                </div>
-              </div>
+      {/* Кристалл дозревает по стенным часам, и в простое он единственный, кто ещё что-то
+          принёс: доход за простой бывает нулевым (например, когда все Агенты проданы), а
+          кристалл всё равно один. Молчать о нём нельзя — игрок узнал бы только по прибавке
+          к Доходу на экране и не понял бы, откуда она. Строка стоит под крупной суммой
+          Токенов и до прокручиваемого разбора: кристалл ждал именно этих часов. */}
+      {offlineReport.crystals > 0 && (
+        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+          За простой дозрел{' '}
+          <span style={{ color: 'var(--gold)', fontWeight: 600 }}>
+            +<Num>{formatNumber(offlineReport.crystals, notation)}</Num>{' '}
+            {formatCount(
+              offlineReport.crystals,
+              'Compute-кристалл',
+              'Compute-кристалла',
+              'Compute-кристаллов',
+              notation
             )}
+          </span>
+        </div>
+      )}
 
-            {affordableUpgrades.map((u) => (
+      {/* Разбор — левое выравнивание в центрированном окне: колонки чисел по краям от
+          центра разъезжаются, и суммы перестают выравниваться в столбик. */}
+      <div
+        style={{
+          width: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '12px',
+          textAlign: 'left',
+        }}
+      >
+        {labRows.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {/* Без pixel-font: в заголовке есть кириллица, а по ADR-0003 пиксельный шрифт
+                допустим только на строках без неё. */}
+            <div style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>Кто заработал</div>
+            {labRows.map((row) => (
               <div
-                key={u.id}
+                key={row.lab}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: '8px',
-                  padding: '8px',
+                  padding: '6px 8px',
                   backgroundColor: 'var(--bg-card)',
                   borderRadius: '4px',
                   fontSize: '0.85rem',
                 }}
               >
-                {/* Имя Апгрейда без pixel-font — та же причина, что и у Модели выше. */}
+                <MascotSprite lab={row.lab} size={20} />
+                {/* Подпись Лаборатории — в --text-main, а не в её фирменный цвет: самый
+                    тёмный из восьми цветов на карточке даёт 1.08:1 и просто исчезает. */}
                 <span style={{ flex: 1, minWidth: 0, color: 'var(--text-main)' }}>
-                  Апгрейд: <span>{u.name}</span>
+                  {LABS[row.lab].name}
                 </span>
-                <span className="pixel-font" style={{ color: 'var(--accent-color)' }}>
-                  {formatNumber(u.cost, notation)}
+                {/* Строка целиком из числа: пиксельный шрифт тут разрешён (ADR-0003). */}
+                <span className="pixel-font" style={{ color: 'var(--green)', fontWeight: 600 }}>
+                  +{formatNumber(row.earned, notation)}
                 </span>
               </div>
             ))}
-
-            {!bestModel && affordableUpgrades.length === 0 && (
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                Токенов пока не хватает ни на одну покупку — они уйдут в Агентов.
-              </div>
-            )}
           </div>
-        </div>
+        )}
 
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <div style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>Теперь доступно</div>
+
+          {bestModel && (
+            <div
+              style={{
+                padding: '8px',
+                backgroundColor: 'var(--tint-gold)',
+                border: '1px solid var(--gold)',
+                borderRadius: '4px',
+                fontSize: '0.85rem',
+              }}
+            >
+              {/* Имя Модели без pixel-font: оно склеено со словом «Агент:», а по ADR-0003
+                  пиксельный шрифт допустим только на строках без кириллицы. */}
+              <div style={{ color: 'var(--text-main)' }}>
+                Агент: <span>{bestModel.name}</span>
+              </div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                {/* После «на» 1 и 2–4 стоят в родительном: 1 Агента, 2 Агента, 5 Агентов.
+                    Форма берётся по той же нотации, что и напечатанное число, иначе на
+                    больших числах слово и цифры разъедутся. */}
+                Хватит на <Num>{formatNumber(bestCount, notation)}</Num>{' '}
+                {formatCount(bestCount, 'Агента', 'Агента', 'Агентов', notation)} ·{' '}
+                {LABS[bestModel.lab].name}
+                {bestModel.isFlagship ? ' · Флагман открывает Престиж' : ''}
+              </div>
+            </div>
+          )}
+
+          {affordableUpgrades.map((u) => (
+            <div
+              key={u.id}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '8px',
+                backgroundColor: 'var(--bg-card)',
+                borderRadius: '4px',
+                fontSize: '0.85rem',
+              }}
+            >
+              {/* Имя Апгрейда без pixel-font — та же причина, что и у Модели выше. */}
+              <span style={{ flex: 1, minWidth: 0, color: 'var(--text-main)' }}>
+                Апгрейд: <span>{u.name}</span>
+              </span>
+              <span className="pixel-font" style={{ color: 'var(--accent-color)' }}>
+                {formatNumber(u.cost, notation)}
+              </span>
+            </div>
+          ))}
+
+          {!bestModel && affordableUpgrades.length === 0 && (
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              Токенов пока не хватает ни на одну покупку — они уйдут в Агентов.
+            </div>
+          )}
+        </div>
+      </div>
+      footer={
         <button
           onClick={requestClose}
           className="pixel-btn pixel-btn-accent"
-          style={{ width: '100%', padding: '12px', fontSize: '1.1rem', marginTop: '6px', flexShrink: 0 }}
+          style={{ flex: 1, padding: '12px', fontSize: '1.1rem' }}
         >
           Забрать Токены!
         </button>
-      </div>
-    </div>
+      }
+    </ModalFrame>
   );
 };
 
@@ -1089,7 +1242,6 @@ export const PrestigeModal: React.FC = () => {
   // closing-путём, что и у остальных окон: мгновенный dismiss возвращал бы карточку в DOM
   // без последнего кадра анимации.
   const { closing, requestClose } = useModalExit(isOpen, dismiss);
-  const cardRef = useDialogFocus<HTMLDivElement>(isOpen, requestClose);
   if (!isOpen) return null;
 
   const preview = prestigePreview(state);
@@ -1143,158 +1295,18 @@ export const PrestigeModal: React.FC = () => {
   };
 
   return (
-    <>
-      <div
-        style={{
-          position: 'fixed',
-          inset: 0,
-          backgroundColor: 'var(--bg-scrim)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 60,
-        padding: '16px',
-        // Вход — существующий toast-fade, выход — тот же кадр в реверсе (только opacity,
-        // поэтому при reducedMotion картина та же, нового CSS ноль).
-        animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.2s ease-out',
-      }}
-      onClick={requestClose}
-    >
-      <div
-        ref={cardRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="prestige-title"
-        className="pixel-card"
-        style={{
-          width: '100%',
-          maxWidth: '520px',
-          maxHeight: '85vh',
-          padding: '24px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '14px',
-          border: '2px solid var(--gold)',
-          animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.2s ease-out',
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            flexShrink: 0,
-          }}
-        >
-          {/* Без pixel-font: в заголовке есть кириллица, а по ADR-0003 пиксельный шрифт
-              допустим только на строках без неё. */}
-          <h2 id="prestige-title" style={{ fontSize: '1.3rem', color: 'var(--gold)' }}>
-            <span aria-hidden="true">🚀</span> ПРЕСТИЖ
-          </h2>
-          <button
-            className="pixel-btn"
-            onClick={requestClose}
-            aria-label="Закрыть"
-            title="Закрыть"
-            style={{ padding: '4px 10px' }}
-          >
-            <Icon name="close" />
-          </button>
-        </div>
-
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '12px',
-            // minHeight: 0 обязателен: без него флекс-элемент не сожмётся ниже своего
-            // содержимого и окно выпирало бы за 85vh на низком экране.
-            flex: 1,
-            minHeight: 0,
-            overflowY: 'auto',
-          }}
-        >
-          <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>
-            Сейчас Поколение {gen.id}: {gen.name}.
-            {!preview.blocked && (
-              <>
-                {' '}
-                Престиж завершит Забег и перенесёт тебя в Поколение {nextGen.id}: {nextGen.name}.
-              </>
-            )}
-          </div>
-
-          {/* Пока Престиж невозможен, окно не обещает ни Compute, ни сгорания: и то и другое
-              было бы обещанием, которое переход не выполнит. */}
-          {preview.blocked ? (
-            <div
-              style={{
-                backgroundColor: 'var(--tint-red)',
-                border: '1px solid var(--red)',
-                borderRadius: '4px',
-                padding: '10px 12px',
-                fontSize: '0.9rem',
-                // Светлее --red намеренно: на собственной красной подложке --red тонет в
-                // заливке, а причина отказа обязана читаться.
-                color: 'var(--red-text)',
-              }}
-            >
-              Престиж сейчас невозможен. {blocked}
-            </div>
-          ) : (
-            <>
-              <div
-                style={{
-                  backgroundColor: 'var(--tint-gold)',
-                  border: '1px solid var(--gold)',
-                  borderRadius: '4px',
-                  padding: '10px 12px',
-                  display: 'flex',
-                  alignItems: 'baseline',
-                  justifyContent: 'space-between',
-                  gap: '10px',
-                }}
-              >
-                <span style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>
-                  Начислим Compute
-                </span>
-                <span style={{ fontSize: '1.6rem', color: 'var(--gold)', fontWeight: 700 }}>
-                  <Num>{`+${formatNumber(preview.gain, notation)}`}</Num>
-                </span>
-              </div>
-
-              <div style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>Сгорит:</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                {burns.map(([label, value]) => (
-                  <div
-                    key={label}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      gap: '10px',
-                      padding: '6px 8px',
-                      backgroundColor: 'var(--bg-card)',
-                      borderRadius: '4px',
-                      fontSize: '0.85rem',
-                    }}
-                  >
-                    <span style={{ color: 'var(--text-muted)' }}>{label}</span>
-                    {/* Слово рядом с числом — в Nunito: по ADR-0003 пиксельный шрифт живёт
-                        только внутри числа, поэтому Num стоит на самом числе. */}
-                    <span style={{ color: 'var(--text-main)', fontWeight: 600 }}>{value}</span>
-                  </div>
-                ))}
-              </div>
-
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                Останутся: Compute, Перки, Достижения и вся статистика за всё время.
-              </div>
-            </>
-          )}
-        </div>
-
-        <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+    <ModalFrame
+      isOpen
+      closing={closing}
+      requestClose={requestClose}
+      titleId="prestige-title"
+      tone="gold"
+      /* Разрушающее окно, поэтому рамка и заголовок золотые — тот же тон, что у Достижений
+         и экрана финала: золото в игре означает «трофей или разрушение Забега». */
+      icon={<span aria-hidden="true">🚀</span>}
+      title="Престиж"
+      footer={
+        <>
           <button className="pixel-btn" onClick={requestClose} style={{ flex: 1, padding: '12px' }}>
             Отмена
           </button>
@@ -1310,10 +1322,89 @@ export const PrestigeModal: React.FC = () => {
                 ? 'Нужен Агент Флагмана'
                 : 'Сделать Престиж!'}
           </button>
+        </>
+      }
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>
+          Сейчас Поколение {gen.id}: {gen.name}.
+          {!preview.blocked && (
+            <>
+              {' '}
+              Престиж завершит Забег и перенесёт тебя в Поколение {nextGen.id}: {nextGen.name}.
+            </>
+          )}
         </div>
+
+        {/* Пока Престиж невозможен, окно не обещает ни Compute, ни сгорания: и то и другое
+            было бы обещанием, которое переход не выполнит. */}
+        {preview.blocked ? (
+          <div
+            style={{
+              backgroundColor: 'var(--tint-red)',
+              border: '1px solid var(--red)',
+              borderRadius: '4px',
+              padding: '10px 12px',
+              fontSize: '0.9rem',
+              // Светлее --red намеренно: на собственной красной подложке --red тонет в
+              // заливке, а причина отказа обязана читаться.
+              color: 'var(--red-text)',
+            }}
+          >
+            Престиж сейчас невозможен. {blocked}
+          </div>
+        ) : (
+          <>
+            <div
+              style={{
+                backgroundColor: 'var(--tint-gold)',
+                border: '1px solid var(--gold)',
+                borderRadius: '4px',
+                padding: '10px 12px',
+                display: 'flex',
+                alignItems: 'baseline',
+                justifyContent: 'space-between',
+                gap: '10px',
+              }}
+            >
+              <span style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>
+                Начислим Compute
+              </span>
+              <span style={{ fontSize: '1.6rem', color: 'var(--gold)', fontWeight: 700 }}>
+                <Num>{`+${formatNumber(preview.gain, notation)}`}</Num>
+              </span>
+            </div>
+
+            <div style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>Сгорит:</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {burns.map(([label, value]) => (
+                <div
+                  key={label}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: '10px',
+                    padding: '6px 8px',
+                    backgroundColor: 'var(--bg-card)',
+                    borderRadius: '4px',
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  <span style={{ color: 'var(--text-muted)' }}>{label}</span>
+                  {/* Слово рядом с числом — в Nunito: по ADR-0003 пиксельный шрифт живёт
+                      только внутри числа, поэтому Num стоит на самом числе. */}
+                  <span style={{ color: 'var(--text-main)', fontWeight: 600 }}>{value}</span>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              Останутся: Compute, Перки, Достижения и вся статистика за всё время.
+            </div>
+          </>
+        )}
       </div>
-    </div>
-    </>
+    </ModalFrame>
   );
 };
 
@@ -1345,7 +1436,6 @@ export const FinaleModal: React.FC = () => {
     dismissFinale();
     setConfirmReset(false);
   });
-  const cardRef = useDialogFocus<HTMLDivElement>(isOpen, requestClose);
 
   if (!isOpen) return null;
 
@@ -1361,194 +1451,150 @@ export const FinaleModal: React.FC = () => {
   };
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        backgroundColor: 'var(--bg-scrim)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 65,
-        padding: '16px',
-        animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.2s ease-out',
-      }}
-      onClick={requestClose}
-    >
-      <div
-        ref={cardRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="finale-title"
-        className="pixel-card"
-        style={{
-          position: 'relative',
-          width: '100%',
-          maxWidth: '520px',
-          maxHeight: '90vh',
-          padding: '24px',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap: '14px',
-          border: '2px solid var(--gold)',
-          boxShadow: '0 0 24px rgba(251, 191, 36, 0.25)',
-          animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.2s ease-out',
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <button
-          onClick={requestClose}
-          className="pixel-btn"
-          style={{
-            position: 'absolute',
-            top: '12px',
-            right: '12px',
-            padding: '4px 8px',
-            fontSize: '0.9rem',
-            color: 'var(--text-muted)',
-          }}
-          aria-label="Закрыть"
-          title="Закрыть"
-        >
-          <Icon name="close" />
-        </button>
+    <ModalFrame
+      isOpen
+      closing={closing}
+      requestClose={requestClose}
+      titleId="finale-title"
+      tone="gold"
+      icon={<Icon name="trophy" size={22} />}
+      title="Финал контента"
+      centered
+      footer={
+        <>
+          <button
+            onClick={handleResetClick}
+            className={`pixel-btn ${confirmReset ? '' : 'pixel-btn-accent'}`}
+            style={{
+              flex: 1,
+              padding: '10px 14px',
+              fontSize: '0.95rem',
+              ...(confirmReset
+                ? {
+                    backgroundColor: 'var(--red-solid)',
+                    borderColor: 'var(--red)',
+                    // --text-main на --red-solid держит 6.4:1, а насыщенная заливка не
+                    // требует чистого белого: тот же тёплый белый, что и у всех кнопок.
+                    color: 'var(--text-main)',
+                  }
+                : {}),
+            }}
+          >
+            {confirmReset ? 'Точно начать заново? (весь прогресс сбросится)' : 'Начать заново'}
+          </button>
 
-        <div style={{ fontSize: '2.5rem', lineHeight: 1 }}>
-          <Icon name="trophy" size={38} />
-        </div>
-
-        <h2 id="finale-title" style={{ fontSize: '1.4rem', color: 'var(--gold)' }}>
-          ФИНАЛ КОНТЕНТА
-        </h2>
-
-        {/* Что произошло */}
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-main)' }}>
-            Последнее Поколение пройдено, все Модели собраны!
-          </div>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Твоя империя искусственного интеллекта достигла вершины доступных технологий.
-          </div>
-        </div>
-
-        {/* Честная строка про будущее по CONTEXT.md */}
-        <div
-          style={{
-            width: '100%',
-            padding: '8px 12px',
-            backgroundColor: 'var(--tint-gold)',
-            border: '1px solid var(--gold)',
-            borderRadius: '4px',
-            fontSize: '0.85rem',
-            color: 'var(--gold)',
-            textAlign: 'center',
-          }}
-        >
-          Продолжение выйдет с новыми реальными Моделями.
-        </div>
-
-        {/* Итоги забега */}
-        <div
-          style={{
-            width: '100%',
-            display: 'grid',
-            gridTemplateColumns: 'repeat(2, 1fr)',
-            gap: '8px',
-            textAlign: 'left',
-          }}
-        >
-          <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Поколение</div>
-            <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--accent-color)' }}>
-              Поколение <Num>{state.generation + 1}</Num>: {gen.name}
-            </div>
-          </div>
-
-          <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Престижей за всё время</div>
-            <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>
-              <Num>{state.prestiges}</Num>
-            </div>
-          </div>
-
-          <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Токенов всего</div>
-            <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--green)' }}>
-              <Num>{formatNumber(state.totalTokens, notation)}</Num>
-            </div>
-          </div>
-
-          <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Compute в запасе</div>
-            <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--accent-color)' }}>
-              <Num>{formatNumber(state.compute, notation)}</Num>
-            </div>
-          </div>
-
-          <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Достижений</div>
-            <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--gold)' }}>
-              <Num>{state.achievements.length}</Num> / <Num>{ACHIEVEMENTS.length}</Num>
-            </div>
-          </div>
-
-          <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Реплик в Переписке</div>
-            <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>
-              <Num>{(state.quipsSeen ?? []).length}</Num>
-            </div>
-          </div>
-        </div>
-
-        {/* Кнопки действий и рестарта */}
-        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center' }}>
-            {confirmReset
-              ? 'Весь прогресс будет сброшен! Забег начнётся с первого Поколения.'
-              : 'Хочешь пройти путь с начала? Можно начать заново.'}
-          </div>
-
-          <div style={{ display: 'flex', gap: '8px' }}>
+          {confirmReset ? (
             <button
-              onClick={handleResetClick}
-              className={`pixel-btn ${confirmReset ? '' : 'pixel-btn-accent'}`}
-              style={{
-                flex: 1,
-                padding: '10px 14px',
-                fontSize: '0.95rem',
-                ...(confirmReset
-                  ? {
-                      backgroundColor: 'var(--red-solid)',
-                      borderColor: 'var(--red)',
-                      color: '#ffffff',
-                    }
-                  : {}),
-              }}
+              onClick={() => setConfirmReset(false)}
+              className="pixel-btn"
+              style={{ padding: '10px 14px', fontSize: '0.95rem' }}
             >
-              {confirmReset ? 'Точно начать заново? (весь прогресс сбросится)' : 'Начать заново'}
+              Отмена
             </button>
+          ) : (
+            <button
+              onClick={requestClose}
+              className="pixel-btn"
+              style={{ padding: '10px 14px', fontSize: '0.95rem', color: 'var(--text-muted)' }}
+            >
+              Продолжить осмотр
+            </button>
+          )}
+        </>
+      }
+    >
+      <div style={{ fontSize: '2.2rem', lineHeight: 1 }}>
+        <Icon name="trophy" size={38} />
+      </div>
 
-            {confirmReset ? (
-              <button
-                onClick={() => setConfirmReset(false)}
-                className="pixel-btn"
-                style={{ padding: '10px 14px', fontSize: '0.95rem' }}
-              >
-                Отмена
-              </button>
-            ) : (
-              <button
-                onClick={requestClose}
-                className="pixel-btn"
-                style={{ padding: '10px 14px', fontSize: '0.95rem', color: 'var(--text-muted)' }}
-              >
-                Продолжить осмотр
-              </button>
-            )}
+      {/* Что произошло */}
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-main)' }}>
+          Последнее Поколение пройдено, все Модели собраны!
+        </div>
+        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+          Твоя империя искусственного интеллекта достигла вершины доступных технологий.
+        </div>
+      </div>
+
+      {/* Честная строка про будущее по CONTEXT.md */}
+      <div
+        style={{
+          width: '100%',
+          padding: '8px 12px',
+          backgroundColor: 'var(--tint-gold)',
+          border: '1px solid var(--gold)',
+          borderRadius: '4px',
+          fontSize: '0.85rem',
+          color: 'var(--gold)',
+          textAlign: 'center',
+        }}
+      >
+        Продолжение выйдет с новыми реальными Моделями.
+      </div>
+
+      {/* Итоги забега */}
+      <div
+        style={{
+          width: '100%',
+          display: 'grid',
+          gridTemplateColumns: 'repeat(2, 1fr)',
+          gap: '8px',
+          textAlign: 'left',
+        }}
+      >
+        <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Поколение</div>
+          <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--accent-color)' }}>
+            Поколение <Num>{state.generation + 1}</Num>: {gen.name}
+          </div>
+        </div>
+
+        <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Престижей за всё время</div>
+          <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>
+            <Num>{state.prestiges}</Num>
+          </div>
+        </div>
+
+        <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Токенов всего</div>
+          <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--green)' }}>
+            <Num>{formatNumber(state.totalTokens, notation)}</Num>
+          </div>
+        </div>
+
+        <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Compute в запасе</div>
+          <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--accent-color)' }}>
+            <Num>{formatNumber(state.compute, notation)}</Num>
+          </div>
+        </div>
+
+        <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Достижений</div>
+          {/* Числитель — ordinaryEarned, а не achievements.length: id теневых лежат в том же
+              списке, и прямой длиной счётчик на экране финала показывал «25 / 21». */}
+          <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--gold)' }}>
+            <Num>{ordinaryEarned(state)}</Num> / <Num>{ACHIEVEMENTS.length}</Num>
+          </div>
+        </div>
+
+        <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Реплик в Переписке</div>
+          <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>
+            <Num>{(state.quipsSeen ?? []).length}</Num>
           </div>
         </div>
       </div>
-    </div>
+
+      {/* Кнопки рестарта — в «ногах» каркаса, поэтому на низком экране они остаются на
+          виду, а прокручивается только итоговая таблица. */}
+      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center' }}>
+        {confirmReset
+          ? 'Весь прогресс будет сброшен! Забег начнётся с первого Поколения.'
+          : 'Хочешь пройти путь с начала? Можно начать заново.'}
+      </div>
+    </ModalFrame>
   );
 };

@@ -3,11 +3,16 @@ import {
   CLICK_COL_MAX,
   CLICK_COL_MIN,
   clickColWidth,
+  HEADER_H,
+  NARROW_MAX,
   OFFICE_COL_MIN,
   SHOP_COL_MAX,
   SHOP_COL_MIN,
   shopColWidth,
+  TAB_BAR_H,
+  TAP_MIN,
   THREE_COL_MIN,
+  TOAST_CLEARANCE,
 } from './layout';
 
 // Раскладку не проверяет ничто, кроме этих чисел, поэтому тест ловит ровно тот класс дефекта,
@@ -55,5 +60,28 @@ describe('layout', () => {
   it('reaches the former maximums on a full window', () => {
     expect(clickColWidth(1440)).toBe(CLICK_COL_MAX);
     expect(shopColWidth(1440)).toBe(SHOP_COL_MAX);
+  });
+
+  // Вертикальный ритм слоя 7 жил только в браузерных замерах, а числа обязаны держаться
+  // тестом: они стоят в трёх местах сразу (CSS-шапка, таб-бар, отступ тостов), и разъезд
+  // между ними выглядел бы как «плашка налезает на кнопку» — без единой ошибки в консоли.
+  it('orders the shell bars so none is shorter than a touch target', () => {
+    expect(TAP_MIN).toBeGreaterThanOrEqual(44);
+    expect(HEADER_H).toBeGreaterThanOrEqual(TAP_MIN);
+    expect(TAB_BAR_H).toBeGreaterThanOrEqual(TAP_MIN);
+  });
+
+  it('keeps the toast clearance clear of the bars it sits above', () => {
+    // Отступ — это воздух, а не полоса: он обязан быть положительным и меньше самой
+    // короткой полосы, иначе стопка тостов начала бы отодвигать половину экрана.
+    expect(TOAST_CLEARANCE).toBeGreaterThan(0);
+    expect(TOAST_CLEARANCE).toBeLessThan(TAP_MIN);
+  });
+
+  it('keeps the narrow breakpoint strictly inside the one-column range', () => {
+    // NARROW_MAX — порог сжатия шапки, а не порог раскладки: на 600..999 px раскладка уже
+    // одноколоночная, но шапка ещё может быть широкой. Равенство означало бы, что два разных
+    // вопроса получили один ответ.
+    expect(NARROW_MAX).toBeLessThan(THREE_COL_MIN);
   });
 });

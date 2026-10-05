@@ -6,6 +6,19 @@ const SUFFIXES = [
 ];
 
 /**
+ * Как печатается число.
+ *
+ * `'number'` — обычное число на экране: ближайшее целое под тысячей и четыре значащие цифры
+ * в ярусах. `'price'` — цена, то есть число, за которым стоит обещание: из кошелька вычтут
+ * ровно столько, сколько показано, или больше.
+ *
+ * Режим один на оба вызова (`formatNumber` и `formatCount`), потому что склонение обязано
+ * считаться по той же записи, которую игрок видит: цена «2» читается как «2 Токена», и «1 Токен»
+ * рядом с ней было бы второй неправдой на той же строке.
+ */
+export type PrintMode = 'number' | 'price';
+
+/**
  * Разбор числа ровно так, как его напечатает `formatNumber`: мантисса, число знаков после
  * запятой и суффикс яруса.
  *
@@ -27,11 +40,54 @@ interface Presented {
   overflow: boolean;
 }
 
-function present(abs: number, notation: Notation): Presented {
-  const exp = Math.floor(Math.log10(abs));
+/** Порядок величины, отдельно от `present`: перенос яруса и научная запись берут его отсюда. */
+const order = (abs: number) => Math.floor(Math.log10(abs));
+
+/** Знаков после запятой в научной записи: столько же, сколько у переполненной мантиссы. */
+const SCI_DECIMALS = 2;
+
+/**
+ * Округление вверх до печатаемой точности — единственное отличие режима `'price'`.
+ *
+ * Именно вверх, а не к ближайшему: цена, срезанная вниз, обещает дешёвую покупку, которой не
+ * будет. Кнопка «Купить ×1 (10)» при цене 10,5 отнимала 10,5, и игрок с десятью Токенами в
+ * кошельке нажимал на неё и ничего не получал. Ошибка в другую сторону (показано 11, списано
+ * 10,5) стоит одного Токена и не ломает покупку.
+ */
+const ceilTo = (mantissa: number, decimals: number): number =>
+  Math.ceil(mantissa * Math.pow(10, decimals)) / Math.pow(10, decimals);
+
+/**
+ * Стоит ли мантисса ровно на печатаемой сетке — та же осторожность, что и под тысячей, только
+ * для яруса. Цена в 16,5 миллиона приходит из движка как 16500000,000000002, и округление вверх
+ * напечатало бы «16,51 M» — на десять тысяч Токенов дороже настоящего. Порог — половина шага
+ * double на этом масштабе, как и в разборе под тысячей.
+ */
+const exactAt = (value: number, decimals: number): boolean =>
+  Math.abs(value - Number(value.toFixed(decimals))) <=
+  Number.EPSILON * Math.max(Math.abs(value), 1) * 4;
+
+/**
+ * Научная запись: мантисса 1..10 и её порядок.
+ *
+ * Отдельной функцией потому, что в ней сходятся оба выхода из `present` — нотация `sci` и
+ * выход за лестницу суффиксов, — и правило округления вверх у них одно и то же: переноса
+ * мантиссы через 10 не бывает, иначе «10,00e300» означало бы уже 1e301.
+ */
+function presentSci(abs: number, mode: PrintMode): { mantissa: number; exp: number } {
+  const exp = order(abs);
+  const mantissa = abs / Math.pow(10, exp);
+  if (mode !== 'price') return { mantissa, exp };
+  const raised = exactAt(mantissa, SCI_DECIMALS) ? mantissa : ceilTo(mantissa, SCI_DECIMALS);
+  return raised >= 10 ? { mantissa: raised / 10, exp: exp + 1 } : { mantissa: raised, exp };
+}
+
+function present(abs: number, notation: Notation, mode: PrintMode = 'number'): Presented {
   if (notation === 'sci') {
-    return { mantissa: abs / Math.pow(10, exp), decimals: 2, exp, suffix: '', overflow: false };
+    const { mantissa, exp } = presentSci(abs, mode);
+    return { mantissa, decimals: SCI_DECIMALS, exp, suffix: '', overflow: false };
   }
+  const exp = order(abs);
   let tier = Math.floor(exp / 3);
   let mantissa = abs / Math.pow(1000, tier);
   if (mantissa >= 999.95 && tier + 1 < SUFFIXES.length) {
@@ -39,10 +95,23 @@ function present(abs: number, notation: Notation): Presented {
     mantissa /= 1000;
   }
   if (tier >= SUFFIXES.length) {
-    return { mantissa: abs / Math.pow(10, exp), decimals: 2, exp, suffix: '', overflow: true };
+    const over = presentSci(abs, mode);
+    return { ...over, decimals: SCI_DECIMALS, suffix: '', overflow: true };
   }
   // Не больше двух знаков после запятой: третий в этой игре — шум, а не точность.
-  return { mantissa, decimals: mantissa >= 100 ? 1 : 2, exp, suffix: SUFFIXES[tier], overflow: false };
+  const decimals = mantissa >= 100 ? 1 : 2;
+  if (mode !== 'price') return { mantissa, decimals, exp, suffix: SUFFIXES[tier], overflow: false };
+  const raised = exactAt(mantissa, decimals) ? mantissa : ceilTo(mantissa, decimals);
+  if (raised >= 1000) {
+    // Округление вверх дотолкнуло мантиссу до 1000: ярус поднимается, иначе подпись показала бы
+    // «1000,0 K» вместо «1,00 M» — это и на порядок больше настоящего, и не число из лестницы.
+    if (tier + 1 < SUFFIXES.length) {
+      return { mantissa: raised / 1000, decimals: 2, exp: exp + 3, suffix: SUFFIXES[tier + 1], overflow: false };
+    }
+    const over = presentSci(abs, mode);
+    return { ...over, decimals: SCI_DECIMALS, suffix: '', overflow: true };
+  }
+  return { mantissa: raised, decimals, exp, suffix: SUFFIXES[tier], overflow: false };
 }
 
 /**
@@ -50,7 +119,7 @@ function present(abs: number, notation: Notation): Presented {
  * которому игрок верит: склонение числительного обязано считаться по нему, иначе «2»
  * на экране получало бы «Токенов».
  */
-function presentBelowThousand(a: number) {
+function presentBelowThousand(a: number, mode: PrintMode = 'number') {
   const nearest = Math.round(a);
   // Значение, отличающееся от целого меньше, чем на эпсилон double, — это целое, просто
   // записанное неточно. Так приходит результат вычитания: 1.9999999999999998 печатать
@@ -59,23 +128,29 @@ function presentBelowThousand(a: number) {
   if (a === nearest || Math.abs(a - nearest) <= Number.EPSILON * Math.max(nearest, 1) * 4) {
     return { text: String(nearest), whole: nearest };
   }
+  // Цена печатается целым вверх на любой высоте: под десятью дробь была бы точна, но
+  // «Купить ×1 (7,5)» — цена, обещанная с пол-Токена точностью, а правило «вверх» одно.
+  if (mode === 'price') {
+    const up = Math.ceil(a);
+    return { text: String(up), whole: up };
+  }
   const whole = Math.floor(a);
   // Не больше одного знака после запятой: под десятью дробь ещё что-то значит, дальше
   // игрок видит только целое и не должен платить за точность, которой нет.
   return { text: a < 10 ? a.toFixed(1) : String(whole), whole };
 }
 
-export function formatNumber(n: number, notation: Notation = 'short'): string {
+export function formatNumber(n: number, notation: Notation = 'short', mode: PrintMode = 'number'): string {
   if (!Number.isFinite(n)) return '∞';
   const sign = n < 0 ? '-' : '';
   const a = Math.abs(n);
   if (a < 1000) {
-    const { text } = presentBelowThousand(a);
+    const { text } = presentBelowThousand(a, mode);
     // Разделитель выбирает запись, а не функция: короткая печатает по-русски, научная — с
     // точкой. Раньше этот выход стоял до ветвления по нотации, и запятая просачивалась в sci.
     return notation === 'sci' ? sign + text : sign + text.replace('.', ',');
   }
-  const p = present(a, notation);
+  const p = present(a, notation, mode);
   if (p.overflow || notation === 'sci') return `${sign}${p.mantissa.toFixed(p.decimals)}e${p.exp}`;
   return `${sign}${p.mantissa.toFixed(p.decimals).replace('.', ',')} ${p.suffix}`;
 }
@@ -97,6 +172,9 @@ export function formatNumber(n: number, notation: Notation = 'short'): string {
  * это 1010, а не «1,01». Мантисса тут сжимает число только для экрана, и склонять по
  * ней значило бы написать «1,01 K Токен» вместо «1 010 Токенов». Экран и число
  * расходятся, но число — то, что declension считает.
+ *
+ * Режим печати обязателен вместе с числом: он решает, по какому целому считается форма, и
+ * без него цена «2» получила бы форму от настоящей 1,5.
  */
 export function formatCount(
   n: number,
@@ -104,9 +182,10 @@ export function formatCount(
   few: string,
   many: string,
   notation: Notation = 'short',
+  mode: PrintMode = 'number',
 ): string {
   // Math.abs: в JS остаток от отрицательного числа отрицателен, и -1 ушёл бы в `many`.
-  const { unit, tens } = declensionOf(Math.abs(n), notation);
+  const { unit, tens } = declensionOf(Math.abs(n), notation, mode);
   if (unit === 1 && tens !== 11) return one;
   if (unit >= 2 && unit <= 4 && (tens < 12 || tens > 14)) return few;
   return many;
@@ -119,15 +198,15 @@ export function formatCount(
  * последние цифры напечатанной записи: `present` уже знает мантиссу и число знаков
  * после запятой для этой нотации, то есть ровно то, что увидит игрок.
  */
-function declensionOf(abs: number, notation: Notation) {
+function declensionOf(abs: number, notation: Notation, mode: PrintMode) {
   // Под тысячей берётся то же целое, что печатает `formatNumber`: у результата вычитания
   // «1.9999999999999998» на экране стоит «2», и «2 Токенов» было бы неверно.
   if (abs < 1000) {
-    const { whole } = presentBelowThousand(abs);
+    const { whole } = presentBelowThousand(abs, mode);
     return { unit: whole % 10, tens: whole % 100 };
   }
   if (abs <= Number.MAX_SAFE_INTEGER) return { unit: abs % 10, tens: abs % 100 };
-  const p = present(abs, notation);
+  const p = present(abs, notation, mode);
   const printed = p.mantissa.toFixed(p.decimals).replace('.', '').replace(/^0+(?=\d)/, '');
   return {
     unit: Number(printed.slice(-1)),

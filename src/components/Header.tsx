@@ -48,7 +48,6 @@ export const Header: React.FC<HeaderProps> = ({
       <header
         className="header-bar"
         style={{
-          padding: '10px 16px',
           backgroundColor: 'var(--bg-panel)',
           borderBottom: '2px solid var(--border)',
         }}
@@ -67,15 +66,21 @@ export const Header: React.FC<HeaderProps> = ({
             className="header-gen-badge"
             title={`Поколение ${gen.id}: ${gen.name} (${gen.period})`}
             style={{
-              fontSize: "0.85rem",
+              fontSize: "var(--text-sm)",
               backgroundColor: "var(--tint-accent)",
               border: "1px solid var(--border-strong)",
               color: "var(--text-main)",
-              padding: "2px 8px",
+              padding: "var(--space-1) var(--space-2)",
               borderRadius: "4px",
               animation: "toast-fade 0.15s ease-out",
               whiteSpace: "nowrap",
-              flexShrink: 0,
+              // Единственная сжимаемая часть шапки: на 320 px всё остальное уже не помещается,
+              // а обрезанный бейдж обрёл бы название Поколения, и кнопка Настроек уехала бы
+              // за край окна вместе с правой группой.
+              flexShrink: 1,
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
             }}
           >
             <span className="tab-badge--pulse" style={{ display: "inline-block" }}>
@@ -92,11 +97,11 @@ export const Header: React.FC<HeaderProps> = ({
             <span
               className="header-compute-badge"
               style={{
-                fontSize: "0.85rem",
+                fontSize: "var(--text-sm)",
                 backgroundColor: "var(--tint-gold)",
                 border: "1px solid var(--gold)",
                 color: "var(--gold)",
-                padding: "2px 8px",
+                padding: "var(--space-1) var(--space-2)",
                 borderRadius: "4px",
                 animation: "toast-fade 0.15s ease-out",
                 whiteSpace: "nowrap",
@@ -134,7 +139,15 @@ export const Header: React.FC<HeaderProps> = ({
             aria-label={`Достижения: ${unlockedAchCount} из ${totalAchCount}`}
           >
             <Icon name="trophy" />
-            <Num>{unlockedAchCount}</Num>/<Num>{totalAchCount}</Num>
+            {/* Полная подпись «3/21» и короткая «3»: на узком экране знаменатель не влезает
+                в один ряд с логотипом и тремя кнопками, а он всё равно не меняется — число
+                достижений постоянно и живёт в окне. */}
+            <span className="header-ach-full">
+              <Num>{unlockedAchCount}</Num>/<Num>{totalAchCount}</Num>
+            </span>
+            <span className="header-ach-short">
+              <Num>{unlockedAchCount}</Num>
+            </span>
           </button>
 
           <button
