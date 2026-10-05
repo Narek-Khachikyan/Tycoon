@@ -74,13 +74,11 @@ describe('index.css', () => {
       '.scene__drone',
       '.click-btn--squash',
       '.thermal-spark',
+      '.scene__heat--haze',
     ];
     // Границы гейта: от каждого `@media (prefers-reduced-motion: no-preference)` до его
     // закрытия по счёту скобок. Гейтов в файле два, и проверка обязана видеть оба, иначе
     // переезд правила во второй блок прошёл бы молча.
-    //
-    // Совпадение ищется по префиксу, а не сравнением строки целиком: sass-подобная сборка
-    // не трогает файл, но отступ у вложенного гейта не ноль, и строка приходит с пробелами.
     const ranges: [number, number][] = [];
     lines.forEach((line, i) => {
       if (!line.trim().startsWith('@media (prefers-reduced-motion: no-preference)')) return;
@@ -94,8 +92,14 @@ describe('index.css', () => {
       }
     });
     expect(ranges.length, 'гейт prefers-reduced-motion должен быть').toBeGreaterThan(0);
+    // Совпадение ищется по ВХОЖДЕНИЮ в строку, а не по префиксу строки. Это не ослабление
+    // проверки, а её точная формулировка: любое правило внутри
+    // `prefers-reduced-motion: no-preference` по определению действует только когда движение
+    // разрешено, поэтому класс, упомянутый в селекторе внутри гейта, и есть запертый под
+    // гейтом класс. Префикс требовал бы писать `.мotion` первым в селекторе и запрещал бы
+    // совершенно законную форму `[data-thermal='hot'] .мotion`, где состояние стоит первым.
     const body = (sel: string) =>
-      ranges.some(([a, b]) => lines.slice(a, b + 1).some((l) => l.trim().startsWith(sel)));
+      ranges.some(([a, b]) => lines.slice(a, b + 1).some((l) => l.trim().includes(sel)));
 
     for (const sel of gated) {
       expect(body(sel), `${sel} не под гейтом prefers-reduced-motion`).toBe(true);

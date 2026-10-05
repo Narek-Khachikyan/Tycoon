@@ -153,6 +153,13 @@ body {
   to { transform: translate3d(var(--heat-tremor), 0, 0); }
 }
 
+/* Дрожащий воздух над нагревателем. `alternate` вместо полного цикла: полосы туда и обратно
+   читаются как воздух, а полный цикл — как лента, которую протянули и отпустили. */
+@keyframes heat-haze {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(2px, -3px, 0); }
+}
+
 .pixel-font {
   font-family: 'Pixelify Sans', 'Nunito', sans-serif;
 }
@@ -614,6 +621,27 @@ body {
   inset: 0;
   pointer-events: none;
   z-index: 1;
+}
+
+/* Жар на площади Сцены.
+   Прозрачность берётся из `--heat-glow`: та же шкала, что у свечения рамки, поэтому
+   картина и её край греются по одному числу и не могут разойтись. Нижняя граница не ноль:
+   при 0.35 (состояние «жарко») слой обязан быть виден, иначе нагрев читается только по
+   подписи и рамке — то есть визуально жар появлялся бы на пике, когда уже поздно. */
+.scene__heat {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: calc(var(--heat-glow, 0) * 0.8);
+  mix-blend-mode: screen;
+}
+
+/* Марево — полосы воздуха над нагревателем. Ползёт вверх и в стороны: подъём на 3 px и
+   разведение на 2 px за цикл читаются как дрожание воздуха, а большой сдвиг — как полоса,
+   едущая по кадру. Тон при этом гаснет к верху, поэтому верх картины остаётся холодным. */
+.scene__heat--haze {
+  opacity: calc(var(--heat-glow, 0) * 0.85);
 }
 
 .mote {
@@ -1253,6 +1281,17 @@ body {
   .app-root[data-thermal='hot'] .scene-plate,
   .app-root[data-thermal='stunned'] .scene-plate {
     animation: thermal-tremor 0.09s steps(2, end) infinite;
+  }
+
+  /* Марево над Сценой. Полосы ползут вверх и разводятся в стороны: подъём воздуха над
+     нагревателем — единственное движение, которое читается как жар, а не как помеха.
+     Амплитуда намеренно крошечная (3 px за 2.4 с): воздух дрожит, а не колышется, и
+     большой сдвиг смазал бы половину картины. Гейт обязателен — сдвиг по вертикали на
+     большой площади это вестибулярный триггер, в отличие от тонировки рядом, которая при
+     включённой настройке остаётся видимой. */
+  .app-root[data-thermal='hot'] .scene__heat--haze,
+  .app-root[data-thermal='stunned'] .scene__heat--haze {
+    animation: heat-haze 2.4s ease-in-out infinite alternate;
   }
 
   .pixel-btn:hover:not(:disabled) {

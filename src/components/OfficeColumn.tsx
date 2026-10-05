@@ -9,6 +9,7 @@ import { MascotSprite } from './MascotSprite';
 import { Num } from './Num';
 import { SceneDrone, SceneGlitchBand, SceneGlitchSwarm } from './SceneEvents';
 import { OFFICE_COL_MIN } from '../layout';
+import { sceneFilter, sceneFloorGradient, sceneGrade, sceneHeatLayers } from '../render/sceneGrade';
 
 // Сцен четыре, по два Поколения на каждую (ADR-0002), поэтому индекс Сцены —
 // floor(Поколение / 2). Список имён выводится из количества, а не дублируется руками:
@@ -78,8 +79,7 @@ const MOTES = Array.from({ length: MOTE_MAX }, (_, i) => {
   };
 });
 
-const moteStyle = (i: number): React.CSSProperties =>
-  ({
+const moteStyle = (i: number): React.CSSProperties =>  ({
     left: MOTES[i].left,
     bottom: MOTES[i].bottom,
     width: MOTES[i].size,
@@ -98,6 +98,27 @@ const moteCount = (agents: number): number => {
   return Math.round(MOTE_MIN + (MOTE_MAX - MOTE_MIN) * full);
 };
 
+/**
+ * Стиль картинки Сцены.
+ *
+ * Общая функция, потому что при кроссфейде рисуются две копии одной и той же сцены, и
+ * разъезд оформления между ними был бы виден прямо в момент Престижа — там, где игрок
+ * смотрит. Фильтр передаётся параметром: у нижнего кадра он один, у верхнего другой.
+ */
+const sceneImgStyle = (filter: string): React.CSSProperties => ({
+  position: 'absolute',
+  inset: 0,
+  width: '100%',
+  height: '100%',
+  objectFit: 'cover',
+  objectPosition: 'center',
+  display: 'block',
+  // Арт 384×256 и растягивается нецелым кратным: без этого он читался бы как мыло.
+  imageRendering: 'pixelated',
+  userSelect: 'none',
+  filter,
+});
+
 export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const state = useGameStore((s) => s.state);
   const requestPrestige = useGameStore((s) => s.requestPrestige);
@@ -110,6 +131,12 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
   const finale = isContentFinale(state);
 
   const sceneIndex = Math.min(Math.floor(state.generation / 2), SCENE_COUNT - 1);
+
+  // Художественный режим Сцены и жар поверх неё. Оба считаются здесь, а не в разметке:
+  // значения меняются каждый тик, и любое из них в состоянии означало бы второй источник
+  // правды о том, как выглядит кадр.
+  const grade = sceneGrade(sceneIndex);
+  const heat = sceneHeatLayers();
 
   // Кроссфейд Сцены: предыдущий кадр лежит под новым, входящий проявляется
   // opacity 0→1 за 0.4s (класс scene-crossfade--in, только opacity — разрешена
@@ -297,18 +324,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
               alt=""
               draggable={false}
               aria-hidden="true"
-              style={{
-                position: 'absolute',
-                inset: 0,
-                width: '100%',
-                height: '100%',
-                objectFit: 'cover',
-                objectPosition: 'center',
-                display: 'block',
-                // Арт 384×256 и растягивается нецелым кратным: без этого он читался бы как мыло.
-                imageRendering: 'pixelated',
-                userSelect: 'none',
-              }}
+              style={sceneImgStyle(sceneFilter(sceneGrade(sceneShown.prev)))}
             />
             <img
               className="scene__img scene-crossfade--in"
@@ -321,17 +337,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
                 if (e.animationName !== 'scene-crossfade-in') return;
                 setSceneShown((s) => (s.prev < 0 ? s : { prev: -1, curr: s.curr }));
               }}
-              style={{
-                position: 'absolute',
-                inset: 0,
-                width: '100%',
-                height: '100%',
-                objectFit: 'cover',
-                objectPosition: 'center',
-                display: 'block',
-                imageRendering: 'pixelated',
-                userSelect: 'none',
-              }}
+              style={sceneImgStyle(sceneFilter(grade))}
             />
           </>
         ) : (
@@ -340,20 +346,23 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
             src={SCENE_SRC[sceneShown.curr]}
             alt=""
             draggable={false}
-            style={{
-              position: 'absolute',
-              inset: 0,
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
-              objectPosition: 'center',
-              display: 'block',
-              // Арт 384×256 и растягивается нецелым кратным: без этого он читался бы как мыло.
-              imageRendering: 'pixelated',
-              userSelect: 'none',
-            }}
+            style={sceneImgStyle(sceneFilter(grade))}
           />
         )}
+
+        {/* Жар на площади Сцены. Прозрачность обоих слоёв ставит CSS из `--heat-glow`,
+            поэтому здесь только сами градиенты: одна шкала нагрева на весь интерфейс.
+            Слои лежат под HUD и под Маскотами — жар заливает комнату, а не подписи на ней. */}
+        <div
+          className="scene__heat"
+          aria-hidden="true"
+          style={{ backgroundImage: heat.tint }}
+        />
+        <div
+          className="scene__heat scene__heat--haze"
+          aria-hidden="true"
+          style={{ backgroundImage: heat.haze }}
+        />
 
         {/* Полосы прижаты к верхнему краю Сцены общей обёрткой: HUD и полоса Глюков
             стоят одна под другой, а высоты HUD никто не знает наперёд, поэтому её измерять
@@ -492,7 +501,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
             inset: 0,
             zIndex: 1,
             pointerEvents: 'none',
-            background: 'linear-gradient(to top, var(--bg-scrim), transparent 38%)',
+            background: sceneFloorGradient(grade),
           }}
         />
 
