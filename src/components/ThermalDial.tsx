@@ -30,14 +30,39 @@ export const ThermalDial: React.FC = () => {
     setTemp(((e.clientX - rect.left) / rect.width) * TEMP_MAX);
   };
 
+  /**
+   * Клавиатура шкалы.
+   *
+   * Ctrl обязателен: без него стрелки меняли бы Температуру на 8% за нажатие, и игрок,
+   * прокручивающий страницу стрелками над шкалой, сдвигал бы её вместо прокрутки. Это
+   * требование role=slider в спецификации ARIA, и оно же снимает ловушку.
+   *
+   * Shift — крупный шаг, чтобы перебрать шкалу грубо, не нажимая двадцать раз.
+   */
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    // Шаг клавиши — TEMP_MAX / 20: двадцать положений на всю шкалу дают и точную
-    // доводку мышью, и осмысленный набор стрелками, а не забытый счётчик.
-    const step = TEMP_MAX / 20;
-    if (e.key === 'ArrowRight' || e.key === 'ArrowUp') { setTemp(read.temp + step); e.preventDefault(); }
-    else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') { setTemp(read.temp - step); e.preventDefault(); }
-    else if (e.key === 'Home') { setTemp(0); e.preventDefault(); }
-    else if (e.key === 'End') { setTemp(TEMP_MAX); e.preventDefault(); }
+    if (!e.ctrlKey && !e.metaKey) return;
+    const fine = TEMP_MAX / 20;
+    const coarse = TEMP_MAX / 4;
+    const step = e.shiftKey ? coarse : fine;
+    switch (e.key) {
+      case 'ArrowRight':
+      case 'ArrowUp':
+        setTemp(read.temp + step);
+        break;
+      case 'ArrowLeft':
+      case 'ArrowDown':
+        setTemp(read.temp - step);
+        break;
+      case 'Home':
+        setTemp(0);
+        break;
+      case 'End':
+        setTemp(TEMP_MAX);
+        break;
+      default:
+        return;
+    }
+    e.preventDefault();
   };
 
   const status = read.stunned
@@ -75,7 +100,8 @@ export const ThermalDial: React.FC = () => {
           aria-valuemin={0}
           aria-valuemax={TEMP_MAX}
           aria-valuenow={Number(read.temp.toFixed(2))}
-          aria-valuetext={`${read.temp.toFixed(2)}, Доход ×${read.mult.toFixed(2)}`}
+          aria-valuetext={`${read.temp.toFixed(2)} из ${TEMP_MAX}, Доход ×${read.mult.toFixed(2)}, ${status}`}
+          aria-describedby="thermal-help"
           onPointerDown={(e) => {
             e.currentTarget.setPointerCapture(e.pointerId);
             setFromClientX(e);
@@ -205,6 +231,23 @@ export const ThermalDial: React.FC = () => {
               ? `галлюцинации ${Math.round(read.halluRate * 60)}/мин`
               : 'риска нет'}
         </span>
+      </div>
+
+      {/* Подсказка видна всегда, а не по наведению: игрок тянет шкалу мышью и не водит
+          курсором по подписи, поэтому наведением она не открывалась бы никогда.
+          Текст короткий и говорит ровно то, чего не видно на шкале: что ползунок делает
+          и как им управлять с клавиатуры. */}
+      <div
+        id="thermal-help"
+        style={{
+          fontSize: '0.68rem',
+          color: 'var(--text-muted)',
+          opacity: 0.8,
+          lineHeight: 1.35,
+        }}
+      >
+        Тяни мышью или жми ← → с Ctrl. Чем горячее — тем выше Доход, но копится перегрев.
+        {read.stunned ? ' Сейчас оглушение: жар сброшен, Доход вернётся.' : ''}
       </div>
     </div>
   );
