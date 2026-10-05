@@ -56,6 +56,14 @@ import { playDenySound } from '../audio/sound';
  * колонки в списке обязаны стоять вровень, и подпись, нарисованная прямо в карточке,
  * растянула бы карточку самой длинной строкой.
  */
+/**
+ * Деления рельса цели в карточке Модели.
+ *
+ * Двенадцать, а не «сколько поместится»: число делений — это разрешение шкалы, и оно должно
+ * быть одинаковым на всех Моделях, иначе сравнивать карточки между собой нечем.
+ */
+const GOAL_TICKS = Array.from({ length: 12 }, (_, i) => i);
+
 const LAB_BADGE: Record<LabId, string> = {
   openai: 'OAI',
   anthropic: 'ANT',
@@ -532,6 +540,11 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               // ниже показывает, сколько не хватает, а полоса показывает, как близко цель:
               // одно без другого игроку не сообщает, что цель достижима.
               const missingShare = progressToNextAgent(state, m);
+              // Деления рельса. Двенадцать, а не десять: при десяти на Моделях ранга 1 шаг
+              // заметно грубее, чем у поздних, и две соседние карточки отличались бы на одно
+              // деление — глаз переставал бы их различать. Точное число читается в подписи
+              // для скринридера, поэтому рельс округляет, а не притворяется точным.
+              const goalTicks = Math.round((1 - missingShare) * GOAL_TICKS.length);
 
               // Прогресс до синергий — чистый derived render из состояния: число Агентов
               // каждой Лаборатории через labAgents, без нового состояния и без таймеров.
@@ -567,6 +580,34 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                               <Icon name="crown" size={13} />
                             </span>
                           )}
+                          {/* Отметка справки — квадратная, а не пилюля и не строка на всю
+                              ширину: пять таких строк подряд превращали правую колонку в
+                              список одинаковых плашек. Имя источника вынесено на вкладку,
+                              здесь остаётся знак и полное имя для скринридера. */}
+                          <button
+                            onClick={() => toggleAA(m.id)}
+                            aria-expanded={isAAOpen}
+                            aria-controls={`aa-${m.id}`}
+                            id={`aa-toggle-${m.id}`}
+                            aria-label={`Справка Artificial Analysis: ${m.name}`}
+                            title="Справка Artificial Analysis"
+                            style={{
+                              flexShrink: 0,
+                              width: '20px',
+                              height: '20px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              padding: 0,
+                              cursor: 'pointer',
+                              background: isAAOpen ? 'var(--tint-accent)' : 'none',
+                              border: '1px solid var(--border)',
+                              borderRadius: '3px',
+                              color: 'var(--accent-color)',
+                            }}
+                          >
+                            <Icon name="info" size={12} />
+                          </button>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                           {/* Бейдж Лаборатории — три буквы фиксированной ширины. Полное имя
@@ -688,20 +729,33 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                     </button>
                   </div>
 
-                  {/* Полоса цели отвечает на «как близко», а не на «сколько не хватает», и это
+                  {/* Рельс цели отвечает на «как близко», а не на «сколько не хватает», и это
                       единственное, чего не повторяет кнопка. Подписи нет: число дефицита стоит
-                      внутри кнопки, а полоса показывает путь, который остался.
+                      внутри кнопки, а рельс показывает путь, который остался.
 
-                      Ширина целым процентами и без перехода: магазин перерисовывается двадцать
-                      раз в секунду, а переход на ширину, который перезапускался бы каждый кадр,
-                      тянул бы заливку позади настоящей доли и перезапускал бы анимацию на ровном
-                      месте. */}
+                      Именно рельс, а не сплошная полоса: пять одинаковых заливок во всю ширину
+                      карточки читались как пять копий одного и того же блока и забивали собой
+                      весь магазин. Деления дают то же самое число, но каждая карточка выглядит
+                      по-своему — по количеству заполненных делений глаз сравнивает модели между
+                      собой, не читая подписей.
+
+                      Ширина делений не анимируется: магазин перерисовывается двадцать раз в
+                      секунду, и переход, перезапускаемый каждый кадр, тянул бы заливку позади
+                      настоящей доли. */}
                   <div className="model-goal">
-                    <div className="model-goal__track">
-                      <div
-                        className="model-goal__fill"
-                        style={{ width: `${Math.round((1 - missingShare) * 100)}%` }}
-                      />
+                    <div
+                      className="model-goal__track"
+                      role="img"
+                      aria-label={`до следующего Агента ${Math.round((1 - missingShare) * 100)}%`}
+                    >
+                      {GOAL_TICKS.map((_, i) => (
+                        <span
+                          key={i}
+                          className={`model-goal__tick${
+                            i < goalTicks ? ' model-goal__tick--on' : ''
+                          }${i === goalTicks - 1 ? ' model-goal__tick--goal' : ''}`}
+                        />
+                      ))}
                     </div>
                   </div>
                   </div>
@@ -747,46 +801,20 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                     </div>
                   )}
 
-                  {/* Справка AA переключатель */}
-                  {/* Волосяная линия остаётся литералом: 6% белого — это заведомо слабее
-                     любой ступени лестницы рамок, и --border здесь превратил бы её в
-                     самостоятельную рамку. */}
-                  <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '6px' }}>
-                    {/* Кнопка, а не div с обработчиком: раскрытие должно быть достижимо с
-                        клавиатуры и обязано объявлять состояние. Имя Artificial Analysis остаётся
-                        видимым текстом — атрибуция обязательна (ADR-0001). */}
-                    <button
-                      onClick={() => toggleAA(m.id)}
-                      aria-expanded={isAAOpen}
-                      aria-controls={`aa-${m.id}`}
-                      id={`aa-toggle-${m.id}`}
-                      style={{
-                        width: '100%',
-                        background: 'none',
-                        border: 'none',
-                        padding: 0,
-                        fontSize: '0.75rem',
-                        color: 'var(--accent-color)',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: '8px',
-                      }}
-                    >
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <Icon name="info" size={13} />
-                        Справка Artificial Analysis
-                      </span>
-                      <span>{isAAOpen ? '▲ скрыть' : '▼ подробнее'}</span>
-                    </button>
+                  {/* Справка AA. Раньше подпись «Справка Artificial Analysis / подробнее»
+                      повторялась в каждой карточке, и на экране их было пять подряд: пять
+                      одинаковых строк с одинаковым треугольником. Теперь в карточке остаётся
+                      квадратная отметка у имени Модели, а имя Artificial Analysis стоит один раз
+                      на всю вкладку — атрибуция по-прежнему видна в магазине (ADR-0001), но
+                      перестаёт быть пятой копией сама себя.
 
-                    {isAAOpen && (
+                      Волосяной линии над блоком больше нет: она отделяла подпись от рельса, а
+                      подписи не осталось, и в закрытом виде повисала под рельсом чужой чертой. */}
+                  {isAAOpen && (
                       <div
                         id={`aa-${m.id}`}
                         aria-labelledby={`aa-toggle-${m.id}`}
                         style={{
-                          marginTop: '6px',
                           padding: '6px 8px',
                           backgroundColor: 'var(--bg-void)',
                           borderRadius: '4px',
@@ -809,11 +837,28 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                           <div style={{ color: 'var(--green)', fontWeight: 700 }}>${m.price}/1M</div>
                         </div>
                       </div>
-                    )}
-                  </div>
+                  )}
                 </ModelRow>
               );
             })}
+
+            {/* Атрибуция один раз на вкладку, а не в каждой карточке. Пять одинаковых строк
+                «Справка Artificial Analysis» подряд читались как шум и занимали место, которое
+                отдано моделям; имя источника при этом остаётся видимым в магазине (ADR-0001),
+                и в подписи кнопки каждой карточки оно тоже есть. */}
+            <div
+              style={{
+                fontSize: '0.7rem',
+                color: 'var(--text-muted)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                paddingTop: '2px',
+              }}
+            >
+              <Icon name="info" size={12} />
+              Метрики, задержки и цены API — Artificial Analysis
+            </div>
           </div>
         )}
 
