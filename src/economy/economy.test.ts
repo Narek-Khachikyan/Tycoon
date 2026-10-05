@@ -17,7 +17,7 @@ import {
 import {
   advanceGlitches, buyLicense, buyPledge, canLicense, canPledge, covenantIncomeMult, crashAmount, glitchDrainMult, glitchPayout,
   GLITCH_CLICKS, GLITCH_FIRST_GENERATION, GLITCH_MAX_MS, GLITCH_MIN_MS, GLITCH_PAYOUT, GLITCH_PER_GLYCH, GLITCH_SLOTS, hitGlitch,
-  isPledgeActive, LICENSE_FLAGSHIP_MULT, LICENSE_INCOME_TAX, PLEDGE_GROWTH, PLEDGE_MAX, PLEDGE_UNITS, pledgeCost, popGlitch,
+  isPledgeActive, LICENSE_FLAGSHIP_MULT, LICENSE_INCOME_TAX, PLEDGE_FLAGSHIP_MULT, PLEDGE_MAX, pledgeCost, popGlitch,
   licenseCost, redEventChance, RED_TABLES, REVOKE_FLAGSHIP_MULT, revokeCost, revokeLicense, spawnGlitch, uprisingStage,
 } from './glitches';
 import { GEN_PERK_BASE_COST, GEN_PERK_STEP_COST, genPerkId, isGenPerkId, PERK_BY_ID, type PerkEffect } from './perks';
@@ -852,10 +852,12 @@ describe('glitch schedule', () => {
 describe('pledge and license', () => {
   const richUprising = (s: GameState = newGame(T0)): GameState => ({ ...rich(s, 1e12), uprising: 1, lastTick: T0 });
 
-  it('raises the pledge price ×8 per purchase and stops at the cap', () => {
+  it('climbs the flagship-denominated ladder and stops at the cap', () => {
     const s = richUprising();
-    expect(pledgeCost(s)).toBe(PLEDGE_UNITS * g0.scale);
-    expect(pledgeCost({ ...s, pledgeBought: 1 })).toBeCloseTo(pledgeCost(s) * PLEDGE_GROWTH);
+    const flag = CATALOG[s.generation].flagship.baseCost;
+    PLEDGE_FLAGSHIP_MULT.forEach((mult, i) =>
+      expect(pledgeCost({ ...s, pledgeBought: i })).toBeCloseTo(mult * flag),
+    );
     // Без Восстания покупать нечего: глушить нечего, и переход возвращает тот же объект.
     const quiet: GameState = { ...s, uprising: 0 };
     expect(buyPledge(quiet, T0)).toBe(quiet);
@@ -876,12 +878,12 @@ describe('pledge and license', () => {
     expect(buyPledge(bought, T0)).toBe(bought);
   });
 
-  it('keeps the purchase count through a reload, or the price would reset to ×1 forever', () => {
+  it('keeps the purchase count through a reload, or the price would reset to the first rung forever', () => {
     const s = richUprising();
     const twice = buyPledge(buyPledge(s, T0), T0);
     const back = importSave(exportSave(twice), T0)!;
     expect(back.pledgeBought).toBe(2);
-    expect(pledgeCost(back)).toBeCloseTo(pledgeCost(s) * PLEDGE_GROWTH ** 2);
+    expect(pledgeCost(back)).toBeCloseTo(PLEDGE_FLAGSHIP_MULT[2] * CATALOG[s.generation].flagship.baseCost);
     expect(back.tokens).toBeCloseTo(twice.tokens);
   });
 

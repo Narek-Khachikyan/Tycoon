@@ -248,11 +248,14 @@ export function crashAmount(tokens: number, incomePerSec: number): number {
 /** «Лобби» глушит красные события на полчаса. */
 export const PLEDGE_MS = 30 * 60_000;
 
-/** Цена первого «Лобби» в единицах масштаба Поколения; дальше она растёт геометрически. */
-export const PLEDGE_UNITS = 1_000_000;
-
-/** Каждая следующая покупка «Лобби» дороже в восемь раз. */
-export const PLEDGE_GROWTH = 8;
+/**
+ * Цена «Лобби» — лесенка в Флагманах текущего Поколения, а не геометрическая прогрессия в единицах
+ * масштаба: внутри Поколения Флагман дорожает вместе с Моделями (×11,5 за Ранг), поэтому цена в
+ * единицах масштаба стоила от долей процента Флагмана в средних Поколениях до 3,66 Флагмана в
+ * последнем. Временный откуп при этом всегда дешевле бессрочной «Лицензии» (3 Флагмана): лесенка
+ * упирается в потолок раньше, чем догоняет её.
+ */
+export const PLEDGE_FLAGSHIP_MULT = [0.5, 1, 2, 4, 8] as const;
 
 /** Столько «Лобби» можно купить за один забег: дальше цена отпугивает раньше потолка. */
 export const PLEDGE_MAX = 5;
@@ -286,10 +289,10 @@ export function isPledgeActive(state: GameState, now: number): boolean {
   return state.covenant || now < state.pledgeUntil;
 }
 
-/** Цена «Лобби» после всех купленных в этом забеге, в Токенах текущего Поколения. */
+/** Цена «Лобби» после всех купленных в этом забеге: ступень лесенки × цена Флагмана. */
 export function pledgeCost(state: GameState): number {
-  const bought = Math.max(0, Math.floor(state.pledgeBought));
-  return PLEDGE_UNITS * Math.pow(PLEDGE_GROWTH, bought) * CATALOG[state.generation].scale;
+  const bought = Math.min(Math.max(0, Math.floor(state.pledgeBought)), PLEDGE_FLAGSHIP_MULT.length - 1);
+  return PLEDGE_FLAGSHIP_MULT[bought] * CATALOG[state.generation].flagship.baseCost;
 }
 
 /**

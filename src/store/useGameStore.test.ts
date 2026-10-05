@@ -19,7 +19,7 @@ import {
   glitchPayout,
   LICENSE_INCOME_TAX,
   licenseCost,
-  PLEDGE_GROWTH,
+  PLEDGE_FLAGSHIP_MULT,
   PLEDGE_MAX,
   PLEDGE_MS,
   pledgeCost,
@@ -513,13 +513,14 @@ describe('pledge and license', () => {
   it('prices every next lobby higher, extends the window and stops at the cap', () => {
     risenPlayer();
     // Кошелёк покрывает всю лестницу с запасом: проверяется цена, а не отказ по нехватке.
-    withTokens(pledgeCost(state()) * PLEDGE_GROWTH ** PLEDGE_MAX);
+    // Вся лестница стоит 15,5 Флагмана, первый шаг — половину, поэтому ×40 от первого покрывает всё.
+    withTokens(pledgeCost(state()) * 40);
     // Покупки Агентов и Престиж выше уже звучали, а считать здесь нужно покупки откупа.
     vi.mocked(playUpgradeSound).mockClear();
     const at = state().lastTick;
-    let ladder = pledgeCost(state());
     for (let i = 0; i < PLEDGE_MAX; i++) {
       const before = state();
+      const ladder = PLEDGE_FLAGSHIP_MULT[i] * CATALOG[before.generation].flagship.baseCost;
       expect(pledgeCost(before)).toBeCloseTo(ladder, 6);
       store().buyPledge();
       expect(state().tokens).toBeCloseTo(before.tokens - ladder, 6);
@@ -527,7 +528,6 @@ describe('pledge and license', () => {
       // Продление, а не замена: купленное время не сгорает при перекупке, и окно считается по
       // игровым часам — тем же lastTick, по которому его меряет isPledgeActive.
       expect(state().pledgeUntil).toBe(at + (i + 1) * PLEDGE_MS);
-      ladder *= PLEDGE_GROWTH;
     }
     // Потолок исчерпан: ещё одно «Лобби» молча и не проходит.
     const atCap = state();
@@ -594,10 +594,10 @@ describe('pledge and license', () => {
     risenPlayer();
     vi.mocked(playBuySound).mockClear();
     vi.mocked(playUpgradeSound).mockClear();
-    // Под каждую покупку свой кошелёк, и он ниже цены. Доля, а не «минус один»: цена «Лицензии»
-    // считается от Флагмана и в Поколении 2 переваливает за 1e19, где шаг double — тысячи Токенов,
+    // Под каждую покупку свой кошелёк, и он ниже цены. Доля, а не «минус один»: цена «Лобби»
+    // считается от Флагмана и в Поколении 2 переваливает за 1e18, где шаг double — сотни Токенов,
     // и цена минус один равна цене.
-    withTokens(pledgeCost(state()) - 1);
+    withTokens(pledgeCost(state()) / 2);
     before = state();
     store().buyPledge();
     expect(state()).toBe(before);

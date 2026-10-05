@@ -120,8 +120,7 @@ export type Upgrade =
   | { id: string; kind: 'synergy'; name: string; desc: string; cost: number; lab: LabId; sprite: string; pairLab?: LabId }
   // Новые виды берут спрайт из готового набора: рисовать PNG ради трёх карточек не за чем, они
   // отличаются подписью. Датасет — тот же общий датасет, ассисты — команда и дирижёр, Флагман —
-  // «Tool use», потому что отдельной короны в наборе нет, а путь к несуществующему файлу показал бы
-  // игроку пустую рамку.
+  // корона из набора.
   | { id: string; kind: 'flagship'; name: string; desc: string; cost: number; lab: LabId; modelId: string; sprite: string }
   | { id: string; kind: 'dataset'; name: string; desc: string; cost: number; tier: number; sprite: string };
 
@@ -279,7 +278,7 @@ export function upgradesFor(gen: Generation): Upgrade[] {
       cost: flag.baseCost * FLAGSHIP_COST_MULT,
       lab,
       modelId: flag.id,
-      sprite: 'tool-use',
+      sprite: 'flagship-crown',
     });
   }
   // Датасет: множитель к Доходу и Клику, растущий с числом Достижений.

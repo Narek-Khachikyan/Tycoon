@@ -21,7 +21,6 @@ import {
   canPledge,
   LICENSE_INCOME_TAX,
   licenseCost,
-  PLEDGE_GROWTH,
   PLEDGE_MAX,
   pledgeCost,
   revokeCost,
@@ -976,7 +975,8 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       </div>
                       <div style={PLEDGE_DESC}>
                         Куплено <Num>{state.pledgeBought}</Num> из <Num>{PLEDGE_MAX}</Num>,
-                        каждая следующая дороже в <Num>{PLEDGE_GROWTH}</Num> раз.
+                        следующее — за{' '}
+                        <Num>{formatNumber(pledgeCost(state), notation)}</Num> Токенов.
                       </div>
                       {/* Под «Лицензией» кнопка молчит, но не прячет цену и условие: игрок
                           обязан прочитать, что Лобби стал недоступен и почему. */}
