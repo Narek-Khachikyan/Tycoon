@@ -59,6 +59,29 @@ import {
   UPGRADES_BY_GEN,
 } from './upgrades';
 
+/**
+ * Есть ли такой Апгрейд: `Set` вместо линейного поиска по списку.
+ *
+ * Список Апгрейдов вырастает до сотни с лишним id, а проверок на тике больше: пять ярусов
+ * Модели, лабораторная Синергия, до трёх парных — на каждую Модель Поколения, двадцать раз в
+ * секунду. Замерено: на позднем Поколении эти `includes` съедали до 142 мкс тика, то есть
+ * 77–92% всего главного потока.
+ *
+ * Кэш держится по ССЫЛКЕ на список, а не по его содержимому, и это здесь корректно: список
+ * никогда не меняется на месте — покупка Апгрейда заменяет его целиком (`[...state.upgrades,
+ * id]`), — поэтому та же ссылка означает те же элементы. Мутация на месте сделала бы кэш
+ * липким и тихо сломала бы Доход, поэтому ниже это запрещено явно: единственный способ
+ * изменить Апгрейды — купить, а покупка создаёт новый массив.
+ */
+let upgradeSetCache: { list: readonly string[]; set: ReadonlySet<string> } | null = null;
+
+function hasUpgrade(state: GameState, id: string): boolean {
+  if (upgradeSetCache?.list !== state.upgrades) {
+    upgradeSetCache = { list: state.upgrades, set: new Set(state.upgrades) };
+  }
+  return upgradeSetCache.set.has(id);
+}
+
 export const PRICE_GROWTH = 1.15;
 export const SELL_REFUND = 0.25;
 export const COMPUTE_BONUS = 0.01;
@@ -165,7 +188,7 @@ export function flagshipMult(state: GameState, model: Model): number {
   const gen = CATALOG[state.generation];
   const flag = labFlagship(gen, model.lab);
   if (!flag || flag.id !== model.id) return 1;
-  if (!state.upgrades.includes(flagshipUpgradeId(state.generation, model.lab))) return 1;
+  if (!hasUpgrade(state, flagshipUpgradeId(state.generation, model.lab))) return 1;
   return Math.min(1 + FLAGSHIP_PER_JUNIOR * juniorAgents(state, model.lab), FLAGSHIP_MULT_CAP);
 }
 
@@ -187,7 +210,7 @@ export function datasetValue(state: GameState): number {
 export function datasetMult(state: GameState): number {
   let owned = 0;
   for (let tier = 0; tier < DATASET_THRESHOLDS.length; tier++) {
-    if (state.upgrades.includes(datasetUpgradeId(state.generation, tier))) owned++;
+    if (hasUpgrade(state, datasetUpgradeId(state.generation, tier))) owned++;
   }
   if (owned === 0) return 1;
   return Math.pow(1 + datasetValue(state) * DATASET_PER_DATASET, owned);
@@ -195,9 +218,9 @@ export function datasetMult(state: GameState): number {
 
 /** Flat-бонус Агентов-ассистентов для Клика: 0.1 × масштаб за Агента, ×5 со вторым. */
 export function assistClickBonus(state: GameState): number {
-  if (!state.upgrades.includes(assistUpgradeId(state.generation, 1))) return 0;
+  if (!hasUpgrade(state, assistUpgradeId(state.generation, 1))) return 0;
   let bonus = ASSIST_PER_AGENT * CATALOG[state.generation].scale * totalAgents(state);
-  if (state.upgrades.includes(assistUpgradeId(state.generation, 2))) bonus *= ASSIST2_MULT;
+  if (hasUpgrade(state, assistUpgradeId(state.generation, 2))) bonus *= ASSIST2_MULT;
   return bonus;
 }
 
@@ -213,13 +236,13 @@ function modelBaseIncome(state: GameState, model: Model): number {
   if (!n) return 0;
   let mult = 1;
   for (let t = 0; t < MODEL_TIERS.length; t++) {
-    if (state.upgrades.includes(modelUpgradeId(model.id, t))) mult *= 2;
+    if (hasUpgrade(state, modelUpgradeId(model.id, t))) mult *= 2;
   }
   // Испытание «Забег без Синергий» гасит оба синергийных множителя — лабораторный и парный, —
   // а Апгрейды Модели, Флагман, Перки и Датасет продолжают работать: испытание отменяет
   // Синергии, а не все усиления сразу.
   const noSynergy = state.activeChallenge === 'no-synergy';
-  if (!noSynergy && state.upgrades.includes(synergyUpgradeId(state.generation, model.lab))) {
+  if (!noSynergy && hasUpgrade(state, synergyUpgradeId(state.generation, model.lab))) {
     mult *= 1 + SYNERGY_PER_AGENT * labAgents(state, model.lab);
   }
   mult *= flagshipMult(state, model);
@@ -233,7 +256,7 @@ function modelBaseIncome(state: GameState, model: Model): number {
   for (const u of UPGRADES_BY_GEN[state.generation]) {
     if (u.kind !== 'synergy' || u.pairLab === undefined) continue;
     if (u.lab !== model.lab && u.pairLab !== model.lab) continue;
-    if (!state.upgrades.includes(u.id)) continue;
+    if (!hasUpgrade(state, u.id)) continue;
     // Парная Синергия — тоже Синергия: в Испытании она молчит вместе с лабораторной.
     if (noSynergy) continue;
     if (labAgents(state, u.lab) >= SYNERGY_MIN_AGENTS && labAgents(state, u.pairLab) >= SYNERGY_MIN_AGENTS) {
@@ -381,7 +404,7 @@ export function clickValue(state: GameState, income = totalIncome(state), now: n
   let flat = CATALOG[gen].scale;
   let pct = 0;
   CLICK_UPGRADES.forEach((c, i) => {
-    if (!state.upgrades.includes(clickUpgradeId(gen, i))) return;
+    if (!hasUpgrade(state, clickUpgradeId(gen, i))) return;
     if (c.kind === 'x2') flat *= 2;
     else pct += 0.01;
   });
@@ -469,7 +492,7 @@ export function sellAgents(state: GameState, modelId: string, n: number): GameSt
 
 export function buyUpgrade(state: GameState, id: string): GameState {
   const u = UPGRADE_BY_ID[id];
-  if (!u || state.upgrades.includes(id) || u.cost > state.tokens || !isUpgradeUnlocked(state, u)) return state;
+  if (!u || hasUpgrade(state, id) || u.cost > state.tokens || !isUpgradeUnlocked(state, u)) return state;
   return { ...state, tokens: state.tokens - u.cost, upgrades: [...state.upgrades, id] };
 }
 

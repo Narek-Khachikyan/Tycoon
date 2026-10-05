@@ -1345,6 +1345,20 @@ describe('prestige', () => {
     expect(buyPerk(s, 'start_tokens')).toBe(s);
     expect(clickValue(s)).toBeCloseTo(2 * 1.04);
   });
+  // Разбор Перков кэшируется по ссылке на список, поэтому покупка обязана кэш сменить.
+  // Без такой проверки стихший кэш выглядел бы как «Перк куплен, но не работает»: списание
+  // Compute прошло, а множитель не применился — и заметить это можно только по Доходу.
+  it('applies a perk the moment it is bought, and keeps the earlier ones', () => {
+    let s = { ...newGame(T0), compute: 8 };
+    const before = clickValue(s);
+    s = buyPerk(s, 'click_x2');
+    expect(clickValue(s)).toBeCloseTo(before * 2);
+    const after = clickValue(s);
+    // Перк, не влияющий на Клик, не должен ломать уже купленный, и отказ по дубликату —
+    // тоже: форма Дохода после них обязана совпасть до последней цифры.
+    expect(clickValue(buyPerk(s, 'start_tokens'))).toBe(after);
+    expect(clickValue(buyPerk(s, 'click_x2'))).toBe(after);
+  });
 
   it('previews the same number the prestige pays, and the same refusals', () => {
     let s = buyAgents(rich(newGame(T0), 1e15), g0.flagship.id, 3);
@@ -1704,14 +1718,21 @@ describe('format', () => {
     expect(token(9007199254740991)).toBe('Токен');
     expect(token(9007199254740990)).toBe('Токенов');
 
-    // Форма считается по последним цифрам напечатанной записи, вместе с отменой на 11–14:
-    // 4.67e73 → «467» → 67 → «Токенов», 1.23e70 → «123» → 23 → «Токена» (как у 23 Агента),
-    // 1.11e70 → «111» → 11 → отмена → «Токенов», 1.21e70 → «121» → 21 → «Токен».
-    expect(token(4.67e73)).toBe('Токенов');
+    // Форма следует за ЦЕЛОЙ ЧАСТЬЮ напечатанной мантиссы, вместе с отменой на 11–14.
+    // Раньше брались последние две цифры записи без точки, то есть форма соответствовала
+    // числу, которого на экране нет: «1.11e70» читалось как 111, то есть «Токенов», хотя
+    // игрок видит единицу с хвостом. Теперь 4.67e73 → «4,67» → 4 → «Токена», 1.23e70 →
+    // «1,23» → 1 → «Токен», 9.08e75 → 9 → «Токенов».
+    expect(token(4.67e73)).toBe('Токена');
     expect(token(9.08e75)).toBe('Токенов');
-    expect(token(1.23e70)).toBe('Токена');
-    expect(token(1.11e70)).toBe('Токенов');
+    expect(token(1.23e70)).toBe('Токен');
+    expect(token(1.11e70)).toBe('Токен');
     expect(token(1.21e70)).toBe('Токен');
+    // Смена нотации обязана менять форму только вместе с тем, что напечатано: «27,10 Qi» —
+    // двадцать семь, «2.71e19» — две. Прежнее правило давало здесь «Токенов» в обоих
+    // случаях, то есть одно и то же количество называлось двумя словами.
+    expect(formatCount(2.71e19, 'Токен', 'Токена', 'Токенов', 'short')).toBe('Токенов');
+    expect(formatCount(2.71e19, 'Токен', 'Токена', 'Токенов', 'sci')).toBe('Токена');
 
     // Окончание обязано следовать за цифрами на экране. Раньше форма бралась по трём
     // значащим цифрам, а короткая запись печатает четыре, и примерно в половине случаев
@@ -1719,14 +1740,15 @@ describe('format', () => {
     for (const n of [3.008e47, 4.71e25, 471.0e23, 33.09e45, 1.23e70]) {
       for (const notation of ['short', 'sci'] as const) {
         // Мантисса печати, без экспоненты и суффикса: в «3.01e47» форма обязана смотреть
-        // на «01», а не на «47» из экспоненты.
-        const printed = formatNumber(n, notation).split(/[e ]/)[0].replace(/[^\d]/g, '');
-        const lastTwo = Number(printed.slice(-2));
-        const last = lastTwo % 10;
+        // на целую часть «3,01», а не на «47» из экспоненты.
+        const head = formatNumber(n, notation).split(/[e ]/)[0].replace(',', '.');
+        const whole = Math.floor(Number(head));
+        const last = whole % 10;
+        const tens = whole % 100;
         const expected =
-          last === 1 && lastTwo !== 11
+          last === 1 && tens !== 11
             ? 'Токен'
-            : last >= 2 && last <= 4 && (lastTwo < 12 || lastTwo > 14)
+            : last >= 2 && last <= 4 && (tens < 12 || tens > 14)
               ? 'Токена'
               : 'Токенов';
         expect(formatCount(n, 'Токен', 'Токена', 'Токенов', notation)).toBe(expected);

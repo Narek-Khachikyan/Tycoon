@@ -100,6 +100,21 @@ export const PERKS: Perk[] = [
 
 export const PERK_BY_ID: Record<string, Perk> = Object.fromEntries(PERKS.map((p) => [p.id, p]));
 
+/**
+ * Разбор купленных Перков в их эффекты: один вызов на тик давал двадцать три новых объекта,
+ * а на тик таких вызовов до тридцати восьми — по два на каждую Модель Поколения.
+ *
+ * Результат кэшируется по ССЫЛКЕ на список `owned`, и это корректно ровно так же, как кэш
+ * Апгрейдов в движке: список никогда не меняется на месте — покупка Перка заменяет его целиком
+ * (`[...state.perks, id]`), — поэтому та же ссылка означает то же содержимое. Все девять мест
+ * вызова только читают результат (`reduce`, `for…of`, `some`); мутация выдачи сделала бы кэш
+ * общим для всех и тихо испортила бы Доход.
+ */
+let effectsCache: { owned: readonly string[]; effects: PerkEffect[] } | null = null;
+
 export function perkEffects(owned: string[]): PerkEffect[] {
-  return owned.map((id) => PERK_BY_ID[id]?.effect).filter((e): e is PerkEffect => !!e);
+  if (effectsCache?.owned === owned) return effectsCache.effects;
+  const effects = owned.map((id) => PERK_BY_ID[id]?.effect).filter((e): e is PerkEffect => !!e);
+  effectsCache = { owned, effects };
+  return effects;
 }

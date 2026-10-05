@@ -207,11 +207,13 @@ function declensionOf(abs: number, notation: Notation, mode: PrintMode) {
   }
   if (abs <= Number.MAX_SAFE_INTEGER) return { unit: abs % 10, tens: abs % 100 };
   const p = present(abs, notation, mode);
-  const printed = p.mantissa.toFixed(p.decimals).replace('.', '').replace(/^0+(?=\d)/, '');
-  return {
-    unit: Number(printed.slice(-1)),
-    tens: Number(printed.slice(-2).padStart(2, '0')),
-  };
+  // Целая часть НАПЕЧАТАННОЙ мантиссы, а не цифры её записи без точки. Мантисса уже приведена
+  // к той нотации, которую выбрал игрок, поэтому игрок читает именно её: «2,71e19» — это
+  // две целых (Агента), а «27,10 Qi» — двадцать семь (Агентов). Склейка «271» давала третье
+  // число, которого на экране нет: по прогону 96 расхождений между нотациями, например
+  // «27,10 Qi»/«Агентов» против «2.71e19»/«Агент» на одном и том числе числе.
+  const shown = Math.floor(Number(p.mantissa.toFixed(p.decimals)));
+  return { unit: shown % 10, tens: shown % 100 };
 }
 
 export function formatDuration(seconds: number): string {

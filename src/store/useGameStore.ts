@@ -345,6 +345,107 @@ function speakerLab(state: GameState, lastModelId: string | null): LabId | null 
   return null;
 }
 
+/**
+ * Как часто тик дописывает состояние в сейв.
+ *
+ * Тик идёт двадцать раз в секунду, и раньше он писал весь `GameState` в `localStorage` каждый
+ * раз: двадцать `JSON.stringify` и двадцать синхронных записей в секунду ради прогресса, который
+ * за это время изменился на доли процента. Замер в Chrome 154 (macOS, позднее Поколение, 5.4 КБ
+ * сейва) дал 28 мкс на тик, то есть около 0.6 мс главного потока в секунду на пустом месте, и
+ * 100 КБ/с записи на диск. Раз в секунду эта работа падает в двадцать раз, а проигрыш ограничен
+ * одной секундой, которая не теряется: `lastTick` едет вместе с доходом, поэтому простой между
+ * последней записью и закрытием вкладки вернётся оффлайн-доходом, а не потеряется.
+ *
+ * Число, а не тики: интервал в тиках разъезжался бы с реальной скоростью двадцать раз в секунду и
+ * зависел бы от того, как часто страница успела позвать тик.
+ */
+export const SAVE_INTERVAL_MS = 1000;
+
+/**
+ * Есть ли в состоянии изменения, которых в сейве ещё нет.
+ *
+ * Флаг, а не снимок: запись всегда берёт самое свежее состояние магазина (см. `writeSave`), и
+ * потому отложенная запись физически не может переписать сейв более старым состоянием. Снимок
+ * пришлось бы хранить и сверять, а выиграть это можно только за счёт риска отката сохранения —
+ * а откат сохранения игрок не простит.
+ */
+let savePending = false;
+
+/** Момент последней удачной записи; 0 = ещё не писали, и первый же тик запишет сразу. */
+let savedAt = 0;
+
+/**
+ * Кладёт в сейв самое свежее состояние магазина.
+ *
+ * Не переданный снимок, а чтение из магазина: у отложенной записи нет «своего» состояния, и она
+ * записывает ровно то, что игрок видит на экране. Из этого же следует, что порядок не важен —
+ * вызвать можно хоть до, хоть после `set`.
+ *
+ * `savePending` снимается только после успеха: заблокированное хранилище (приватный режим,
+ * SecurityError) не должно молча превращать игру в игру без сохранения — попытка повторится на
+ * следующем тике.
+ */
+function writeSave(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(SAVE_KEY, serialize(useGameStore.getState().state));
+    savePending = false;
+    savedAt = Date.now();
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Запись по значимому действию игрока: сейчас, а не «когда тик дойдёт».
+ *
+ * Покупка, Престиж, Апгрейд, Перк, откуп, настройка, импорт и сброс — всё, что меняет забег по
+ * воле игрока, обязано лежать в сейве до того, как он успеет закрыть вкладку. Действий такого
+ * рода за минуту десятки, а не двадцать в секунду, поэтому дроссель на них не распространяется.
+ */
+const saveNow = (): void => {
+  savePending = true;
+  writeSave();
+};
+
+/**
+ * Отложенная запись с тика: пишет не чаще раза в `SAVE_INTERVAL_MS`, а всё, что не записалось,
+ * дописывает при уходе вкладки (см. `flushSave`).
+ *
+ * Именно тик и Клик, а не покупка: это единственные действия, которые идут непрерывной стеной, и
+ * только для них секундный риск приемлем — доход за неё вернётся оффлайн-доходом, а купленное
+ * и заработанное лежит в сейве сразу.
+ */
+const saveLater = (): void => {
+  savePending = true;
+  if (Date.now() - savedAt < SAVE_INTERVAL_MS) return;
+  writeSave();
+};
+
+/**
+ * Дописывает отложенное перед тем, как документ уйдёт из поля зрения или вкладку закроют.
+ *
+ * Здесь игнорировать отложенное нельзя: последний экран игры — это и есть момент, в который
+ * игрок решает, закрывать ли вкладку, и потерять тут секунду дохода — значит потерять её молча.
+ * Отдельного таймера у функции нет намеренно: она зовётся событиями страницы, а не тиком, который
+ * в фоне и так замирает.
+ */
+export function flushSave(): void {
+  if (!savePending) return;
+  writeSave();
+}
+
+/** Подписки на уход со страницы. Ставятся один раз при загрузке модуля, без доступа к DOM. */
+function installSaveFlush(): void {
+  if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return;
+  if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
+  // Оба события дописывают одно и то же, и различать их незачем: скрытие вкладки и её закрытие
+  // требуют одинакового ответа — сохранить. Видимость меняется и обратно, и лишняя запись
+  // одного и того же состояния ничего не стоит.
+  document.addEventListener('visibilitychange', flushSave);
+  window.addEventListener('pagehide', flushSave);
+}
+
 /** Системная настройка движения. Литерал живёт здесь один раз: тот же запрос читает
  *  CSS-гейт в index.css, а JS нужен ещё и сам список — для слушателя смены настройки. */
 export const REDUCE_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
@@ -519,14 +620,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       const eventWindow = watchEventWindow(advanced);
       set({ state: advanced, ...eventWindow });
 
-      // Сохранение в localStorage
-      if (typeof window !== 'undefined') {
-        try {
-          localStorage.setItem(SAVE_KEY, serialize(advanced));
-        } catch {
-          // ignore
-        }
-      }
+      saveLater();
     },
 
     clickPrompt: (x?: number, y?: number) => {
@@ -557,7 +651,6 @@ export const useGameStore = create<GameStore>((set, get) => {
         ];
       }
 
-      const awarded = awardEarned(clicked);
       // Реплика показана только для нового id: повтор услышанного не пишется в Переписку
       // и не звучит — собранная коллекция молчит, а не гоняет повторы. Дубль id ядро может
       // вернуть как fallback, когда всё услышано, но стор его не показывает: показ повтора
@@ -568,6 +661,9 @@ export const useGameStore = create<GameStore>((set, get) => {
         const nonce = ++quipCounter;
         playQuipSound(clicked.settings);
         set({
+          // Достижения начисляются здесь, а не выше по одному разу на Клик: ниже они считаются
+          // заново, уже по состоянию с записанной репликой, и второй проход дороже первого —
+          // он проверяет все пятьдесят с лишним условий на каждом Клике.
           state: awardEarned(recordQuip(clicked, quip.id)),
           floaters: newFloaters,
           chatHistory: newChat,
@@ -580,8 +676,12 @@ export const useGameStore = create<GameStore>((set, get) => {
           if (cur?.nonce === nonce) set({ lastQuip: null });
         }, QUIP_HIDE_MS);
       } else {
-        set({ state: awarded, floaters: newFloaters, chatHistory: newChat });
+        set({ state: awardEarned(clicked), floaters: newFloaters, chatHistory: newChat });
       }
+      // Отложенная запись, а не немедленная: Кликов двадцать в секунду не бывает, но пять бывает,
+      // и на них хватает дросселя вместе с тиком — доход за пропущенную секунду вернётся
+      // оффлайн-доходом, а уход со страницы допишет отложенное само.
+      saveLater();
 
       setTimeout(() => {
         set((s) => ({ floaters: s.floaters.filter((f) => f.id !== floaterId) }));
@@ -614,6 +714,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       // Отметка о последней покупке — это голос офиса: следующий Клик заговорит
       // Лабораторией именно этой Модели. Ставится только на успешной покупке.
       set({ state: awardEarned(risen), lastBoughtModelId: modelId });
+      saveNow();
     },
 
     sellAgents: (modelId: string) => {
@@ -623,6 +724,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       if (next !== state) {
         playBuySound(state.settings);
         set({ state: awardEarned(next) });
+        saveNow();
       }
     },
 
@@ -632,6 +734,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       if (next !== state) {
         playUpgradeSound(state.settings);
         set({ state: awardEarned(next) });
+        saveNow();
       }
     },
 
@@ -641,6 +744,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       if (next !== state) {
         playUpgradeSound(state.settings);
         set({ state: awardEarned(next) });
+        saveNow();
       }
     },
 
@@ -658,6 +762,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       // Тот же звук, что у Перка: обе покупки навсегда меняют правила забега.
       playUpgradeSound(state.settings);
       set({ state: next });
+      saveNow();
     },
 
     /**
@@ -679,6 +784,7 @@ export const useGameStore = create<GameStore>((set, get) => {
         pushToast('Лицензия куплена', 'Лицензия', `+${formatNumber(payout, state.settings.notation)} Токенов за Глюков`);
       }
       set({ state: awardEarned(earnTokens(licensed, payout)) });
+      saveNow();
     },
 
     revokeLicense: () => {
@@ -688,6 +794,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       // Отзыв — трата, поэтому звук покупки, а не отказа: деньги здесь действительно сходят.
       playBuySound(state.settings);
       set({ state: next });
+      saveNow();
     },
 
     /**
@@ -702,6 +809,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       if (next === state) return;
       playUpgradeSound(state.settings);
       set({ state: next });
+      saveNow();
     },
 
     /**
@@ -718,6 +826,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       playAchievementSound(state.settings);
       pushToast('Кристалл разбит', 'Compute-кристалл', `+${formatNumber(gained, state.settings.notation)} Токенов`);
       set({ state: next });
+      saveNow();
     },
 
     catchEvent: () => {
@@ -771,6 +880,7 @@ export const useGameStore = create<GameStore>((set, get) => {
         // ни сообщения о просрочке, даже если игрок поймал его раньше первого тика.
         eventWindowAt: event.startedAt,
       });
+      saveNow();
     },
 
     hitGlitch: (id: number) => {
@@ -782,6 +892,7 @@ export const useGameStore = create<GameStore>((set, get) => {
         // Первые два удара только трясут паразита, поэтому берётся звук отказа.
         playDenySound(state.settings);
         set({ state: hit });
+        saveNow();
         return;
       }
       // Выплата идёт через earnTokens, поэтому попадает во все три счётчика, как и доход; саму
@@ -789,6 +900,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       playBuySound(state.settings);
       pushToast('Глюк лопнул', 'Глюк', `+${formatNumber(payout, state.settings.notation)} Токенов`);
       set({ state: awardEarned(earnTokens(hit, payout)) });
+      saveNow();
     },
 
     /**
@@ -826,6 +938,7 @@ export const useGameStore = create<GameStore>((set, get) => {
         pushToast('Слух пойман', 'Слух', 'В этот раз никто ничего не принёс.');
       }
       set({ state: awardEarned(earnTokens(state, amount)), collectedRumorId: id });
+      saveNow();
     },
     // Пара «просьба / переход» вместо одного действия: пока кнопки колонок звали
     // triggerPrestige напрямую, один клик стирал Забег без вопроса. Проверок здесь нет
@@ -860,6 +973,7 @@ export const useGameStore = create<GameStore>((set, get) => {
           prestige,
         },
       });
+      saveNow();
     },
 
     /**
@@ -878,33 +992,43 @@ export const useGameStore = create<GameStore>((set, get) => {
         if (def) pushToast('Испытание принято', def.name, def.desc);
       }
       set({ state: next });
+      saveNow();
     },
 
     setBuyAmount: (amt: BuyAmount) => set({ buyAmount: amt }),
     setSellMode: (mode: boolean) => set({ sellMode: mode }),
     setActiveTab: (tab: ActiveTab) => set({ activeTab: tab }),
 
-    setNotation: (notation: Notation) =>
-      set((s) => ({ state: { ...s.state, settings: { ...s.state.settings, notation } } })),
+    // Настройки объединены в одну запись по одной причине: любая из них меняет GameState, а
+    // GameState — это сейв. Переключатель молча уехал бы в localStorage только с ближайшим тиком,
+    // и закрытая сразу после него вкладка вернула бы прошлую настройку.
+    setNotation: (notation: Notation) => {
+      set((s) => ({ state: { ...s.state, settings: { ...s.state.settings, notation } } }));
+      saveNow();
+    },
 
-    toggleMute: () =>
+    toggleMute: () => {
       set((s) => ({
         state: { ...s.state, settings: { ...s.state.settings, muted: !s.state.settings.muted } },
-      })),
+      }));
+      saveNow();
+    },
 
     // Настройка только умеет уменьшать движение, поэтому принимает флаг, а не переключает его:
     // системное «уменьшить движение» игрок отменить не вправе.
     // Уходящие тосты и веер оно не трогает намеренно: магазин не знает, какие из них уже
     // на выходе, а снять все означало бы обрезать время показа. Гасит их тот, кто их создал,
     // в своём коммите — тем же действием, что переводит data-motion.
-    setReducedMotion: (on: boolean) =>
+    setReducedMotion: (on: boolean) => {
       set((s) => ({
         state: { ...s.state, settings: { ...s.state.settings, reducedMotion: on } },
-      })),
+      }));
+      saveNow();
+    },
 
     // Ноль — честная тишина, а не «выключено»: мьют и громкость означают разное (молчат и
     // события, и музыка; ноль глушит всё, но сохраняет настройку), поэтому здесь только зажим.
-    setVolume: (volume: number) =>
+    setVolume: (volume: number) => {
       set((s) => ({
         state: {
           ...s.state,
@@ -913,7 +1037,9 @@ export const useGameStore = create<GameStore>((set, get) => {
             volume: Number.isFinite(volume) ? Math.min(1, Math.max(0, volume)) : s.state.settings.volume,
           },
         },
-      })),
+      }));
+      saveNow();
+    },
 
     newsPaused: false,
     setNewsPaused: (paused: boolean) => set({ newsPaused: paused }),
@@ -951,6 +1077,7 @@ export const useGameStore = create<GameStore>((set, get) => {
         lastQuip: null,
         lastBoughtModelId: null,
       });
+      saveNow();
       return true;
     },
 
@@ -986,3 +1113,5 @@ export const useGameStore = create<GameStore>((set, get) => {
     },
   };
 });
+
+installSaveFlush();

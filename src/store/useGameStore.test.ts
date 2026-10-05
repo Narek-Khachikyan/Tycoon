@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { quipsSeenOf, useGameStore } from './useGameStore';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { quipsSeenOf, SAVE_INTERVAL_MS, useGameStore } from './useGameStore';
 import { CATALOG } from '../economy/catalog';
 import { CHALLENGES, startChallenge as kernelStartChallenge } from '../economy/challenges';
 import { CRYSTAL_CYCLE_MS, CRYSTAL_PER_STOCK_BONUS, CRYSTAL_UPGRADES, crystalCycleMs, crystalIncomeMult } from '../economy/crystal';
@@ -27,7 +27,7 @@ import {
   revokeCost,
 } from '../economy/glitches';
 import { PERKS } from '../economy/perks';
-import { exportSave, serialize } from '../economy/save';
+import { exportSave, SAVE_KEY, serialize } from '../economy/save';
 import { newGame, type GameState } from '../economy/state';
 import {
   playAchievementSound,
@@ -1081,5 +1081,222 @@ describe('shattering a crystal', () => {
     expect(state()).toBe(before);
     expect(store().toasts).toEqual([]);
     expect(vi.mocked(playAchievementSound)).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Сейв на настоящем окне.
+ *
+ * Запись идёт только при `typeof window !== 'undefined'`, поэтому подмена окна и хранилища —
+ * единственный способ её увидеть. Хранилище здесь словарь в памяти теста: настоящий сейв игрока
+ * тест не трогает и стереть не может.
+ *
+ * Модуль магазина перезагружается каждый раз намеренно: счётчики записи живут на уровне модуля,
+ * и тест, начатый с чужого остатка, проверял бы не своё. Отсюда и `w.store`: это ДРУГОЙ магазин,
+ * не тот, что импортирован наверху файла, и состояние ему надо задавать через него.
+ */
+describe('the save', () => {
+  interface Windowed {
+    store: typeof useGameStore;
+    /** Всё, что ушло в хранилище, по порядку. */
+    writes: string[];
+    /** Что лежит в хранилище сейчас. */
+    saved: () => GameState | null;
+    /** Уход со страницы: скрытие вкладки или её закрытие. */
+    leave: (how: 'hidden' | 'close') => void;
+  }
+
+  const windowed = async (storage?: Partial<Storage>): Promise<Windowed> => {
+    const cell = new Map<string, string>();
+    const writes: string[] = [];
+    const listeners = new Map<string, (() => void)[]>();
+    // Ключ — событие, а не носитель: магазин подписывается на document и на window, и тест
+    // должен уметь вызвать оба, не различая, кто именно его держит.
+    const add = (type: string, fn: () => void) => {
+      const list = listeners.get(type) ?? [];
+      list.push(fn);
+      listeners.set(type, list);
+    };
+    const listen = {
+      addEventListener: add,
+      removeEventListener: () => {},
+    };
+    vi.stubGlobal('window', { innerWidth: 800, innerHeight: 600, ...listen });
+    vi.stubGlobal('document', { visibilityState: 'visible', ...listen });
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => cell.get(k) ?? null,
+      setItem: (k: string, v: string) => {
+        cell.set(k, v);
+        writes.push(v);
+      },
+      removeItem: (k: string) => cell.delete(k),
+      ...storage,
+    });
+    vi.resetModules();
+    const mod = await import('./useGameStore');
+    return {
+      store: mod.useGameStore,
+      writes,
+      saved: () => {
+        const raw = cell.get(SAVE_KEY);
+        return raw ? (JSON.parse(raw) as GameState) : null;
+      },
+      leave: (how) => {
+        const type = how === 'hidden' ? 'visibilitychange' : 'pagehide';
+        for (const fn of listeners.get(type) ?? []) fn();
+      },
+    };
+  };
+
+  /** Токены на месте действия: без них переход состояния не состоится. */
+  const funded = (w: Windowed, tokens = 1e12): void => {
+    w.store.setState({
+      state: { ...w.store.getState().state, tokens, runTokens: tokens, totalTokens: tokens },
+    });
+  };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('has the purchase in the save the moment it happened', async () => {
+    const w = await windowed();
+    funded(w);
+    w.store.getState().buyAgents(first.id);
+    // Покупка без немедленной записи означала бы, что вкладку можно закрыть между кликом и
+    // ближайшей отложенной записью — и потерять купленного Агента вместе с деньгами.
+    expect(w.saved()?.agents[first.id]).toBe(1);
+    expect(w.saved()?.tokens).toBeLessThan(1e12);
+  });
+
+  it('has the upgrade and the perk in the save too', async () => {
+    const w = await windowed();
+    funded(w, 1e12);
+    w.store.setState({ state: { ...w.store.getState().state, agents: { [first.id]: 100 }, compute: 50 } });
+    w.store.getState().buyUpgrade(`m:${first.id}:0`);
+    // Апгрейд стоит денег и живёт весь забег: потерянная покупка — потерянные деньги.
+    expect(w.saved()?.upgrades).toEqual([`m:${first.id}:0`]);
+
+    w.store.getState().buyPerk('click_x2');
+    expect(w.saved()?.perks).toEqual(['click_x2']);
+  });
+
+  it('has the prestige in the save, because it is the only run-ending transition', async () => {
+    const w = await windowed();
+    funded(w);
+    w.store.setState({ state: { ...w.store.getState().state, agents: { [g0.flagship.id]: 1 } } });
+    w.store.getState().triggerPrestige();
+    // Престиж стирает забег: если его след не записан, игрок вернётся в прошлый забег целиком.
+    expect(w.saved()?.generation).toBe(1);
+    expect(w.saved()?.prestiges).toBe(1);
+    expect(w.saved()?.agents).toEqual({});
+  });
+
+  it('has the setting in the save, because settings live in GameState', async () => {
+    const w = await windowed();
+    w.store.getState().setNotation('sci');
+    expect(w.saved()?.settings.notation).toBe('sci');
+    w.store.getState().toggleMute();
+    expect(w.saved()?.settings.muted).toBe(true);
+  });
+
+  it('has the imported run in the save, so a reload cannot undo the import', async () => {
+    const w = await windowed();
+    const other: GameState = { ...newGame(T0), generation: 1, maxGeneration: 1, totalTokens: 5e9 };
+    expect(w.store.getState().importSaveData(exportSave(other))).toBe(true);
+    expect(w.saved()?.generation).toBe(1);
+  });
+
+  it('writes the tick at most once a second, and writes the newest state, not the first', async () => {
+    vi.useFakeTimers();
+    const w = await windowed();
+    const tick = w.store.getState().tick;
+    // Первая запись идёт сразу: счётчик записи на нуле, и свежий сейв обязан появиться без
+    // секунды ожидания — иначе первый же перезапуск потерял бы всё, что натикано до него.
+    tick(0.05);
+    expect(w.writes).toHaveLength(1);
+
+    // Двадцать тиков за секунду — это одна запись, а не двадцать.
+    for (let i = 0; i < 19; i++) tick(0.05);
+    expect(w.writes).toHaveLength(1);
+
+    vi.advanceTimersByTime(SAVE_INTERVAL_MS + 10);
+    const before = w.store.getState().state.lastTick;
+    tick(0.05);
+    expect(w.writes).toHaveLength(2);
+    // Отложенная запись обязана нести последнее состояние, а не то, с которого ждала: без этого
+    // дроссель тихо откатывал бы игру на секунду назад при каждой записи.
+    expect(w.saved()?.lastTick).toBe(w.store.getState().state.lastTick);
+    expect(w.store.getState().state.lastTick).toBeGreaterThan(before);
+  });
+
+  it('writes what the tick deferred when the tab is hidden, and when it closes', async () => {
+    vi.useFakeTimers();
+    const w = await windowed();
+    const tick = w.store.getState().tick;
+    tick(0.05);
+    for (let i = 0; i < 10; i++) tick(0.05);
+    // Всё это время записи не было: секунда ещё не вышла.
+    expect(w.writes).toHaveLength(1);
+
+    w.leave('hidden');
+    expect(w.writes).toHaveLength(2);
+    expect(w.saved()?.tokens).toBe(w.store.getState().state.tokens);
+
+    // И второй уход — уже без отложенного: лишней записи быть не должно.
+    w.leave('close');
+    expect(w.writes).toHaveLength(2);
+  });
+
+  it('keeps a purchase that the deferred write from before it could have rolled back', async () => {
+    vi.useFakeTimers();
+    const w = await windowed();
+    const tick = w.store.getState().tick;
+    tick(0.05);
+    // Отложенная запись уже ждёт своего интервала, а игрок в это время покупает.
+    tick(0.05);
+    funded(w, 1e9);
+    w.store.getState().buyAgents(first.id);
+    const afterBuy = w.writes.length;
+    vi.advanceTimersByTime(SAVE_INTERVAL_MS + 10);
+    tick(0.05);
+    expect(w.writes.length).toBeGreaterThan(afterBuy);
+    // Запись, пришедшая после покупки, обязана её увидеть: иначе дроссель откатил бы сейв.
+    expect(w.saved()?.agents[first.id]).toBe(1);
+  });
+
+  it('cannot resurrect the deleted run, even with a deferred write still waiting', async () => {
+    vi.useFakeTimers();
+    const w = await windowed();
+    const tick = w.store.getState().tick;
+    tick(0.05);
+    // Сброс при отложенной записи наготове: это единственный момент, где запись могла бы вернуть
+    // прошлый забег, если бы она несла свой снимок вместо текущего состояния магазина.
+    tick(0.05);
+    w.store.getState().resetGame();
+    expect(w.saved()).toBeNull();
+
+    // Ключ удалён, и всё, что допишется после, — это уже новый забег, в котором ничего нет.
+    vi.advanceTimersByTime(SAVE_INTERVAL_MS + 10);
+    tick(0.05);
+    w.leave('hidden');
+    expect(w.saved()?.prestiges).toBe(0);
+    expect(w.saved()?.agents).toEqual({});
+    expect(w.saved()?.tokens).toBe(w.store.getState().state.tokens);
+  });
+
+  it('keeps the game alive when the storage refuses to write', async () => {
+    // Приватный режим и переполненное хранилище — обычная судьба, а не повод останавливать игру.
+    const w = await windowed({
+      setItem: () => {
+        throw new Error('QuotaExceededError');
+      },
+    });
+    expect(() => w.store.getState().tick(0.05)).not.toThrow();
+    funded(w);
+    expect(() => w.store.getState().buyAgents(first.id)).not.toThrow();
+    // Состояние продолжает жить, даже когда запись не проходит: игра не обязана уметь сохраняться.
+    expect(w.store.getState().state.agents[first.id]).toBe(1);
   });
 });

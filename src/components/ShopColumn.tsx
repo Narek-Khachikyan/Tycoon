@@ -268,6 +268,14 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   });
   const boughtGenPerks = countGenPerks(state.perks);
   const nextGenPerkCost = genPerkCost(state.perks);
+  const boughtPerks = state.perks.length;
+  // Цена самого дешёвого некупленного Перка — из списка, а не константа в компоненте: подсказка
+  // пустого состояния обязана назвать настоящую цифру иначе, чем добавится Перк. Пока не куплен
+  // хоть один Перк, некупленных в PERKS заведомо остаются, так что число конечно.
+  const cheapestPerkCost = PERKS.reduce(
+    (min, p) => (state.perks.includes(p.id) ? min : Math.min(min, p.cost)),
+    Infinity,
+  );
 
   // Откупы: остаток уже купленного глушения — по игровым часам, как всё остальное окно
   // события, поэтому подпись не убегает от реальности после возвращения из простоя.
@@ -582,12 +590,16 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       </div>
                     </div>
 
-                    {/* Подпись обязательна: голое число не отличить от счётчика чего-то другого. */}
+                    {/* Подпись обязательна: голое число не отличить от счётчика чего-то другого.
+                        Оба числа идут через formatNumber в нотации игрока: число Агентов в
+                        поздней игре длиннее любой колонки, а печать сырого double дала бы «1e+300»
+                        вместо «1,00e300» и «4278» вместо «4,28 K» — и ещё и разъехавшееся
+                        склонение под ним. */}
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'right', flexShrink: 0 }}>
                       <div style={{ fontSize: '1.2rem' }}>
-                        <Num>{owned}</Num>
+                        <Num>{formatNumber(owned, notation)}</Num>
                       </div>
-                      <div>{formatCount(owned, 'Агент', 'Агента', 'Агентов')}</div>
+                      <div>{formatCount(owned, 'Агент', 'Агента', 'Агентов', notation)}</div>
                     </div>
                   </div>
 
@@ -626,10 +638,10 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       aria-label={
                         sellMode
                           ? count > 0
-                            ? `Продать ${count} ${formatCount(count, 'Агента', 'Агентов', 'Агентов')} Модели ${m.name} за ${formatNumber(refund, notation, 'price')} ${formatCount(refund, 'Токен', 'Токена', 'Токенов', notation, 'price')}`
+                            ? `Продать ${formatNumber(count, notation)} ${formatCount(count, 'Агента', 'Агентов', 'Агентов', notation)} Модели ${m.name} за ${formatNumber(refund, notation, 'price')} ${formatCount(refund, 'Токен', 'Токена', 'Токенов', notation, 'price')}`
                             : `Продать Агентов Модели ${m.name}`
                           : count > 0
-                            ? `Купить ${count} ${formatCount(count, 'Агента', 'Агентов', 'Агентов')} Модели ${m.name} за ${formatNumber(cost, notation, 'price')} ${formatCount(cost, 'Токен', 'Токена', 'Токенов', notation, 'price')}`
+                            ? `Купить ${formatNumber(count, notation)} ${formatCount(count, 'Агента', 'Агентов', 'Агентов', notation)} Модели ${m.name} за ${formatNumber(cost, notation, 'price')} ${formatCount(cost, 'Токен', 'Токена', 'Токенов', notation, 'price')}`
                             : `Купить Агента Модели ${m.name}`
                       }
                       className={`pixel-btn pixel-btn-accent model-row__buy`}
@@ -656,7 +668,10 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         )
                       ) : count > 0 ? (
                         <>
-                          Купить ×<Num>{count}</Num> (<Num>{formatNumber(cost, notation, 'price')}</Num>)
+                          {/* Число покупок идёт через formatNumber: при «Max» это могут быть тысячи Агентов, а на
+                              поздних Поколениях цена уходит в e-нотацию, и «×4278» на кнопке
+                              не влезало бы в SHOP_COL_MIN. */}
+                          Купить ×<Num>{formatNumber(count, notation)}</Num> (<Num>{formatNumber(cost, notation, 'price')}</Num>)
                         </>
                       ) : (
                         <>Купить</>
@@ -755,8 +770,8 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                                 <div>Общий датасет активен</div>
                               ) : (
                                 <div>
-                                  <Num>{singleCount}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num>{' '}
-                                  {formatCount(singleCount, 'Агент', 'Агента', 'Агентов')} до датасета
+                                  <Num>{formatNumber(singleCount, notation)}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num>{' '}
+                                  {formatCount(singleCount, 'Агент', 'Агента', 'Агентов', notation)} до датасета
                                   {singleCount >= SYNERGY_MIN_AGENTS
                                     ? ' — забирай во вкладке Апгрейды'
                                     : ' — каждый Датасет из Достижений и купленный Датасет множит Доход'}
@@ -781,8 +796,8 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                                     ) : (
                                       <>
                                         Совместный датасет {pairName} ждёт состав{' '}
-                                        <Num>{first}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num> +{' '}
-                                        <Num>{second}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num>
+                                        <Num>{formatNumber(first, notation)}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num> +{' '}
+                                        <Num>{formatNumber(second, notation)}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num>
                                       </>
                                     )}
                                   </div>
@@ -790,8 +805,8 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                               }
                               return (
                                 <div key={u.id}>
-                                  <Num>{first}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num> +{' '}
-                                  <Num>{second}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num> до совместного
+                                  <Num>{formatNumber(first, notation)}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num> +{' '}
+                                  <Num>{formatNumber(second, notation)}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num> до совместного
                                   датасета {pairName}
                                   {ready ? ' — забирай во вкладке Апгрейды' : ''}
                                 </div>
@@ -836,9 +851,31 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
         {/* ВКЛАДКА АПГРЕЙДОВ */}
         {tab === 'upgrades' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {/* Пустая вкладка. Прежде здесь стояло «Нанимай больше агентов!», и это было
+                половиной правды: Апгрейды Клика открываются не Агентами, а Токенами забега,
+                поэтому после первого Агента и без единого Апгрейда игрок решал, что вкладка
+                сломана. Теперь названы оба порога, и оба — из движка, а не выдуманы. */}
             {upgrades.length === 0 ? (
-              <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: '40px' }}>
-                Пока нет доступных апгрейдов. Нанимай больше агентов!
+              <div
+                style={{
+                  textAlign: 'center',
+                  color: 'var(--text-muted)',
+                  marginTop: '32px',
+                  padding: '0 8px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                  alignItems: 'center',
+                }}
+              >
+                <div style={{ fontSize: '0.9rem' }}>Пока нет доступных апгрейдов.</div>
+                {/* Ближайшая ступень та же, что у tiers Модели: один Агент открывает тонкую
+                    настройку. Второй порог — Токены забега на Апгрейды Клика, и он не про
+                    Агентов вовсе, поэтому назван отдельно. */}
+                <div style={{ fontSize: '0.8rem', maxWidth: '260px' }}>
+                  Каждый Агент открывает тонкую настройку своей Модели, а Апгрейды Клика —
+                  по Токенам, заработанным за Забег. Пока нет ни того, ни другого.
+                </div>
               </div>
             ) : (
               upgrades.map((u) => {
@@ -1296,7 +1333,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                           ) : (
                             <>
                               Купить (<Num>{formatNumber(u.cost, notation)}</Num>{' '}
-                              {formatCount(u.cost, 'кристалл', 'кристалла', 'кристаллов')})
+                              {formatCount(u.cost, 'кристалл', 'кристалла', 'кристаллов', notation)})
                             </>
                           )}
                         </button>
@@ -1312,8 +1349,32 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               <div
                 style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: '8px' }}
               >
-                Постоянные перки (Свободно: <Num>{unspentCompute}</Num> Compute)
+                Постоянные перки (Свободно: <Num>{formatNumber(unspentCompute, notation)}</Num> Compute)
               </div>
+
+              {/* Ноль Compute — не «пустая колонка», а самый частый первый заход на эту вкладку:
+                  до первого Престижа Compute в игре нет вообще, и подряд идут пятнадцать
+                  приглушённых карточек с мёртвыми кнопками. Строка называет, откуда берётся
+                  Compute и сколько стоит самый дешёвый Перк, — иначе вкладка выглядит поломкой.
+                  Условие именно «ничего не куплено и купить нечего»: при накопленном Compute
+                  подсказка молчала бы впустую. */}
+              {unspentCompute === 0 && boughtPerks === 0 && (
+                <div
+                  style={{
+                    fontSize: '0.8rem',
+                    color: 'var(--text-muted)',
+                    marginBottom: '8px',
+                    padding: '8px 10px',
+                    backgroundColor: 'var(--bg-card)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '6px',
+                  }}
+                >
+                  Compute начисляется за Престиж — до первого их нет. Он открыт, как только
+                  найдёшь Агента Флагмана, а самый дешёвый Перк стоит{' '}
+                  <Num>{formatNumber(cheapestPerkCost, notation)}</Num> Compute.
+                </div>
+              )}
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {regularPerks.map((p) => {

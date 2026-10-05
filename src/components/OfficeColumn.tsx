@@ -205,8 +205,8 @@ const OfficeGlitchSwarm: React.FC = () => {
             key={g.id}
             className="glitch-node"
             onClick={() => handleGlitchHit(g.id, g.clicks)}
-            aria-label={`Глюк: осталось ${left} ${formatCount(left, 'удар', 'удара', 'ударов')}`}
-            title={`Осталось ${left} ${formatCount(left, 'удар', 'удара', 'ударов')} — кликни, чтобы лопнул`}
+            aria-label={`Глюк: осталось ${left} ${formatCount(left, 'удар', 'удара', 'ударов', notation)}`}
+            title={`Осталось ${left} ${formatCount(left, 'удар', 'удара', 'ударов', notation)} — кликни, чтобы лопнул`}
             style={{
               display: 'flex',
               flexDirection: 'column',
@@ -578,7 +578,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
             <span style={{ fontSize: '1rem', color: 'var(--text-main)' }}>ОФИС АГЕНТОВ</span>
             <span style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>
               <Num>{formatNumber(totalAgents, notation)}</Num>{' '}
-              {formatCount(totalAgents, 'Агент', 'Агента', 'Агентов')}
+              {formatCount(totalAgents, 'Агент', 'Агента', 'Агентов', notation)}
             </span>
           </div>
           {/* Полоса кражи Дохода появляется вместе с первым Глюком и держит обратную связь
@@ -780,8 +780,11 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
               <div style={{ fontSize: '1.1rem', color: 'var(--text-main)', fontWeight: 600 }}>
                 Офис пока пуст
               </div>
+              {/* Куда идти — по раскладке, а не всегда «вправо». `full` и есть признак
+                  одноколоночного режима, где магазин не колонка справа, а вкладка внизу:
+                  подсказка «справа» на телефоне указывала в пустоту. */}
               <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: '6px' }}>
-                Найми первого ИИ-агента в магазине справа!
+                Найми первого ИИ-агента в магазине{full ? '' : ' справа'}!
               </div>
             </div>
           </div>
@@ -862,7 +865,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
                       и без него карточка в свежем сохранении держит одно имя. */}
                   <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                     ×<Num>{formatNumber(count, notation)}</Num>{' '}
-                    {formatCount(count, 'Агент', 'Агента', 'Агентов')}
+                    {formatCount(count, 'Агент', 'Агента', 'Агентов', notation)}
                   </span>
                   {/* Название работы приходит из MODEL_TIERS, а не пишется здесь строкой.
                       Без пиксельного шрифта: среди тиров есть «1M контекст», а строка с
@@ -883,10 +886,10 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
                   )}
                   {synergyOn && (
                     <span
-                      title={`Синергия: +${synergyPct}% к доходу всех моделей ${lab.name}`}
+                      title={`Синергия: +${formatNumber(synergyPct, notation)}% к доходу всех моделей ${lab.name}`}
                       style={{ fontSize: '0.75rem', color: 'var(--gold)' }}
                     >
-                      +<Num>{synergyPct}</Num>%
+                      +<Num>{formatNumber(synergyPct, notation)}</Num>%
                     </span>
                   )}
                 </div>
