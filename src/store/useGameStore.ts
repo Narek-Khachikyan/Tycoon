@@ -52,6 +52,7 @@ import {
   audioContext,
 } from '../audio/sound';
 import { playCoolingSound, playHallucinationSound, updateThermalAudio } from '../audio/thermal';
+import { stopMusic, updateMusic } from '../audio/music';
 import { playMilestoneSound } from '../audio/sfx';
 
 export type BuyAmount = 1 | 10 | 100 | 'max';
@@ -415,12 +416,16 @@ export const useGameStore = create<GameStore>((set, get) => {
   };
 
   /**
-   * Непрерывный голос Температуры.
+   * Непрерывный голос Температуры и музыка.
    *
    * Отдельным действием, а не частью `tick`: он должен идти и тогда, когда тик не изменил
    * состояние (жар меняет доход, но не обязательно кошелёк), и он не имеет права будить
    * AudioContext сам — пробуждение живёт в `audioContext`, и вызов без жеста игрока просто
    * не сделает ничего.
+   *
+   * Музыка идёт в том же месте и по той же причине: она читает то же поколение и ту же
+   * Температуру, что и голос, и обновлять их в разные моменты означало бы, что на секунду
+   * после смены Поколения игра выглядит по-новому, а звучит по-старому.
    */
   const syncThermalVoice = (): void => {
     const ctx = audioContext();
@@ -428,6 +433,12 @@ export const useGameStore = create<GameStore>((set, get) => {
     const s = get().state;
     updateThermalAudio(ctx, {
       temp: s.temp / TEMP_MAX,
+      heat: s.heat,
+      muted: s.settings.muted,
+    });
+    updateMusic(ctx, {
+      generation: s.generation,
+      temp: s.temp,
       heat: s.heat,
       muted: s.settings.muted,
     });
@@ -852,6 +863,9 @@ export const useGameStore = create<GameStore>((set, get) => {
         state: { ...s.state, settings: { ...s.state.settings, muted: !s.state.settings.muted } },
       }));
       get().syncThermalVoice();
+      // Музыка снимается явно: `updateMusic` при `muted` только глушит мастер и держит
+      // таймер, а без `stopMusic` он продолжал бы назначать доли в тишину.
+      if (get().state.settings.muted) stopMusic();
     },
 
     // Настройка только умеет уменьшать движение, поэтому принимает флаг, а не переключает его:
