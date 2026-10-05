@@ -35,6 +35,7 @@ import {
   uprisingStage,
 } from '../economy/glitches';
 import { pickNews } from '../economy/news';
+import { clampTemp, TEMP_MAX } from '../economy/thermal';
 import { perkEffects } from '../economy/perks';
 import { availableUpgrades } from '../economy/upgrades';
 import { importSave, migrate, SAVE_KEY, serialize } from '../economy/save';
@@ -47,7 +48,9 @@ import {
   playEventAlertSound,
   playPrestigeSound,
   playUpgradeSound,
+  audioContext,
 } from '../audio/sound';
+import { playCoolingSound, playHallucinationSound, updateThermalAudio } from '../audio/thermal';
 
 export type BuyAmount = 1 | 10 | 100 | 'max';
 export type ActiveTab = 'click' | 'office' | 'shop' | 'upgrades' | 'perks' | 'stats' | 'achievements' | 'settings';
@@ -229,6 +232,16 @@ interface GameStore {
   dismissPrestigePrompt: () => void;
   triggerPrestige: () => void;
 
+  /** Ставит Температуру напрямую: диапазон и защиту от мусора берёт на себя clampTemp. */
+  setTemp: (t: number) => void;
+  /**
+   * Пересобирает непрерывный голос Температуры под текущее состояние.
+   *
+   * Публично ровно ради тестов: иначе проверка «мут гасит и непрерывный голос» не могла бы
+   * отличить «обновлённое состояние» от «обновлённого звука», а это ровно то, что нужно знать.
+   * В игре вызывается из `tick` и `setTemp`.
+   */
+  syncThermalVoice: () => void;
   setBuyAmount: (amt: BuyAmount) => void;
   setSellMode: (mode: boolean) => void;
   setActiveTab: (tab: ActiveTab) => void;
@@ -374,6 +387,51 @@ export const useGameStore = create<GameStore>((set, get) => {
     set((st) => ({ toasts: [...st.toasts, { id: `t-${++toastCounter}`, title, name, desc }] }));
 
   /**
+   * Звук и слова Температуры: охлаждение после перегрева и провал от Галлюцинации.
+   *
+   * Оба события читаются по МЕСТУ в истории состояния, а не по флагу: перегрев виден по
+   * `overheatedAt`, который сдвигается один раз за сброс, а Галлюцинация — по тому, что
+   * кошелёк и перегрев выросли, а счётчик выплат не изменился. Флагов в GameState для них
+   * нет намеренно: оба выводимы из уже существующих полей, и третье поле означало бы третью
+   * вещь, которую надо не забыть сбросить.
+   *
+   * Охлаждение проверяется ДО галлюцинации по той же причине, что и в движке: перегрев
+   * сбрасывает перегрев в ноль, и событие, случившееся в ту же секунду, не должно
+   * перебивать его сообщением о другом.
+   */
+  const announceThermal = (before: GameState, after: GameState): void => {
+    if (after.overheatedAt !== before.overheatedAt && after.overheatedAt > 0) {
+      playCoolingSound(after.settings.muted);
+      pushToast('Перегрев', 'Модели перегрелись', 'Жар сброшен в холод. Доход падает, пока офис остывает.');
+      return;
+    }
+    // Галлюцинация: перегрев подрос, а кошелёк — нет. При жаре сбрасывается и кошелёк, и
+    // перегрев разом, и этот случай уже разобран выше.
+    if (after.heat > before.heat && after.tokens <= before.tokens + totalIncome(after) * 0.05) {
+      playHallucinationSound(after.settings.muted);
+    }
+  };
+
+  /**
+   * Непрерывный голос Температуры.
+   *
+   * Отдельным действием, а не частью `tick`: он должен идти и тогда, когда тик не изменил
+   * состояние (жар меняет доход, но не обязательно кошелёк), и он не имеет права будить
+   * AudioContext сам — пробуждение живёт в `audioContext`, и вызов без жеста игрока просто
+   * не сделает ничего.
+   */
+  const syncThermalVoice = (): void => {
+    const ctx = audioContext();
+    if (!ctx) return;
+    const s = get().state;
+    updateThermalAudio(ctx, {
+      temp: s.temp / TEMP_MAX,
+      heat: s.heat,
+      muted: s.settings.muted,
+    });
+  };
+
+  /**
    * Держит UI-состояние окна события: объявляет новое окно и сообщает о просроченном.
    *
    * Оба сообщения нужны игроку, а не магазину: без объявления он не узнает, что окно открылось,
@@ -445,6 +503,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       // аргументом из стора: движок проверяется тестами с детерминированным rnd, а игра —
       // обычной случайностью.
       const advanced = awardEarned(advanceTime(state, dt, Math.random));
+      announceThermal(state, advanced);
       // Расписание Глюка живёт в экономике и тикает вместе с событиями, поэтому стор видит спавн
       // только по счётчику id — и то лишь ради первого Глюка в жизни игрока.
       if (state.glitchSeq === 0 && advanced.glitchSeq === 1) {
@@ -454,6 +513,9 @@ export const useGameStore = create<GameStore>((set, get) => {
       }
       const eventWindow = watchEventWindow(advanced);
       set({ state: advanced, ...eventWindow });
+      // Голос идёт после set, чтобы читать уже новое состояние, и до записи в localStorage:
+      // звук не должен ждать завершения сериализации.
+      syncThermalVoice();
 
       // Сохранение в localStorage
       if (typeof window !== 'undefined') {
@@ -748,6 +810,15 @@ export const useGameStore = create<GameStore>((set, get) => {
       });
     },
 
+    syncThermalVoice,
+
+    // Голос идёт сразу после set, а не на следующем тике: шкала обязана звучать в ту же
+    // миллисекунду, в которую игрок её двинул, иначе управление ощущается «ватным».
+    setTemp: (t: number) => {
+      set((s) => ({ state: { ...s.state, temp: clampTemp(t) } }));
+      get().syncThermalVoice();
+    },
+
     setBuyAmount: (amt: BuyAmount) => set({ buyAmount: amt }),
     setSellMode: (mode: boolean) => set({ sellMode: mode }),
     setActiveTab: (tab: ActiveTab) => set({ activeTab: tab }),
@@ -755,10 +826,14 @@ export const useGameStore = create<GameStore>((set, get) => {
     setNotation: (notation: Notation) =>
       set((s) => ({ state: { ...s.state, settings: { ...s.state.settings, notation } } })),
 
-    toggleMute: () =>
+    // Голос Температуры глушится вместе со всем остальным: он непрерывный, и оставленный
+    // включённым при выключенном звуке он стал бы единственным, что слышно в игре.
+    toggleMute: () => {
       set((s) => ({
         state: { ...s.state, settings: { ...s.state.settings, muted: !s.state.settings.muted } },
-      })),
+      }));
+      get().syncThermalVoice();
+    },
 
     // Настройка только умеет уменьшать движение, поэтому принимает флаг, а не переключает его:
     // системное «уменьшить движение» игрок отменить не вправе.

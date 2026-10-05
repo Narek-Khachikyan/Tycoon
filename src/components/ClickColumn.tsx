@@ -5,6 +5,7 @@ import { formatCount, formatNumber } from '../economy/format';
 import { Num } from './Num';
 import { Icon } from './Icon';
 import { GoldenToken } from './GoldenToken';
+import { ThermalDial } from './ThermalDial';
 
 /** За сколько миллисекунд счётчик съедает 63% расстояния до цели: каждый кадр отнимает
  *  долю dt / APPROACH_MS остатка, поэтому число тормозит, а не разгоняется, и скорость
@@ -216,7 +217,11 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
           объявление. */}
       <GoldenToken />
 
-      {/* Большая кнопка Клика */}
+      {/* Температура стоит под кнопкой, а не над ней: это решение «сейчас», и игрок
+            возвращается к нему после каждого клика, а не при выборе Апгрейда. */}
+        <ThermalDial />
+
+        {/* Большая кнопка Клика */}
       <button
         ref={btnRef}
         onClick={handleClick}

@@ -2,6 +2,7 @@ import { CATALOG, MODEL_BY_ID } from './catalog';
 import { CRYSTAL_UPGRADE_BY_ID } from './crystal';
 import { uprisingStage } from './glitches';
 import { PERK_BY_ID } from './perks';
+import { clampTemp, TEMP_START } from './thermal';
 import { EVENT_KINDS, newGame, SAVE_VERSION, type ActiveEvent, type EventKind, type GameState, type Glitch } from './state';
 import { UPGRADE_BY_ID } from './upgrades';
 
@@ -54,6 +55,17 @@ const MIGRATIONS: Record<number, Migration> = {
     eventCaughtAt: 0,
     catchUpPaid: 0,
     nextGlitchAt: 0,
+  }),
+  // Температура, перегрев и отметка перегрева появились в v5. Значения — те же, что у newGame:
+  // у живого сохранения их не было, и ноль означал бы «холод и без перегрева», то есть ровно то
+  // состояние, в котором эти поля должны были оказаться для игрока, который их не знал.
+  // TEMP_START, а не ноль — см. newGame: игра обязана открываться с живой шкалой, а не с мёртвой.
+  4: (raw) => ({
+    ...raw,
+    version: 5,
+    temp: TEMP_START,
+    heat: 0,
+    overheatedAt: 0,
   }),
 };
 
@@ -204,6 +216,11 @@ export function migrate(input: unknown, now: number): GameState {
     pledgeUntil: stamp(raw.pledgeUntil),
     pledgeBought: count(raw.pledgeBought),
     covenant: !!raw.covenant,
+    // clampTemp, а не `share`: испорченный или будущий сейв может принести любое число, а
+    // шкала обязана остаться в своём диапазоне — иначе множитель Дохода стал бы произвольным.
+    temp: clampTemp(num(raw.temp, TEMP_START)),
+    heat: share(raw.heat),
+    overheatedAt: stamp(raw.overheatedAt),
     lastTick: num(raw.lastTick, now),
     startedAt: num(raw.startedAt, now),
     runStartedAt: num(raw.runStartedAt, now),

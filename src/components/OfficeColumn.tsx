@@ -271,7 +271,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
           чтобы адресовать части Сцены из проверок; оформление живёт в style, как во всём
           остальном интерфейсе. */}
       <div
-        className="scene"
+        className="scene scene-plate"
         style={{
           flex: 1,
           minHeight: '300px',
@@ -280,6 +280,10 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
           borderRadius: '6px',
           border: '2px solid var(--border)',
           backgroundColor: 'var(--bg-void)',
+          // Свечение от жара кладётся на рамку, а не на картинку: горящий офис должен
+          // светиться по краю, и подсветка изнутри залила бы лица Маскотов.
+          boxShadow:
+            'inset 0 0 24px color-mix(in srgb, var(--accent-color) calc(var(--heat-glow, 0) * 100%), transparent)',
         }}
       >
         {/* Кроссфейд: предыдущий кадр лежит нижним слоем, новый проявляется поверх

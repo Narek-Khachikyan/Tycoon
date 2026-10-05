@@ -1,4 +1,6 @@
-export const SAVE_VERSION = 4;
+import { TEMP_START } from './thermal';
+
+export const SAVE_VERSION = 5;
 
 export type Notation = 'short' | 'sci';
 
@@ -72,6 +74,12 @@ export interface GameState {
   pledgeBought: number;
   /** Бессрочный откуп ценой налога на Доход. */
   covenant: boolean;
+  /** Температура генерации, [0, TEMP_MAX]. Живой параметр: меняется каждый тик, покупкой не является. */
+  temp: number;
+  /** Накопленный перегрев, [0, 1]. До единицы копится от жара и гасит Доход. */
+  heat: number;
+  /** Мс Unix последнего перегрева. 0 = не было. По нему считается оглушение после сброса. */
+  overheatedAt: number;
   lastTick: number;
   startedAt: number;
   runStartedAt: number;
@@ -110,6 +118,9 @@ export function newGame(now: number): GameState {
     pledgeUntil: 0,
     pledgeBought: 0,
     covenant: false,
+    temp: TEMP_START,
+    heat: 0,
+    overheatedAt: 0,
     lastTick: now,
     startedAt: now,
     runStartedAt: now,

@@ -108,6 +108,13 @@ export const App: React.FC = () => {
     '--col-shop': `${shopColWidth(viewport.width)}px`,
   } as React.CSSProperties;
 
+  // Температура одним атрибутом на корне: и CSS-свет, и синтезатор звука, и подписи читают
+  // один и тот же признак, поэтому состояния не могут разойтись между собой. Пороги стоят
+  // здесь, а не в CSS, потому что их читает и звук, а не только стили.
+  const overheated = useGameStore((s) => s.state.heat);
+  const stunned = useGameStore((s) => s.state.overheatedAt > 0 && s.state.lastTick - s.state.overheatedAt < 3500);
+  const thermalState = stunned ? 'stunned' : overheated > 0.5 ? 'hot' : 'calm';
+
   return (
     <div
       ref={rootRef}
@@ -116,6 +123,7 @@ export const App: React.FC = () => {
       // только снимает анимацию, а @media (prefers-reduced-motion: no-preference) в index.css
       // добавляет её обратно там, где система её разрешает.
       data-motion={reducedMotion ? 'reduced' : 'full'}
+      data-thermal={thermalState}
       style={{
         display: 'flex',
         flexDirection: 'column',

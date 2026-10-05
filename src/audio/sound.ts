@@ -5,12 +5,24 @@
 
 let audioCtx: AudioContext | null = null;
 
-function getAudioContext(): AudioContext | null {
+/**
+ * Контекст игры, общий для всех модулей звука.
+ *
+ * Экспортируется потому, что `thermal.ts` держит непрерывный голос и обязан играть на том же
+ * контексте: два контекста означают два системных приоритета и рассинхрон между модулями.
+ * Побочный эффект общего контекста — общий resume, поэтому жеста пользователя хватает обоим.
+ *
+ * `latencyHint: 'interactive'` обязателен: значение по умолчанию на десктопе даёт задержку
+ * около 20 мс плюс буфер вывода, и клик перестаёт ощущаться мгновенным. Интерактивный режим
+ * просит у системы минимальный буфер, и это единственное, что можно сделать без
+ * собственного аудиопотока.
+ */
+export function audioContext(): AudioContext | null {
   if (typeof window === 'undefined') return null;
   if (!audioCtx) {
     const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     if (AudioContextClass) {
-      audioCtx = new AudioContextClass();
+      audioCtx = new AudioContextClass({ latencyHint: 'interactive' });
     }
   }
   if (audioCtx && audioCtx.state === 'suspended') {
@@ -18,6 +30,8 @@ function getAudioContext(): AudioContext | null {
   }
   return audioCtx;
 }
+
+const getAudioContext = audioContext;
 
 export function playClickSound(muted: boolean): void {
   if (muted) return;

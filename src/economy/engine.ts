@@ -1,6 +1,16 @@
 import { CATALOG, computeGain, LAST_GENERATION, MODEL_BY_ID, prestigeDivisor, type Model } from './catalog';
 import type { LabId } from '../data/labs';
 import { collectCrystals, crystalIncomeMult } from './crystal';
+import {
+  applyOverheat,
+  clampTemp,
+  HALLUC_HEAT,
+  HALLUC_LOSS,
+  HEAT_LIMIT,
+  heatRate,
+  halluRate,
+  thermalRead,
+} from './thermal';
 import { perkEffects, PERK_BY_ID, START_TOKENS_UNITS, GEN_PERK_MAX_TOTAL, genPerkCost, genPerkGeneration, isGenPerkId, type PerkEffect } from './perks';
 import type { GameState } from './state';
 import { nonShadowCount } from './achievements';
@@ -135,6 +145,11 @@ export function progressToNextAgent(state: GameState, model: Model): number {
  *
  * Все три живут в состоянии и длятся забег, поэтому они достаются и оффлайн-доходу — в отличие
  * от событий и Глюков, которые живут минуты и в него не попадают вовсе.
+ *
+ * Температура сюда НЕ входит, хотя она тоже переживает забег: её множитель читает `now`, потому
+ * что оглушение после перегрева идёт по стенным часам, а `globalMult` вызывается в том числе
+ * из `offlineIncome`, где часов нет. Температура поэтому стоит в `incomeRate` рядом с событием —
+ * то есть платит активному тику и не платит оффлайн-доходу.
  */
 export function globalMult(state: GameState): number {
   return (1 + state.compute * COMPUTE_BONUS) * crystalIncomeMult(state) * covenantIncomeMult(state);
@@ -192,10 +207,13 @@ export function assistClickBonus(state: GameState): number {
  * Без события и без «Прорыва»: это и есть база, из которой платится и активный тик, и
  * оффлайн-доход. Часы здесь не нужны — ни один из этих множителей не зависит от времени.
  */
-function modelBaseIncome(state: GameState, model: Model): number {
+function modelBaseIncome(state: GameState, model: Model, thermal: number = 1): number {
   const n = state.agents[model.id] ?? 0;
   if (!n) return 0;
-  let mult = 1;
+  // Температура идёт ПЕРВЫМ множителем и до всех остальных: жар должен поднимать ровно тот
+  // Доход, который игрок видит в строке «+N / сек», а не базовый с множителем поверх — иначе
+  // перегрев резал бы невидимую часть, и полоса на шкале врала бы.
+  let mult = thermal;
   for (let t = 0; t < MODEL_TIERS.length; t++) {
     if (state.upgrades.includes(modelUpgradeId(model.id, t))) mult *= 2;
   }
@@ -256,8 +274,8 @@ export function modelIncome(state: GameState, model: Model, now: number = state.
  * Из него платится оффлайн-доход и возврат за Клик: оба обязаны считать заработок до «Ночного
  * кодинга» и без живых Глюков, поэтому и берут одну и ту же сумму.
  */
-function baseIncome(state: GameState): number {
-  return CATALOG[state.generation].models.reduce((s, m) => s + modelBaseIncome(state, m), 0);
+function baseIncome(state: GameState, thermal: number = 1): number {
+  return CATALOG[state.generation].models.reduce((s, m) => s + modelBaseIncome(state, m, thermal), 0);
 }
 
 /**
@@ -268,7 +286,7 @@ function baseIncome(state: GameState): number {
  */
 function incomeRate(state: GameState, now: number): number {
   const total = CATALOG[state.generation].models.reduce((s, m) => s + modelIncome(state, m, now), 0);
-  return total * eventMultiplierFor(state, now) * downtimeIncomeMult(state, now);
+  return total * eventMultiplierFor(state, now) * downtimeIncomeMult(state, now) * thermalRead(state, now).mult;
 }
 
 /** Доход активного тика: то, что платит база, событие и живые Глюки. */
@@ -329,6 +347,8 @@ export function labIncomeShare(state: GameState, lab: LabId): number {
 
 export function clickValue(state: GameState, income = totalIncome(state), now: number = state.lastTick): number {
   const gen = state.generation;
+  // Клик стартует с масштаба Поколения, а не с 1: в Поколении 0 это 1, а дальше ×1000, и
+  // без этого клик перестал бы что-то значить ровно там, где Доход уже измеряется триллионами.
   let flat = CATALOG[gen].scale;
   let pct = 0;
   CLICK_UPGRADES.forEach((c, i) => {
@@ -459,7 +479,7 @@ function buyGenPerk(state: GameState, id: string): GameState {
  * Отдельного `now` здесь нет намеренно: тик — единственное место, где интервал известен целиком,
  * а все читатели временных множителей смотрят тот же `lastTick`.
  */
-export function advance(state: GameState, dt: number): GameState {
+export function advance(state: GameState, dt: number, rnd: () => number = Math.random): GameState {
   if (dt <= 0) return state;
   const now = state.lastTick + dt * 1000;
   const rate = incomeRate(state, now);
@@ -474,16 +494,53 @@ export function advance(state: GameState, dt: number): GameState {
   // Глюки крадут из скорости без их множителя, поэтому десять штук отнимают ровно половину.
   const stepped = stepGlitches(state, rate, dt);
   const s = earnTokens(stepped, rate * glitch * dt + auto);
+  // Температура идёт после начисления: перегрев режет уже посчитанную скорость этого тика,
+  // а не подменяет её на следующем — иначе игрок, пойманный перегревом, терял бы ещё
+  // и тот Доход, который успел заработать до сброса.
+  const heated = advanceThermal(s, dt, rnd, now);
   return {
-    ...s,
+    ...heated,
     // Автоклики — обычные клики: они тоже должны попадать в статистику и Достижения.
-    clicks: s.clicks + autoClicks,
-    runClicks: s.runClicks + autoClicks,
-    catchUpPaid: state.catchUpPaid + autoRefund,
+    clicks: heated.clicks + autoClicks,
+    runClicks: heated.runClicks + autoClicks,
+    catchUpPaid: heated.catchUpPaid + autoRefund,
     // lastTick обязано двигаться вместе с доходом, иначе applyOffline
     // повторно начислит уже обработанный активный интервал.
     lastTick: now,
   };
+}
+
+/**
+ * Галлюцинация: отнимает долю кошелька и наказывает Доход.
+ *
+ * Штраф к Доходу держится как доля секунды (то есть затухает сам), а не как флаг на третьем
+ * поле состояния: иначе её пришлось бы гасить отдельным переходом, который легко забыть
+ * вызвать и который завис бы при импорте старого сейва. Здесь всё живёт в `heat` уже
+ * существующей шкалы перегрева, то есть переходов не добавляет.
+ */
+function applyHallucination(state: GameState): GameState {
+  // Доля от кошелька с полом, но не ниже единицы Токена: у пустого кошелька галлюцинация
+  // не должна ни уходить в минус, ни врать нулевым штрафом — она всё равно жёстче греет.
+  const lost = Math.min(Math.max(0, state.tokens), Math.max(1, Math.floor(state.tokens * HALLUC_LOSS)));
+  // Галлюцинация — это перегрев, пробитый сквозь жар: она и в полосе, и в Доходе.
+  return { ...state, tokens: state.tokens - lost, heat: Math.min(1, state.heat + HALLUC_HEAT) };
+}
+
+/**
+ * Шаг Температуры за `dt`: копит перегрев, ловит Галлюцинацию, сбрасывает жар при перегреве.
+ *
+ * Порядок именно такой. Перегрев проверяется ПЕРВЫМ и до Галлюцинации: сброс в ноль должен
+ * отменять накопленное, а не наоборот — иначе игрок, пойманный перегревом на границе, терял бы
+ * ещё и 4% кошелька за событие, которое тут же началось с нуля.
+ */
+export function advanceThermal(state: GameState, dt: number, rnd: () => number, now: number): GameState {
+  if (dt <= 0) return state;
+  const temp = clampTemp(state.temp);
+  const heat = Math.min(1, state.heat + heatRate(temp) * dt);
+  let next: GameState = { ...state, temp, heat };
+  if (next.heat >= HEAT_LIMIT) return applyOverheat(next, now);
+  if (rnd() < halluRate(temp) * dt) next = applyHallucination(next);
+  return next;
 }
 
 /**
@@ -594,7 +651,7 @@ function rollRed(state: GameState, now: number, rnd: () => number): boolean {
 export function advanceTime(state: GameState, dt: number, rnd: () => number = Math.random): GameState {
   if (dt <= 0) return state;
   const now = state.lastTick + dt * 1000;
-  const moved = dt < OFFLINE_THRESHOLD_SEC ? advance(state, dt) : applyOffline(state, now).state;
+  const moved = dt < OFFLINE_THRESHOLD_SEC ? advance(state, dt, rnd) : applyOffline(state, now).state;
   const scheduled = advanceEvents(moved, now, rnd);
   return collectCrystals(advanceGlitches(scheduled, now, rnd), now).state;
 }
