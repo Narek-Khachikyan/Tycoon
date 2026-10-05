@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useGameStore } from '../store/useGameStore';
 import { EVENT_MIN_MS } from '../economy/events';
+import { newsPool, tickerLine } from '../economy/news';
 import { Icon } from './Icon';
 
 // Сколько миллисекунд копия новости идёт мимо окна. Задаёт скорость ленты: за цикл дорожка
@@ -66,6 +67,15 @@ let rumorSeq = 0;
 
 export const NewsTicker: React.FC = () => {
   const news = useGameStore((s) => s.news);
+  // Пул заголовков нужен ленте, а не только подбору: копии заполняются разными новостями,
+  // иначе в начале игры игрок трижды подряд читал одну фразу.
+  //
+  // Берётся состояние и считается пул в `useMemo`, а не селектором `newsPool(s.state)`:
+  // селектор возвращал бы новый массив на каждый вызов, и zustand увидел бы изменение при
+  // каждом тике — лента перерисовывалась бы двадцать раз в секунду ради строки, которая меняется
+  // раз в пятнадцать секунд.
+  const state = useGameStore((s) => s.state);
+  const pool = useMemo(() => newsPool(state), [state]);
   const refreshNews = useGameStore((s) => s.refreshNews);
   // У слуха своё действие, а не `catchEvent`: то живёт внутри окна события, и слух не имеет
   // права занимать чужое окно — у него нет ни Золотого Токена, ни его срока.
@@ -183,20 +193,24 @@ export const NewsTicker: React.FC = () => {
               news-ticker--paused, без ключа, чтобы hover/focus не перезапускали строку.
               Копия повторяет разделитель: без него -50% дорожки сдвинет текст на половину
               промежутка и на стыке цикла текст прыгнет. Копии кроме первой скрыты от чтения
-              с экрана: для озвучки новость одна. */}
+              с экрана: для озвучки новость одна.
+
+              Содержимое копий — разные заголовки из доступного пула, а не одна повторённая
+              фраза: лента занимает три-четыре копии, и повтор означал бы, что игрок читает
+              один заголовок трижды подряд. Первая копия — та, что уже показана как новость. */}
           <span
             key={layout.copies}
             ref={trackRef}
             className="news-ticker-track"
             style={{ '--marquee-dur': `${layout.cycleMs}ms` } as React.CSSProperties}
           >
-            {Array.from({ length: layout.copies }, (_, i) => (
+            {tickerLine(news, pool, layout.copies).map((text, i) => (
               <span
                 key={i}
                 className={`news-ticker-copy${i > 0 ? ' news-ticker-copy--dup' : ''}`}
                 aria-hidden={i > 0 ? true : undefined}
               >
-                {news}
+                {text}
                 <span className="news-ticker-sep" aria-hidden="true" style={{ margin: '0 14px' }}>
                   ◆
                 </span>

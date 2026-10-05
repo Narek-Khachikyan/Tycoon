@@ -37,7 +37,7 @@ import {
 import { GEN_PERK_BASE_COST, GEN_PERK_STEP_COST, genPerkId, isGenPerkId, PERK_BY_ID, type PerkEffect } from './perks';
 import { EVENT_KINDS, newGame, SAVE_VERSION, type ActiveEvent, type EventKind, type GameState } from './state';
 import { exportSave, importSave, migrate } from './save';
-import { pickNews } from './news';
+import { newsPool, pickNews, tickerLine } from './news';
 import { ACHIEVEMENTS, awardAchievements, newlyEarned, nonShadowCount, shadowEarned } from './achievements';
 import { SHADOW_ACHIEVEMENTS } from './shadow';
 import {
@@ -2390,5 +2390,48 @@ describe('milestones', () => {
     // Неизвестный id не должен ни занимать номер настоящей вехи, ни показываться в интерфейсе.
     const junk = migrate({ ...JSON.parse(JSON.stringify(s)), milestones: ['ms_click', 'ms_нет'] }, T0);
     expect(junk.milestones).toEqual(['ms_click']);
+  });
+});
+
+describe('news ticker', () => {
+  const fresh = newGame(T0);
+
+  it('offers every headline that has no condition, plus the ones it has earned', () => {
+    const pool = newsPool(fresh);
+    expect(pool.length).toBeGreaterThan(3);
+    // Условные заголовки в начале игры закрыты: ни одна Лаборатория ещё не нанята.
+    expect(pool.some((t) => /Grok|Claude|OpenAI|Gemini|DeepSeek|Meta|Mistral|Qwen/.test(t))).toBe(false);
+    // А условие по Поколению снято на первом же.
+    expect(pool.some((t) => /конституцию|Grok/.test(t))).toBe(false);
+    const late = newsPool({ ...fresh, agents: { [CATALOG[4].flagship.id]: 1 }, generation: 4 });
+    expect(late.length).toBeGreaterThan(pool.length);
+  });
+
+  it('fills the copies with different headlines instead of repeating one', () => {
+    // Регрессия: лента повторяла одну подобранную новость, и в начале игры игрок трижды подряд
+    // читал одну и ту же фразу. Заголовков там шесть, а копий четыре, — повтора быть не должно.
+    const pool = newsPool(fresh);
+    const line = tickerLine(pool[0], pool, 4);
+    expect(line).toHaveLength(4);
+    expect(line[0]).toBe(pool[0]);
+    expect(new Set(line).size).toBe(4);
+  });
+
+  it('does not repeat the headline inside its own copy', () => {
+    // Первая копия — это заголовок из стора, и он не должен вернуться второй раз: иначе игрок
+    // прочтёт «новость, новость» подряд, то есть ровно тот дефект, который чинится.
+    const pool = newsPool(fresh);
+    for (const headline of pool) {
+      const line = tickerLine(headline, pool, Math.min(6, pool.length));
+      expect(new Set(line).size).toBe(line.length);
+    }
+  });
+
+  it('survives a pool smaller than the number of copies', () => {
+    // Условные заголовки могут сузиться до одного: обрезка превратила бы это в исключение, а
+    // лента обязана крутиться в любом случае — просто повторяя единственный заголовок.
+    const one = newsPool(fresh).slice(0, 1);
+    expect(tickerLine(one[0], one, 3)).toHaveLength(3);
+    expect(tickerLine(one[0], [], 2)).toEqual([one[0], one[0]]);
   });
 });
