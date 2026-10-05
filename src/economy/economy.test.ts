@@ -75,6 +75,34 @@ describe('catalog', () => {
     expect(softMod(1e-9, 1)).toBeGreaterThanOrEqual(0.7);
     expect(softMod(5, 5)).toBe(1);
   });
+  // Инвариант, который держал деньги, а не стиль: окупаемость (цена ÷ доход) не должна расти
+  // по Рангу. Пока росла — верхний Ранг был худшей сделкой Поколения, а верхний Ранг это
+  // Флагман, то есть единственный ключ к Престижу. Замерено на исходной лестнице
+  // (COST_STEP 11,5 против INCOME_STEP 6,5): окупаемость Флагмана 2,9 часа в Поколении 1 и
+  // 55 дней в Поколении 8, где Ранг ~19; шесть часов непрерывной игры не давали первого Престижа
+  // ни одной стратегией, то есть прогрессия была недостижима в принципе.
+  //
+  // Порция 3× — не точность, а запас: сам модификатор ±30% растягивает окупаемость внутри
+  // Поколения до 1,86×, и место для осознанной настройки лестницы должно остаться. Ловит
+  // именно возврат к расходящимся лестницам, а не конкретное число.
+  it('never lets a rank pay back materially worse than the cheapest model', () => {
+    for (const g of CATALOG) {
+      const payback = g.models.map((m) => m.baseCost / m.baseIncome);
+      const cheapest = Math.min(...payback);
+      for (const p of payback) expect(p).toBeLessThanOrEqual(cheapest * 3);
+    }
+  });
+  // Обратная сторона той же правды: если окупаемость падает по Рангу, верхняя Модель
+  // окупается мгновенно и становится единственной разумной покупкой, а остальные Модели —
+  // деньгами в никуда. Проверено на лестнице с COST_STEP 4: окупаемость Флагмана 7 секунд в
+  // Поколении 1 и ноль в Поколении 8.
+  it('never lets a rank pay back so fast that the rest of the generation is waste', () => {
+    for (const g of CATALOG) {
+      const payback = g.models.map((m) => m.baseCost / m.baseIncome);
+      const dearest = Math.max(...payback);
+      for (const p of payback) expect(p).toBeGreaterThanOrEqual(dearest / 3);
+    }
+  });
   it('scales each generation by ×1000', () => {
     expect(genScale(2)).toBe(1e6);
     expect(CATALOG[1].scale / CATALOG[0].scale).toBe(1000);

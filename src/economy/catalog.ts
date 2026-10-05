@@ -41,7 +41,7 @@ export interface Generation {
 
 export const GEN_SCALE = 1000;
 export const COST_BASE = 15;
-export const COST_STEP = 11.5;
+export const COST_STEP = 6.5;
 export const INCOME_BASE = 0.1;
 export const INCOME_STEP = 6.5;
 export const MOD_SPREAD = 0.3;

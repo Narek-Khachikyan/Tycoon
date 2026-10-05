@@ -647,7 +647,10 @@ describe('pledge and license', () => {
     const income = totalIncome(state());
     // Оба платежа в кошельке сразу: отзыв дороже покупки на два порядка, и кошелёк ниже цены
     // отзыва означал бы, что проверяется отказ, а не возврат Дохода.
-    withTokens(licenseCost(state()) + revokeCost(state()));
+    // Запас сверх цены отзыва обязателен, а не щедрость: кошелёк ровно в цену после вычитания
+    // цены «Лицензии» проваливается на один ULP (при цене 1e17 это 16 Токенов), и отзыв молча
+    // отказывался. Тест проверяет оплату, поэтому деньги должны её покрывать с запасом.
+    withTokens(licenseCost(state()) + revokeCost(state()) * 1.01);
     store().buyLicense();
     expect(totalIncome(state()) / income).toBeCloseTo(1 - LICENSE_INCOME_TAX, 6);
     const before = state();
