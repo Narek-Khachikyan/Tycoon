@@ -23,7 +23,13 @@ export type IconName =
   | 'settings'
   | 'pause'
   | 'play'
-  | 'next';
+  | 'next'
+  /** Корона флагмана: та же решётка 16×16, что и остальные знаки. */
+  | 'crown'
+  /** Стрелка вверх: престиж и переход вверх по лестнице. */
+  | 'rise'
+  /** Стрелка вниз: охлаждение и спад. */
+  | 'fall';
 
 const ICONS: Record<IconName, React.ReactNode> = {
   bolt: (
@@ -127,6 +133,29 @@ const ICONS: Record<IconName, React.ReactNode> = {
       <rect x="8" y="3" width="2" height="3" />
       <rect x="10" y="6" width="2" height="4" />
       <rect x="8" y="10" width="2" height="3" />
+    </>
+  ),
+  // Корона: три вершины и подошва. Вершины разной высоты — ровная гребёнка читалась бы
+  // как забор, а корона без зубцов не отличима от любого другого знака в шапке.
+  crown: (
+    <>
+      <rect x="2" y="6" width="3" height="3" />
+      <rect x="7" y="3" width="3" height="6" />
+      <rect x="12" y="6" width="3" height="3" />
+      <rect x="2" y="10" width="13" height="3" />
+      <rect x="6" y="13" width="5" height="2" />
+    </>
+  ),
+  rise: (
+    <>
+      <rect x="7" y="2" width="3" height="9" />
+      <rect x="4" y="8" width="9" height="3" />
+    </>
+  ),
+  fall: (
+    <>
+      <rect x="7" y="6" width="3" height="9" />
+      <rect x="4" y="6" width="9" height="3" />
     </>
   ),
 };
