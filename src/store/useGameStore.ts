@@ -15,6 +15,7 @@ import {
   prestige as enginePrestige,
   prestigeGain,
   sellAgents as engineSellAgents,
+  shatterCrystal as engineShatterCrystal,
   totalIncome,
 } from '../economy/engine';
 import {
@@ -26,6 +27,7 @@ import { activeSpec, grantAmount, isEventActive } from '../economy/events';
 import { LAST_GENERATION } from '../economy/catalog';
 import { formatNumber } from '../economy/format';
 import { buyCrystalUpgrade as engineBuyCrystalUpgrade } from '../economy/crystal';
+import { CHALLENGES, startChallenge as engineStartChallenge } from '../economy/challenges';
 import {
   buyLicense as engineBuyLicense,
   buyPledge as engineBuyPledge,
@@ -51,6 +53,7 @@ import {
   playUpgradeSound,
 } from '../audio/sound';
 import type { LabId } from '../data/labs';
+import { PROMPT_TEMPLATES } from '../data/prompts';
 
 export type BuyAmount = 1 | 10 | 100 | 'max';
 export type ActiveTab = 'click' | 'office' | 'shop' | 'upgrades' | 'perks' | 'stats' | 'achievements' | 'settings';
@@ -79,9 +82,10 @@ export interface BurstEvent {
   /** Растёт на каждое событие: потребитель смотрит на него, а не на сам факт события, поэтому
    *  два одинаковых подряд не схлопываются в один отклик. */
   nonce: number;
-  /** Данные для оверлея Престижа: новое Поколение и полученный Compute. Только UI-слой,
+  /** Данные для оверлея Престижа: новое Поколение, полученный Compute и испытание, которое
+   *  было активно в завершённом Забеге (его награда — +10% к Доходу навсегда). Только UI-слой,
    *  в GameState не попадает и в сейв не пишется. */
-  prestige?: { generation: number; computeGain: number };
+  prestige?: { generation: number; computeGain: number; challengeId?: 'no-synergy' | 'no-click' };
 }
 
 interface OfflineReport {
@@ -108,17 +112,6 @@ export interface LastQuip {
   lab: LabId | null;
   nonce: number;
 }
-
-const PROMPT_TEMPLATES = [
-  ['Привет! Напиши код на React', 'Конечно! Вот компонент на 400 строк с 15 хуками.'],
-  ['Отрефактори ядро Линукса', 'Готово! Заменил все указатели на умные смайлики.'],
-  ['Напиши стих про видеокарты', 'Шуршат кулеры в ночи, греется кристалл...\nЯ для датасета терабайт собрал.'],
-  ['Сделай приложение за 5 секунд', 'Вайб-кодинг активирован! Приложение вышло в прод.'],
-  ['Объясни квантовую гравитацию', 'Представьте струны, но они вибрируют как басовый дроп.'],
-  ['Сколько будет 2 + 2?', 'После 40 секунд размышлений: 4. Степень уверенности 99.98%.'],
-  ['Придумай новый мем про ИИ', '«Когда запустил локальную модель на ноутбуке и он улетел в стратосферу».'],
-  ['Как достичь AGI?', 'Нужно ещё больше чипов, кофе и токенов!'],
-];
 
 /**
  * Шаблон, который нельзя повторить дважды подряд.
@@ -238,6 +231,8 @@ interface GameStore {
   revokeLicense: () => void;
   /** Перманентный ускоритель роста кристалла за кристаллы из запаса. */
   buyCrystalUpgrade: (id: string) => void;
+  /** Разбивает целый Compute-кристалл из запаса в разовые Токены. */
+  shatterCrystal: () => void;
   /** Ловит живое событие кликом по Золотому Токену: разовый вид платит, временный засчитывается. */
   catchEvent: () => void;
   /** Удар по Глюку; на третьем он лопается и выплата идёт через earnTokens. */
@@ -247,6 +242,8 @@ interface GameStore {
   requestPrestige: () => void;
   dismissPrestigePrompt: () => void;
   triggerPrestige: () => void;
+  /** Принимает испытание Забега на свежем забеге (или отказ от него через null). */
+  startChallenge: (id: 'no-synergy' | 'no-click' | null) => void;
 
   setBuyAmount: (amt: BuyAmount) => void;
   setSellMode: (mode: boolean) => void;
@@ -697,6 +694,22 @@ export const useGameStore = create<GameStore>((set, get) => {
       set({ state: next });
     },
 
+    /**
+     * Разбивает целый кристалл из запаса в разовые Токены.
+     *
+     * Сумму считает ядро и кладёт её сразу в три счётчика; стор только называет её в тосте.
+     * Кристаллов нет — ядро возвращает тот же объект, и стор молчит: ни тоста, ни звука.
+     */
+    shatterCrystal: () => {
+      const { state } = get();
+      const next = engineShatterCrystal(state);
+      if (next === state) return;
+      const gained = next.tokens - state.tokens;
+      playAchievementSound(state.settings.muted);
+      pushToast('Кристалл разбит', 'Compute-кристалл', `+${formatNumber(gained, state.settings.notation)} Токенов`);
+      set({ state: next });
+    },
+
     catchEvent: () => {
       const { state, crashArmedAt } = get();
       const event = state.event;
@@ -817,17 +830,44 @@ export const useGameStore = create<GameStore>((set, get) => {
       if (!canPrestige(state) || isContentFinale(state)) return;
       playPrestigeSound(state.settings.muted);
       const gain = prestigeGain(state);
+      // Поле activeChallenge приезжает ядром испытаний из параллельной ветки: пока его нет в
+      // GameState, чтение через каст, как quipsSeenOf выше. Нужно оверлею, чтобы назвать награду
+      // завершённого испытания в подтверждении Престижа.
+      const activeChallenge = (state as GameState & { activeChallenge?: 'no-synergy' | 'no-click' | null }).activeChallenge ?? null;
       const next = awardEarned(enginePrestige(state, Date.now()));
       set({ state: next, news: pickNews(next) });
       // Ставится после awardEarned намеренно: если тот же тик выполнил Достижение, тряска
       // перебивает его отклик. Тост Достижения всё равно живёт и озвучен — теряется только веер искр.
+      const prestige: { generation: number; computeGain: number; challengeId?: 'no-synergy' | 'no-click' } = {
+        generation: Math.min(state.generation + 1, LAST_GENERATION),
+        computeGain: gain,
+      };
+      if (activeChallenge) prestige.challengeId = activeChallenge;
       set({
         burst: {
           kind: 'prestige',
           nonce: ++burstCounter,
-          prestige: { generation: Math.min(state.generation + 1, LAST_GENERATION), computeGain: gain },
+          prestige,
         },
       });
+    },
+
+    /**
+     * Принимает испытание Забега. Решение «можно ли» — за ядром: несвежий забег возвращает
+     * тот же объект, и стор молчит. Испытание — не Достижение, поэтому awardEarned здесь нет:
+     * просто set, если объект сменился, тост с desc из таблицы и знакомый звук Апгрейда.
+     * Отказ («Без испытания», null) выбор фиксирует, но объявлять его нечем — тоста нет.
+     */
+    startChallenge: (id: 'no-synergy' | 'no-click' | null) => {
+      const { state } = get();
+      const next = engineStartChallenge(state, id);
+      if (next === state) return;
+      playUpgradeSound(state.settings.muted);
+      if (id !== null) {
+        const def = CHALLENGES.find((c) => c.id === id);
+        if (def) pushToast('Испытание принято', def.name, def.desc);
+      }
+      set({ state: next });
     },
 
     setBuyAmount: (amt: BuyAmount) => set({ buyAmount: amt }),

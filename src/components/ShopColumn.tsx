@@ -35,6 +35,7 @@ import {
 import { formatCount, formatDuration, formatNumber } from '../economy/format';
 import type { Notation } from '../economy/state';
 import { MascotSprite } from './MascotSprite';
+import { GoalsBanner } from './GoalsBanner';
 import { Num } from './Num';
 import { Icon } from './Icon';
 import { playDenySound } from '../audio/sound';
@@ -232,6 +233,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const buyLicense = useGameStore((s) => s.buyLicense);
   const revokeLicense = useGameStore((s) => s.revokeLicense);
   const buyCrystalUpgrade = useGameStore((s) => s.buyCrystalUpgrade);
+  const shatter = useGameStore((s) => s.shatterCrystal);
   const requestPrestige = useGameStore((s) => s.requestPrestige);
 
   const gen = CATALOG[state.generation];
@@ -346,6 +348,8 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
         overflowY: 'hidden',
       }}
     >
+      {/* Цели видны всегда, независимо от вкладки: экран без видимой цели убивает быстрее медленного баланса. */}
+      <GoalsBanner />
       {/* Переключатель вкладок магазина */}
       <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
         <button
@@ -1138,6 +1142,26 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                   />
                 </div>
               </div>
+
+              {/* Разбить кристалл: честный обмен вечного бонуса к Доходу на разовые Токены.
+                  Кнопка видна только при crystals >= 1, подтверждения нет — размен назван прямо. */}
+              {state.crystals >= 1 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    Разбить кристалл: вечный бонус к Доходу за кристалл превратится в разовые
+                    Токены. Кристалл исчезнет из запаса.
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button
+                      onClick={shatter}
+                      className="pixel-btn"
+                      style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                    >
+                      Разбить кристалл
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {CRYSTAL_UPGRADES.map((u) => {

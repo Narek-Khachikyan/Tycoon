@@ -1,4 +1,5 @@
 import { CATALOG, computeGain, LAST_GENERATION, MODEL_BY_ID, prestigeDivisor, type Model } from './catalog';
+import { challengeIncomeMult } from './challenges';
 import type { LabId } from '../data/labs';
 import { collectCrystals, crystalIncomeMult } from './crystal';
 import { perkEffects, PERK_BY_ID, START_TOKENS_UNITS, GEN_PERK_MAX_TOTAL, genPerkCost, genPerkGeneration, isGenPerkId, type PerkEffect } from './perks';
@@ -144,13 +145,14 @@ export function progressToNextAgent(state: GameState, model: Model): number {
 // ---------- Доход ----------
 
 /**
- * Постоянный множитель Дохода: Compute, запас кристаллов и налог за «Лицензию».
+ * Постоянный множитель Дохода: Compute, запас кристаллов, налог за «Лицензию» и награда за
+ * закрытые Испытания Забега.
  *
- * Все три живут в состоянии и длятся забег, поэтому они достаются и оффлайн-доходу — в отличие
- * от событий и Глюков, которые живут минуты и в него не попадают вовсе.
+ * Все четыре живут в состоянии и длятся дольше забега, поэтому они достаются и оффлайн-доходу —
+ * в отличие от событий и Глюков, которые живут минуты и в него не попадают вовсе.
  */
 export function globalMult(state: GameState): number {
-  return (1 + state.compute * COMPUTE_BONUS) * crystalIncomeMult(state) * covenantIncomeMult(state);
+  return (1 + state.compute * COMPUTE_BONUS) * crystalIncomeMult(state) * covenantIncomeMult(state) * challengeIncomeMult(state);
 }
 
 /**
@@ -212,7 +214,11 @@ function modelBaseIncome(state: GameState, model: Model): number {
   for (let t = 0; t < MODEL_TIERS.length; t++) {
     if (state.upgrades.includes(modelUpgradeId(model.id, t))) mult *= 2;
   }
-  if (state.upgrades.includes(synergyUpgradeId(state.generation, model.lab))) {
+  // Испытание «Забег без Синергий» гасит оба синергийных множителя — лабораторный и парный, —
+  // а Апгрейды Модели, Флагман, Перки и Датасет продолжают работать: испытание отменяет
+  // Синергии, а не все усиления сразу.
+  const noSynergy = state.activeChallenge === 'no-synergy';
+  if (!noSynergy && state.upgrades.includes(synergyUpgradeId(state.generation, model.lab))) {
     mult *= 1 + SYNERGY_PER_AGENT * labAgents(state, model.lab);
   }
   mult *= flagshipMult(state, model);
@@ -227,6 +233,8 @@ function modelBaseIncome(state: GameState, model: Model): number {
     if (u.kind !== 'synergy' || u.pairLab === undefined) continue;
     if (u.lab !== model.lab && u.pairLab !== model.lab) continue;
     if (!state.upgrades.includes(u.id)) continue;
+    // Парная Синергия — тоже Синергия: в Испытании она молчит вместе с лабораторной.
+    if (noSynergy) continue;
     if (labAgents(state, u.lab) >= SYNERGY_MIN_AGENTS && labAgents(state, u.pairLab) >= SYNERGY_MIN_AGENTS) {
       mult *= PAIR_SYNERGY_MULT;
     }
@@ -302,6 +310,30 @@ export function offlineIncome(state: GameState): number {
 }
 
 /**
+ * Разбивание Compute-кристалла: обмен вечного бонуса к Доходу на разовый впрыск Токенов.
+ *
+ * Впрыск = max(Доход за 1 час, 15% текущего запаса): час Дохода держит выплату осмысленной на
+ * любом этапе, а доля запаса — на старте забега, когда Дохода ещё нет. Это трата вечного бонуса,
+ * а не доход из воздуха: кристалл уходит из запаса вместе со своим +1%, поэтому платить за него
+ * второй раз нечего — и вечный бонус после разбивания честно падает.
+ * Функция живёт здесь, а не в crystal.ts, потому что считает деньги от Дохода: импорт
+ * offlineIncome оттуда замкнул бы два модуля друг на друга.
+ * Без целого кристалла возвращается тот же объект (identity-контракт перехода).
+ */
+export function shatterCrystal(state: GameState): GameState {
+  if (Math.floor(state.crystals) < 1) return state;
+  const payout = Math.max(offlineIncome(state) * 3600, state.tokens * 0.15);
+  const broke: GameState = { ...state, crystals: state.crystals - 1 };
+  if (!(payout > 0)) return broke;
+  return {
+    ...broke,
+    tokens: broke.tokens + payout,
+    runTokens: broke.runTokens + payout,
+    totalTokens: broke.totalTokens + payout,
+  };
+}
+
+/**
  * На сколько вырос бы общий Доход от покупки `n` Агентов Модели.
  *
  * Ответ собирается тем же `totalIncome`, что и тик: покупка подставляется в состояние, Доход
@@ -341,6 +373,9 @@ export function labIncomeShare(state: GameState, lab: LabId): number {
 }
 
 export function clickValue(state: GameState, income = totalIncome(state), now: number = state.lastTick): number {
+  // Испытание «Забег без Кликов»: Клик стоит ноль и в подписи магазина, а не только в выплате, —
+  // иначе витрина обещала бы Токены, которых переход не даст.
+  if (state.activeChallenge === 'no-click') return 0;
   const gen = state.generation;
   let flat = CATALOG[gen].scale;
   let pct = 0;
@@ -394,6 +429,12 @@ export function earnTokens(state: GameState, amount: number): GameState {
 }
 
 export function click(state: GameState): GameState {
+  // Испытание «Забег без Кликов»: выплаты нет, но счётчики растут — по ним стор выдаёт реплики
+  // Моделей и пишет Переписку, а котёл «Ночного кодинга» не трогается: раз ничего не выплачено,
+  // и возвращать нечего, иначе пустые Клики подъедали бы чужой возврат.
+  if (state.activeChallenge === 'no-click') {
+    return { ...state, clicks: state.clicks + 1, runClicks: state.runClicks + 1 };
+  }
   const catchUp = clickCatchUp(state, state.lastTick);
   const s = earnTokens(state, clickValue(state));
   // Котёл возврата уменьшается вместе с выплатой: за окно возвращается его объём один раз, и
@@ -481,9 +522,12 @@ export function advance(state: GameState, dt: number): GameState {
   // Клик автокликера считается от той же скорости, что и тик, и возвращает «Ночной кодинг» ровно
   // так же, как клик игрока, но объём окна достаётся первому из них: за тик автокликов может быть
   // много, а окно стоит одних 10 с Дохода. Дробный автоклик возвращает долю объёма.
-  const catchUp = clickCatchUp(state, now);
-  const autoRefund = Math.min(autoClicks, 1) * catchUp;
-  const auto = autoClicks > 0 ? autoClicks * (clickValue(state, rate * glitch, now) - catchUp) + autoRefund : 0;
+  // В Испытании «Забег без Кликов» автоклик тоже не платит и не трогает котёл возврата — по той же
+  // причине, что ручной Клик выше, — но в счётчики он по-прежнему попадает строкой ниже.
+  const noClick = state.activeChallenge === 'no-click';
+  const catchUp = noClick ? 0 : clickCatchUp(state, now);
+  const autoRefund = noClick ? 0 : Math.min(autoClicks, 1) * catchUp;
+  const auto = autoClicks > 0 && !noClick ? autoClicks * (clickValue(state, rate * glitch, now) - catchUp) + autoRefund : 0;
   // Глюки крадут из скорости без их множителя, поэтому десять штук отнимают ровно половину.
   const stepped = stepGlitches(state, rate, dt);
   const s = earnTokens(stepped, rate * glitch * dt + auto);
@@ -692,6 +736,13 @@ export function prestige(state: GameState, now: number): GameState {
   // На финальном Поколении перехода дальше нет: обнулять забег без нового Поколения нельзя.
   if (!canPrestige(state) || isContentFinale(state)) return state;
   const next = Math.min(state.generation + 1, LAST_GENERATION);
+  // Испытание закрывается Престижем: активное дописывается в закрытые без дублей, иначе повторный
+  // забег с тем же Испытанием платил бы награду дважды. Переписка при этом не трогается —
+  // коллекция собирается всю игру, а не Забег (покрыто тестом слоя 1).
+  const challengesDone =
+    state.activeChallenge !== null && !state.challengesDone.includes(state.activeChallenge)
+      ? [...state.challengesDone, state.activeChallenge]
+      : state.challengesDone;
   return {
     ...state,
     generation: next,
@@ -703,10 +754,16 @@ export function prestige(state: GameState, now: number): GameState {
     runClicks: 0,
     agents: {},
     upgrades: [],
+    activeChallenge: null,
+    challengesDone,
     // Кристаллы и их ускорители, как и Достижения, переживают Престиж: они растут в реальном
     // времени, и сброс забега не должен отнимать у игрока то, за что он ждал в стену часами.
     // Окно событий и комбо, наоборот, начинаются заново: первое Событие нового забега приходит
     // коротким (45–90 с), а цепочка прошлого забега в новый не переезжает.
+    // Живое событие прошлого забега в новый не переезжает вместе с расписанием: иначе новый забег
+    // стартовал бы с чужим активным бонусом — или красным штрафом Восстания — без шанса увернуться.
+    event: null,
+    eventCaughtAt: 0,
     nextEventAt: 0,
     combo: 0,
     runStartedAt: now,

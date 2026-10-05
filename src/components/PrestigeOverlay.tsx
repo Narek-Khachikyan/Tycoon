@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motionAllowed, useGameStore } from '../store/useGameStore';
 import { CATALOG } from '../economy/catalog';
+import { CHALLENGES, canStartChallenge } from '../economy/challenges';
 import { formatNumber } from '../economy/format';
+import { clickColWidth, shopColWidth, THREE_COL_MIN } from '../layout';
 import { Num } from './Num';
 
 /** Карточка держится столько, затем кроссфейд выхода. */
@@ -15,6 +17,80 @@ const TICK_MS = 1200;
 const MOTES = 14;
 
 /**
+ * Выбор испытания на свежем забеге. Испытание стартует только здесь: ядро разрешает его
+ * лишь пока забег свежий, и блок виден ровно пока canStartChallenge. Несвежий забег скрывает
+ * блок целиком, а не гасит кнопки: выбирать там уже нечего. После выбора ядро само выводит
+ * забег из «свежих», поэтому локального состояния у блока нет — видимость читается из стора.
+ *
+ * Карточка не вуаль: игра под ней идёт, и выбор не блокирует Клик. Лежит над колонной Офиса,
+ * а не над магазином: офис — единственная колонка с декоративной картинкой, и перекрывать её
+ * ничего не теряет, тогда как над магазином карточка закрывала список Моделей — самый нужный
+ * контент первых минут. Ширина колонн берётся из layout, иначе якоря разошлись бы с раскладкой.
+ */
+const ChallengePicker: React.FC = () => {
+  const state = useGameStore((s) => s.state);
+  const startChallenge = useGameStore((s) => s.startChallenge);
+  if (!canStartChallenge(state)) return null;
+  // Без слушателя ресайза: стор тикает каждые 50 мс, и подписка на состояние перерисовывает
+  // карточку так часто, что ширина читается свежей без нового таймера.
+  const vw = typeof window === 'undefined' ? THREE_COL_MIN : window.innerWidth;
+  const single = vw < THREE_COL_MIN;
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        left: single ? '12px' : clickColWidth(vw) + 12,
+        right: single ? '12px' : shopColWidth(vw) + 12,
+        bottom: single ? '132px' : '72px',
+        zIndex: 40,
+        display: 'flex',
+        justifyContent: 'center',
+        pointerEvents: 'none',
+      }}
+    >
+      <div
+        className="pixel-card"
+        style={{
+          pointerEvents: 'auto',
+          width: '100%',
+          maxWidth: '320px',
+          padding: '12px 14px',
+          backgroundColor: 'var(--bg-card)',
+          border: '2px solid var(--gold)',
+          boxShadow: '0 4px 14px rgba(0,0,0,0.5)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px',
+        }}
+      >
+      <div style={{ fontSize: '0.9rem', color: 'var(--gold)' }}>Испытание Забега</div>
+      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+        Особое условие до следующего Престижа. Награда за прохождение — +10% к Доходу навсегда.
+      </div>
+      {CHALLENGES.map((c) => (
+        <button
+          key={c.id}
+          className="pixel-btn"
+          onClick={() => startChallenge(c.id)}
+          style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '2px' }}
+        >
+          <span style={{ fontSize: '0.85rem' }}>{c.name}</span>
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{c.desc}</span>
+        </button>
+      ))}
+      <button
+        className="pixel-btn"
+        onClick={() => startChallenge(null)}
+        style={{ color: 'var(--text-muted)' }}
+      >
+        Без испытания
+      </button>
+      </div>
+    </div>
+  );
+};
+
+/**
  * Полноэкранный отклик на Престиж в духе экрана вознесения Cookie Clicker: затемнение,
  * карточка нового Поколения с тикающим Compute и восходящие искры.
  * Яркой вспышки на весь экран нет намеренно — это триггер фоточувствительности,
@@ -24,7 +100,11 @@ const MOTES = 14;
 export const PrestigeOverlay: React.FC = () => {
   const burst = useGameStore((s) => s.burst);
   const notation = useGameStore((s) => s.state.settings.notation);
-  const [shown, setShown] = useState<{ generation: number; computeGain: number } | null>(null);
+  const [shown, setShown] = useState<{
+    generation: number;
+    computeGain: number;
+    challengeId?: 'no-synergy' | 'no-click';
+  } | null>(null);
   const [exiting, setExiting] = useState(false);
   const [withMotion, setWithMotion] = useState(false);
   const gainRef = useRef<HTMLSpanElement>(null);
@@ -72,8 +152,13 @@ export const PrestigeOverlay: React.FC = () => {
     };
   }, [burst?.kind, burst?.nonce, notation]);
 
-  if (!shown) return null;
+  if (!shown) return <ChallengePicker />;
   const gen = CATALOG[shown.generation];
+  // Престиж с активным испытанием: подтверждение называет его награду. Название и процент
+  // читаются из таблицы ядра, а не из полезной нагрузки: стор привозит только id.
+  const challenge = shown.challengeId
+    ? CHALLENGES.find((c) => c.id === shown.challengeId)
+    : undefined;
 
   return (
     <div
@@ -114,6 +199,11 @@ export const PrestigeOverlay: React.FC = () => {
           </span>{' '}
           Compute навсегда
         </div>
+        {challenge && (
+          <div style={{ fontSize: '0.85rem', color: 'var(--gold)' }}>
+            Испытание пройдено: {challenge.name} — награда +{challenge.rewardPct}% к Доходу навсегда
+          </div>
+        )}
         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>нажми, чтобы продолжить</div>
       </div>
     </div>

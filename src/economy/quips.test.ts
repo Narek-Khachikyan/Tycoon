@@ -7,7 +7,7 @@ import { buyAgents, prestige } from './engine';
 import { pickQuip, QUIPS_SEEN_CAP, recordQuip } from './quips';
 import { exportSave, importSave, migrate } from './save';
 import { SHADOW_ACHIEVEMENTS } from './shadow';
-import { newGame, type GameState } from './state';
+import { newGame, SAVE_VERSION, type GameState } from './state';
 
 const T0 = 1_000_000;
 
@@ -158,9 +158,9 @@ describe('recordQuip', () => {
 });
 
 describe('миграция переписки', () => {
-  it('поднимает v4 в v5 с пустой перепиской, не теряя остальное', () => {
+  it('поднимает v4 до текущей с пустой перепиской, не теряя остальное', () => {
     const s = migrate({ version: 4, tokens: 1e6, clicks: 42, achievements: ['click_1'] }, T0);
-    expect(s.version).toBe(5);
+    expect(s.version).toBe(SAVE_VERSION);
     expect(s.quipsSeen).toEqual([]);
     expect(s.tokens).toBe(1e6);
     expect(s.clicks).toBe(42);

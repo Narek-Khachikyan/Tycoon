@@ -63,6 +63,15 @@ const MIGRATIONS: Record<number, Migration> = {
     version: 5,
     quipsSeen: [],
   }),
+  // Испытания Забега появились в v6: у живого сохранения их не было, а null и пустой список
+  // означают «обычный забег без закрытых» — то же, чем состояние было до Испытаний.
+  // Чистое добавление.
+  5: (raw) => ({
+    ...raw,
+    version: 6,
+    activeChallenge: null,
+    challengesDone: [],
+  }),
 };
 
 const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -217,6 +226,12 @@ export function migrate(input: unknown, now: number): GameState {
     // схлопывается, хвост длиннее капа обрезается спереди — это те же правила, что в
     // recordQuip, иначе загрузка вернула бы состояние, которое игра никогда не пишет.
     quipsSeen: [...new Set(strList(raw.quipsSeen))].slice(-QUIPS_SEEN_CAP),
+    // Испытания — как Достижения, а не как Перки: id проверяются только на тип, а не на
+    // известность таблице, поэтому запись переживает правку таблицы Испытаний. Активное
+    // Испытание — строка или ничего: нестрока из повреждённого сохранения читается как
+    // «обычный забег», иначе мусор включал бы ограничение, которого игрок не выбирал.
+    activeChallenge: typeof raw.activeChallenge === 'string' ? raw.activeChallenge : null,
+    challengesDone: [...new Set(strList(raw.challengesDone))],
     lastTick: num(raw.lastTick, now),
     startedAt: num(raw.startedAt, now),
     runStartedAt: num(raw.runStartedAt, now),

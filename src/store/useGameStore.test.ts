@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { quipsSeenOf, useGameStore } from './useGameStore';
 import { CATALOG } from '../economy/catalog';
+import { CHALLENGES, startChallenge as kernelStartChallenge } from '../economy/challenges';
 import { CRYSTAL_CYCLE_MS, CRYSTAL_PER_STOCK_BONUS, CRYSTAL_UPGRADES, crystalCycleMs, crystalIncomeMult } from '../economy/crystal';
 import { ACHIEVEMENTS } from '../economy/achievements';
 import {
@@ -68,6 +69,56 @@ vi.mock('../economy/quips', async (importOriginal) => {
       const seen = (state as GameState & { quipsSeen?: readonly string[] }).quipsSeen ?? [];
       if (seen.includes(id)) return state;
       return { ...state, quipsSeen: [...seen, id] };
+    }),
+  };
+});
+
+/**
+ * Ядро испытаний мокается частично: настоящий engine.ts после слоя 2 читает
+ * challengeIncomeMult через globalMult, поэтому оригинал сохраняется, а подменяются
+ * только CHALLENGES/canStartChallenge/startChallenge.
+ * Мок повторяет контракт: старт только на свежем забеге (иначе тождество), выбор
+ * пишется в activeChallenge. Настоящие переходы ядра тестируются на его стороне.
+ */
+vi.mock('../economy/challenges', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../economy/challenges')>();
+  return {
+    ...actual,
+    CHALLENGES: [
+      { id: 'no-synergy', name: 'Без синергии', desc: 'Синергия Лабораторий не работает весь Забег', rewardPct: 10 },
+      { id: 'no-click', name: 'Без клика', desc: 'Клик не приносит Токенов весь Забег', rewardPct: 10 },
+    ],
+    canStartChallenge: vi.fn(
+      (state: GameState) => state.runTokens === 0 && state.runClicks === 0,
+    ),
+    startChallenge: vi.fn((state: GameState, id: 'no-synergy' | 'no-click' | null) => {
+      if (state.runTokens !== 0 || state.runClicks !== 0) return state;
+      return { ...state, activeChallenge: id } as GameState;
+    }),
+  };
+});
+
+/**
+ * shatterCrystal мокается в engine, где он теперь живёт: он считает деньги от Дохода, и
+ * оставлять его в crystal.ts означало бы импорт offlineIncome оттуда — два модуля замкнули бы
+ * друг на друга. Оригинал сохраняется целиком, подменяется ровно один переход.
+ * Мок повторяет контракт: без кристаллов тождество, иначе -1 кристалл и +500 Токенов в три
+ * счётчика. Настоящий переход тестируется на стороне ядра.
+ */
+vi.mock('../economy/engine', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../economy/engine')>();
+  return {
+    ...actual,
+    shatterCrystal: vi.fn((state: GameState) => {
+      if (Math.floor(state.crystals) < 1) return state;
+      const gain = 500;
+      return {
+        ...state,
+        crystals: state.crystals - 1,
+        tokens: state.tokens + gain,
+        runTokens: state.runTokens + gain,
+        totalTokens: state.totalTokens + gain,
+      };
     }),
   };
 });
@@ -892,5 +943,88 @@ describe('quips', () => {
     expect(quipsSeenOf(state())).toHaveLength(1);
     expect(vi.mocked(playQuipSound)).toHaveBeenCalledTimes(1);
     expect(store().lastQuip).toBe(shown);
+  });
+});
+
+/**
+ * Поле activeChallenge приезжает ядром испытаний из параллельной ветки: пока его нет в
+ * GameState, чтение через каст, как quipsSeenOf выше.
+ */
+const activeChallengeOf = (s: GameState): unknown =>
+  (s as GameState & { activeChallenge?: unknown }).activeChallenge;
+
+describe('starting a challenge', () => {
+  it('sets the challenge on a fresh run, toasts its desc and sounds the upgrade', () => {
+    freshStore();
+    // Свежий забег — без испытания: ядро держит null, а не отсутствие поля.
+    expect(activeChallengeOf(state())).toBeNull();
+    vi.mocked(playUpgradeSound).mockClear();
+    const before = state();
+    store().startChallenge('no-synergy');
+    // Экшен идёт в ядро с тем же состоянием и id: решение «можно ли» принимает оно.
+    const calls = vi.mocked(kernelStartChallenge).mock.calls;
+    expect(calls).toHaveLength(1);
+    expect(calls[0][0]).toBe(before);
+    expect(calls[0][1]).toBe('no-synergy');
+    expect(activeChallengeOf(state())).toBe('no-synergy');
+    // Испытание — не Достижение: тост называет его словами из таблицы ядра, а не id.
+    const def = CHALLENGES.find((c) => c.id === 'no-synergy');
+    const toast = store().toasts.find((t) => t.title === 'Испытание принято');
+    expect(toast?.name).toBe(def?.name);
+    expect(toast?.desc).toBe(def?.desc);
+    expect(vi.mocked(playUpgradeSound)).toHaveBeenCalledTimes(1);
+  });
+
+  it('records declining without announcing it', () => {
+    freshStore();
+    store().startChallenge(null);
+    expect(activeChallengeOf(state())).toBeNull();
+    // Отказ — тоже выбор, но объявлять его нечем: «принято» здесь врало бы.
+    expect(store().toasts).toEqual([]);
+  });
+
+  it('stays silent on a stale run, because the kernel answers with the same object', () => {
+    freshStore();
+    // Забег уже не свежий: что-то заработано, и ядро запрещает старт тождеством.
+    useGameStore.setState({ state: { ...state(), runTokens: 5 } });
+    const before = state();
+    vi.mocked(playUpgradeSound).mockClear();
+    store().startChallenge('no-click');
+    expect(vi.mocked(kernelStartChallenge)).toHaveBeenCalled();
+    expect(state()).toBe(before);
+    expect(store().toasts).toEqual([]);
+    expect(vi.mocked(playUpgradeSound)).not.toHaveBeenCalled();
+  });
+});
+
+describe('shattering a crystal', () => {
+  it('pays the gain into the wallet, names the sum and sounds the achievement', () => {
+    freshStore();
+    useGameStore.setState({ state: { ...state(), crystals: 2 } });
+    const before = state();
+    vi.mocked(playAchievementSound).mockClear();
+    store().shatterCrystal();
+    // Мок ядра кладёт +500 в три счётчика и снимает один кристалл из запаса.
+    expect(state().crystals).toBe(1);
+    expect(state().tokens - before.tokens).toBe(500);
+    expect(state().runTokens - before.runTokens).toBe(500);
+    expect(state().totalTokens - before.totalTokens).toBe(500);
+    // Сумма обязана быть названа: кристалл стоит +1% Дохода навсегда, и молчаливый размен
+    // читался бы как пропавший кристалл.
+    expect(store().toasts.find((t) => t.title === 'Кристалл разбит')?.desc).toBe(
+      `+${formatNumber(500, state().settings.notation)} Токенов`,
+    );
+    expect(vi.mocked(playAchievementSound)).toHaveBeenCalledTimes(1);
+  });
+
+  it('stays silent with an empty stock, because the kernel answers with the same object', () => {
+    freshStore();
+    expect(state().crystals).toBe(0);
+    const before = state();
+    vi.mocked(playAchievementSound).mockClear();
+    store().shatterCrystal();
+    expect(state()).toBe(before);
+    expect(store().toasts).toEqual([]);
+    expect(vi.mocked(playAchievementSound)).not.toHaveBeenCalled();
   });
 });

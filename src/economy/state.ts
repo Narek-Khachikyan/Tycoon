@@ -1,4 +1,4 @@
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 
 export type Notation = 'short' | 'sci';
 
@@ -82,6 +82,10 @@ export interface GameState {
   /** Услышанные реплики Моделей для «Переписки»: id из таблицы в data/quips.ts.
    *  Переживает Престиж вместе с Достижениями — коллекция собирается всю игру, а не Забег. */
   quipsSeen: string[];
+  /** Активное Испытание Забега: id из таблицы в challenges.ts; null = обычный забег. */
+  activeChallenge: string | null;
+  /** Закрытые Испытания: каждое даёт +10% к Доходу навсегда; переживает Престиж, как Достижения. */
+  challengesDone: string[];
   lastTick: number;
   startedAt: number;
   runStartedAt: number;
@@ -123,6 +127,9 @@ export function newGame(now: number): GameState {
     covenant: false,
     // Переписка переживает Престиж, поэтому в newGame она пуста только для новой игры.
     quipsSeen: [],
+    // Испытаний в новом забеге нет: активное выбирается на старте, закрытые копятся Престижами.
+    activeChallenge: null,
+    challengesDone: [],
     lastTick: now,
     startedAt: now,
     runStartedAt: now,

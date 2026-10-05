@@ -78,3 +78,8 @@ export function buyCrystalUpgrade(state: GameState, id: string): GameState {
   if (!u || state.crystalUpgrades.includes(id) || u.cost > state.crystals) return state;
   return { ...state, crystals: state.crystals - u.cost, crystalUpgrades: [...state.crystalUpgrades, id] };
 }
+
+/**
+ * Разбивание кристалла живёт в engine.ts, а не здесь: выплата считается от Дохода, а
+ * offlineIncome пришлось бы импортировать оттуда — и модули замыкли бы друг на друга.
+ */
