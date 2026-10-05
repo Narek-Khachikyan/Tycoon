@@ -370,11 +370,15 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
     >
       {/* Цели видны всегда, независимо от вкладки: экран без видимой цели убивает быстрее медленного баланса. */}
       <GoalsBanner />
-      {/* Переключатель вкладок магазина */}
+      {/* Переключатель вкладок магазина. Состояние выбора — aria-pressed, тем же приёмом,
+          что у режима продажи и количества покупки выше: вкладки не настоящий tablist,
+          у них нет связанных панелей и стрелочной навигации, а цвет рамки для скринридера
+          не существует. */}
       <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
         <button
           onClick={() => setTab('models')}
           aria-label="Вкладка Модели"
+          aria-pressed={tab === 'models'}
           className={`pixel-btn ${tab === 'models' ? 'pixel-btn-accent' : ''}`}
           style={{ flex: 1, padding: '8px 4px', fontSize: '0.9rem' }}
         >
@@ -383,6 +387,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
         <button
           onClick={() => setTab('upgrades')}
           aria-label={`Вкладка Апгрейды${upgrades.length > 0 ? ` (${upgrades.length} доступно)` : ''}`}
+          aria-pressed={tab === 'upgrades'}
           className={`pixel-btn ${tab === 'upgrades' ? 'pixel-btn-accent' : ''}`}
           style={{ flex: 1, padding: '8px 4px', fontSize: '0.9rem', position: 'relative' }}
         >
@@ -393,9 +398,10 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               className="tab-badge--pulse"
               style={{
                 marginLeft: '4px',
-                backgroundColor: 'var(--red)',
-                /* Чистый белый на насыщенной заливке: --text-main уводит подпись в тёплый
-                   и роняет и без того пограничную пару до 3.06:1. */
+                /* --red-solid, а не --red: белый на --red держал 3.05:1, то есть ниже порога
+                   для 12.8 px. На --red-solid та же подпись держит 6.47:1, и заливка пришла
+                   из палитры, а не из правила с !important, которым её приходилось перебивать. */
+                backgroundColor: 'var(--red-solid)',
                 color: '#fff',
                 fontSize: '0.8rem',
                 padding: '1px 5px',
@@ -409,6 +415,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
         <button
           onClick={() => setTab('perks')}
           aria-label="Вкладка Престиж"
+          aria-pressed={tab === 'perks'}
           className={`pixel-btn ${tab === 'perks' ? 'pixel-btn-accent' : ''}`}
           title={
             finale
