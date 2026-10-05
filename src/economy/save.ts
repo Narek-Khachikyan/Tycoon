@@ -1,6 +1,7 @@
 import { CATALOG, MODEL_BY_ID } from './catalog';
 import { CRYSTAL_UPGRADE_BY_ID } from './crystal';
 import { uprisingStage } from './glitches';
+import { MILESTONE_BY_ID } from './milestones';
 import { PERK_BY_ID } from './perks';
 import { clampTemp, TEMP_START } from './thermal';
 import { EVENT_KINDS, newGame, SAVE_VERSION, type ActiveEvent, type EventKind, type GameState, type Glitch } from './state';
@@ -66,6 +67,15 @@ const MIGRATIONS: Record<number, Migration> = {
     temp: TEMP_START,
     heat: 0,
     overheatedAt: 0,
+  }),
+  // Вехи появились в v6. Пустой список — единственное честное значение: у живого игрока их не
+  // было, и выдумывать «уже выполненные» означало бы раздать награды, которых он не зарабатывал.
+  // Обратное тоже верно: заработанные ранее Токены никуда не делись, и вехи просто заберутся
+  // по порядку на первом же тике, потому что их условия читают то, что уже есть в сейве.
+  5: (raw) => ({
+    ...raw,
+    version: 6,
+    milestones: [],
   }),
 };
 
@@ -221,6 +231,9 @@ export function migrate(input: unknown, now: number): GameState {
     temp: clampTemp(num(raw.temp, TEMP_START)),
     heat: share(raw.heat),
     overheatedAt: stamp(raw.overheatedAt),
+    // Вехи фильтруются по таблице: неизвестный id из битого сейва не должен занимать
+    // номер, который потом получит настоящая веха, и не должен показываться в интерфейсе.
+    milestones: idList(raw.milestones, MILESTONE_BY_ID),
     lastTick: num(raw.lastTick, now),
     startedAt: num(raw.startedAt, now),
     runStartedAt: num(raw.runStartedAt, now),

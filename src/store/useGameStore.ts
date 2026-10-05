@@ -7,6 +7,7 @@ import {
   buyPerk as engineBuyPerk,
   buyUpgrade as engineBuyUpgrade,
   canPrestige,
+  claimMilestoneRewards,
   click as engineClick,
   clickValue,
   earnTokens,
@@ -502,8 +503,15 @@ export const useGameStore = create<GameStore>((set, get) => {
       // поэтому лимит оффлайн-дохода нельзя обойти просто долгим dt. Случайность приходит
       // аргументом из стора: движок проверяется тестами с детерминированным rnd, а игра —
       // обычной случайностью.
-      const advanced = awardEarned(advanceTime(state, dt, Math.random));
+      const ticked = advanceTime(state, dt, Math.random);
+      const advanced = awardEarned(ticked);
       announceThermal(state, advanced);
+      // Вехи забираются после Достижений и до сериализации: награда обязана попасть в тот же
+      // тик, что и Доход, иначе игрок увидит «0 / 10» при полном кошельке на следующем кадре.
+      const { state: withMilestones, titles } = claimMilestoneRewards(advanced);
+      for (const title of titles) {
+        pushToast('Веха выполнена', title, 'Награда уже в кошельке.');
+      }
       // Расписание Глюка живёт в экономике и тикает вместе с событиями, поэтому стор видит спавн
       // только по счётчику id — и то лишь ради первого Глюка в жизни игрока.
       if (state.glitchSeq === 0 && advanced.glitchSeq === 1) {
@@ -511,8 +519,8 @@ export const useGameStore = create<GameStore>((set, get) => {
         // их видно на экране.
         pushToast('Паразит в офисе', 'Паразит', 'Он сел на твой Доход. Кликай по нему, пока не лопнет.');
       }
-      const eventWindow = watchEventWindow(advanced);
-      set({ state: advanced, ...eventWindow });
+      const eventWindow = watchEventWindow(withMilestones);
+      set({ state: withMilestones, ...eventWindow });
       // Голос идёт после set, чтобы читать уже новое состояние, и до записи в localStorage:
       // звук не должен ждать завершения сериализации.
       syncThermalVoice();
@@ -520,7 +528,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       // Сохранение в localStorage
       if (typeof window !== 'undefined') {
         try {
-          localStorage.setItem(SAVE_KEY, serialize(advanced));
+          localStorage.setItem(SAVE_KEY, serialize(withMilestones));
         } catch {
           // ignore
         }

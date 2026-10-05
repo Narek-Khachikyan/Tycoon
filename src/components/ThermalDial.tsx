@@ -112,9 +112,10 @@ export const ThermalDial: React.FC = () => {
               transition: 'left 0.08s linear',
             }}
           />
-          {/* Зона перегруза: последняя шестая часть шкалы, где Доход ещё выше, а перегрев
-              копится заметно быстрее. Граница нарисована пунктиром, а не заливкой, чтобы её
-              нельзя было спутать с заполненной частью. */}
+          {/* Зона перегруза. Заливка читается как «здесь жарче всего», а не как «сломанная
+              часть шкалы»: граница пунктирная, потому что пунктир в игровом интерфейсе уже
+              занят Disabled-состоянием, а заливка перегрузной зоны — наоборот, единственное
+              место, где доход гарантированно выше. */}
           <div
             style={{
               position: 'absolute',
@@ -122,10 +123,28 @@ export const ThermalDial: React.FC = () => {
               bottom: 0,
               left: '62.5%',
               right: 0,
+              background:
+                'repeating-linear-gradient(135deg, color-mix(in srgb, var(--thermal-hot) 22%, transparent) 0 4px, transparent 4px 8px)',
               borderLeft: '1px dashed var(--thermal-hot)',
               pointerEvents: 'none',
             }}
           />
+          {/* Подпись зоны: без неё штриховка читается как «сюда нельзя», а не как «здесь
+              больше всего». */}
+          <div
+            style={{
+              position: 'absolute',
+              right: '4px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              fontSize: '0.6rem',
+              color: 'var(--thermal-hot)',
+              pointerEvents: 'none',
+              textShadow: '1px 1px 0 var(--bg-void)',
+            }}
+          >
+            перегруз
+          </div>
         </div>
 
         {/* Полоса перегрева. Единственная величина, которая тикает сама, поэтому её приходится

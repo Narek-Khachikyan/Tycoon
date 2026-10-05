@@ -1,6 +1,7 @@
 import { CATALOG, computeGain, LAST_GENERATION, MODEL_BY_ID, prestigeDivisor, type Model } from './catalog';
 import type { LabId } from '../data/labs';
 import { collectCrystals, crystalIncomeMult } from './crystal';
+import { claimMilestones } from './milestones';
 import {
   applyOverheat,
   clampTemp,
@@ -720,6 +721,20 @@ export function prestigePreview(state: GameState): PrestigePreview {
     generation: Math.min(state.generation + 1, LAST_GENERATION),
     blocked: !canPrestige(state) || isContentFinale(state),
   };
+}
+
+/**
+ * Забирает выполненные вехи.
+ *
+ * Отдельный переход, а не вызов из `tick`: выдача награды двигает все три счётчика Токенов и
+ * пишет в `milestones`, то есть это такой же переход состояния, как покупка, и по тем же
+ * правилам — возвращает тот же объект, если забирать нечего. Стор зовёт его раз в тик рядом
+ * с Достижениями, потому что обе системы проверяются одним и тем же тиком.
+ */
+export function claimMilestoneRewards(state: GameState): { state: GameState; total: number; titles: string[] } {
+  const { state: claimed, total, claimed: list } = claimMilestones(state);
+  if (claimed === state) return { state, total: 0, titles: [] };
+  return { state: claimed, total, titles: list.map((m) => m.title) };
 }
 
 export function prestige(state: GameState, now: number): GameState {

@@ -1,6 +1,6 @@
 import { TEMP_START } from './thermal';
 
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 
 export type Notation = 'short' | 'sci';
 
@@ -49,6 +49,8 @@ export interface GameState {
   crystalPlantedAt: number;
   /** Перманентные ускорители роста за кристаллы; id принадлежат таблице в crystal.ts. */
   crystalUpgrades: string[];
+  /** Id забранных вех: список, потому что порядок забора задаёт сама таблица, а не игрок. */
+  milestones: string[];
   /** Сколько событий выпадало за игру: счётчик выпадений, а не список видов. */
   eventsSeen: number;
   /** Мс Unix начала окна, которое игрок уже поймал; 0 = текущее окно ещё не поймано. Отметка в
@@ -106,6 +108,7 @@ export function newGame(now: number): GameState {
     crystals: 0,
     crystalPlantedAt: 0,
     crystalUpgrades: [],
+    milestones: [],
     eventsSeen: 0,
     eventCaughtAt: 0,
     catchUpPaid: 0,

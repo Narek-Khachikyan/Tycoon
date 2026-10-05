@@ -36,6 +36,8 @@ import { formatCount, formatNumber } from './format';
 import { GENERATIONS } from '../data/generations';
 import { LAB_IDS, type LabId } from '../data/labs';
 import { heatRate, OVERHEAT_STUN_SEC, TEMP_MAX, TEMP_START, TEMP_YIELD_MAX } from './thermal';
+import { claimMilestones, MILESTONES, nextMilestone } from './milestones';
+import { GEN_SCALE } from './catalog';
 
 const T0 = 1_000_000;
 const g0 = CATALOG[0];
@@ -2148,5 +2150,72 @@ describe('temperature', () => {
     const legacy = migrate({ version: 4, generation: 0, tokens: 100 }, T0);
     expect(legacy.version).toBe(SAVE_VERSION);
     expect(legacy.temp).toBe(TEMP_START);
+    // Вех у живого сейва не было, и выдумывать выполненные означало бы раздать награды,
+    // которых игрок не зарабатывал: список обязан быть пуст, а не заполнен по таблице.
+    expect(legacy.milestones).toEqual([]);
+  });
+});
+
+describe('milestones', () => {
+  const at = (patch: Partial<GameState>): GameState => ({ ...cold(newGame(T0)), ...patch });
+
+  it('pays into the wallet, the run and the lifetime total, and never repeats', () => {
+    const first = claimMilestones(at({ clicks: 1, tokens: 10 }));
+    expect(first.claimed.map((m) => m.id)).toEqual(['ms_click']);
+    const reward = first.total;
+    expect(reward).toBeGreaterThan(0);
+    // Все три счётчика обязаны получить одно и то же число: награда — это Доход, а не
+    // отдельная валюта, и иначе она не попадёт ни в один из них с первого же тика.
+    expect(first.state.tokens - 10).toBe(reward);
+    expect(first.state.runTokens).toBe(reward);
+    expect(first.state.totalTokens).toBe(reward);
+    // Повторный вызов на том же состоянии ничего не делает и возвращает тот же объект:
+    // забрать веху дважды за один тик нельзя.
+    const again = claimMilestones(first.state);
+    expect(again.state).toBe(first.state);
+    expect(again.total).toBe(0);
+  });
+
+  it('pays only the first unmet run of milestones, so a returning player is not flooded', () => {
+    // Все условия выполнены разом, но забрать можно только первую: иначе игрок, вернувшийся
+    // после простоя, получил бы шесть наград и шесть тостов за один тик.
+    const all = claimMilestones(at({ clicks: 1, temp: 0.6 }));
+    expect(all.claimed.length).toBeGreaterThan(0);
+    // Вторая выборка берёт следующую подряд, а не ту же самую.
+    const next = claimMilestones(all.state);
+    expect(next.claimed.map((m) => m.id)).not.toContain('ms_click');
+  });
+
+  it('scales the reward with the generation, so an old milestone is still worth something', () => {
+    // Награда считается от масштаба ТЕКУЩЕГО Поколения: забрать веху после перехода в небо
+    // не значит получить смехотворные 15 Токенов на счёте в миллион.
+    const g0 = claimMilestones(at({ clicks: 1 }));
+    const g3 = claimMilestones(at({ clicks: 1, generation: 3 }));
+    expect(g3.total / g0.total).toBeCloseTo(Math.pow(GEN_SCALE, 3), 9);
+  });
+
+  it('shows the same next goal to every reader of the list', () => {
+    const fresh = at({});
+    expect(nextMilestone(fresh)?.id).toBe(MILESTONES[0].id);
+    // После забора следующая обязана быть другой, иначе полоса вех залипла бы. Забирать
+    // приходится по клику: условие второй вехи — жар, а он не выполнен сам собой.
+    const done = claimMilestones(at({ clicks: 1 })).state;
+    expect(nextMilestone(done)?.id).toBe(MILESTONES[1].id);
+    // Все выполнены — цели больше нет, и полоса обязана исчезнуть, а не показывать
+    // последнюю веху вечно.
+    const roster: Record<string, number> = Object.fromEntries(CATALOG[0].models.map((m) => [m.id, 25]));
+    const all = claimMilestones(
+      at({ clicks: 1, temp: 0.6, agents: roster, upgrades: ['x', 'y', 'z', 'w', 'v'], overheatedAt: 1 }),
+    ).state;
+    expect(nextMilestone(all)).toBeNull();
+  });
+
+  it('survives a save round trip and drops unknown ids from the milestone list', () => {
+    const s = claimMilestones(at({ clicks: 1 })).state;
+    const back = migrate(JSON.parse(JSON.stringify(s)), T0);
+    expect(back.milestones).toEqual(['ms_click']);
+    // Неизвестный id не должен ни занимать номер настоящей вехи, ни показываться в интерфейсе.
+    const junk = migrate({ ...JSON.parse(JSON.stringify(s)), milestones: ['ms_click', 'ms_нет'] }, T0);
+    expect(junk.milestones).toEqual(['ms_click']);
   });
 });
