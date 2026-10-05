@@ -495,7 +495,9 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
         style={{
           flex: 1,
           overflowY: 'auto',
-          paddingRight: '4px',
+          // Отступ справа под скроллбар: полоса прокрутки наезжала на цену в кнопке,
+          // и последние пиксели цифры уходили под неё. 14px — ширина полосы плюс зазор.
+          paddingRight: '14px',
           animation: 'toast-fade 0.15s ease-out',
         }}
       >
