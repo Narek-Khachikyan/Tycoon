@@ -260,6 +260,12 @@ interface GameStore {
   removeToast: (id: string) => void;
   importSaveData: (str: string) => boolean;
   resetGame: () => void;
+  /** Показывать ли экран финала контента. UI-слой, как остальные окна: игрок закрывает
+   *  экран и живёт дальше, но вернуть его можно из вкладки Престижа — без этого финал был бы
+   *  односторонней дверью. В GameState не живёт: состояние «окно закрыто» прогресса не меняет. */
+  finaleDismissed: boolean;
+  openFinale: () => void;
+  dismissFinale: () => void;
   refreshNews: () => void;
 }
 
@@ -895,6 +901,12 @@ export const useGameStore = create<GameStore>((set, get) => {
     newsPaused: false,
     setNewsPaused: (paused: boolean) => set({ newsPaused: paused }),
 
+    // Экран финала открывается сам, пока игрок его не закрыл: новое прохождение после
+    // рестарта снова покажет его, поэтому сброс возвращает флаг в исходное состояние.
+    finaleDismissed: false,
+    openFinale: () => set({ finaleDismissed: false }),
+    dismissFinale: () => set({ finaleDismissed: true }),
+
     dismissOfflineReport: () => set({ offlineReport: null }),
 
     removeToast: (id: string) =>
@@ -944,6 +956,10 @@ export const useGameStore = create<GameStore>((set, get) => {
         collectedRumorId: 0,
         lastQuip: null,
         lastBoughtModelId: null,
+        // Экран финала показывается сам, пока игрок его не закрывал, поэтому рестарт обязан
+        // вернуть флаг в исходное состояние: иначе второе прохождение до последнего
+        // Поколения встретило бы игрока молчащим финалом.
+        finaleDismissed: false,
       });
     },
 

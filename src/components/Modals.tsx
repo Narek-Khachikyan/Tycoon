@@ -12,6 +12,7 @@ import {
   isContentFinale,
   labIncomeShare,
   maxAffordable,
+  offlineCapHours,
   prestigeGain,
   prestigePreview,
 } from '../economy/engine';
@@ -474,6 +475,11 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   const [importCode, setImportCode] = useState('');
   const [copyStatus, setCopyStatus] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [confirmReset, setConfirmReset] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) setConfirmReset(false);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -487,8 +493,14 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
 
   const handleImport = () => {
     setErrorMsg('');
-    if (!importCode.trim()) return;
-    const ok = importSaveData(importCode.trim());
+    const trimmed = importCode.trim();
+    if (!trimmed) return;
+    if (state.totalTokens > 0 || state.prestiges > 0) {
+      if (!window.confirm('Импортировать сохранение? Текущий Забег и весь прогресс будут полностью заменены.')) {
+        return;
+      }
+    }
+    const ok = importSaveData(trimmed);
     if (ok) {
       setImportCode('');
       requestClose();
@@ -498,12 +510,13 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   };
 
   const handleReset = () => {
-    if (window.confirm(
-        'Сбросить весь прогресс? Токены, агенты, апгрейды и Compute пропадут навсегда. Отменить это нельзя.',
-      )) {
-      resetGame();
-      requestClose();
+    if (!confirmReset) {
+      setConfirmReset(true);
+      return;
     }
+    resetGame();
+    setConfirmReset(false);
+    requestClose();
   };
 
   return (
@@ -618,56 +631,108 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
         </div>
 
         {/* Экспорт и Импорт */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <div style={{ fontWeight: 600 }}>Сохранение данных</div>
 
-          <button onClick={handleExport} className="pixel-btn" style={{ width: '100%' }}>
-            {copyStatus ? 'Скопировано в буфер!' : 'Скопировать сохранение в буфер'}
-          </button>
-
-          <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
-            <input
-              type="text"
-              placeholder="Вставь код сохранения..."
-              value={importCode}
-              onChange={(e) => setImportCode(e.target.value)}
-              style={{
-                flex: 1,
-                backgroundColor: 'var(--bg-card)',
-                border: '1px solid var(--border)',
-                color: 'var(--text-main)',
-                padding: '8px',
-                borderRadius: '4px',
-                fontSize: '0.85rem',
-              }}
-            />
-            <button
-              onClick={handleImport}
-              className="pixel-btn pixel-btn-accent"
-              style={{ padding: '8px 12px' }}
-            >
-              Импорт
+          {/* Экспорт */}
+          <div>
+            <button onClick={handleExport} className="pixel-btn" style={{ width: '100%' }}>
+              {copyStatus ? 'Скопировано в буфер!' : 'Скопировать сохранение в буфер'}
             </button>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+              Копирует текстовый код прогресса в буфер обмена для переноса на другое устройство.
+            </div>
           </div>
-          {errorMsg && <div style={{ color: 'var(--red)', fontSize: '0.8rem' }}>{errorMsg}</div>}
+
+          {/* Импорт */}
+          <div>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <input
+                type="text"
+                placeholder="Вставь код сохранения..."
+                value={importCode}
+                onChange={(e) => setImportCode(e.target.value)}
+                style={{
+                  flex: 1,
+                  backgroundColor: 'var(--bg-card)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text-main)',
+                  padding: '8px',
+                  borderRadius: '4px',
+                  fontSize: '0.85rem',
+                }}
+              />
+              <button
+                onClick={handleImport}
+                className="pixel-btn pixel-btn-accent"
+                style={{ padding: '8px 12px' }}
+              >
+                Импорт
+              </button>
+            </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+              Вставь код в поле Импорт и нажми — сейв заменится целиком. Внимание: импорт заменяет текущий Забег!
+            </div>
+            {errorMsg && <div style={{ color: 'var(--red)', fontSize: '0.8rem', marginTop: '4px' }}>{errorMsg}</div>}
+          </div>
         </div>
 
-        {/* Полный сброс */}
-        <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
-          <button
-            onClick={handleReset}
-            className="pixel-btn"
-            style={{
-              width: '100%',
-              backgroundColor: 'var(--tint-red)',
-              borderColor: 'var(--red)',
-              // Светлее --red намеренно: на собственной красной подложке --red даёт 3.43:1
-              // и подпись тонет в заливке.
-              color: '#fca5a5',
-            }}
-          >
-            Сбросить весь прогресс
-          </button>
+        {/* Чистый сброс в отдельной опасной зоне */}
+        <div
+          style={{
+            borderTop: '1px solid var(--border)',
+            paddingTop: '12px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px',
+          }}
+        >
+          <div style={{ fontWeight: 600, color: 'var(--red)', fontSize: '0.9rem' }}>
+            Опасная зона: Сброс прогресса
+          </div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+            Сброс удалит Токены, Агентов, Апгрейды и Compute навсегда. Начнётся новая чистая игра с первого Забега.
+          </div>
+          {confirmReset ? (
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                onClick={handleReset}
+                className="pixel-btn"
+                style={{
+                  flex: 1,
+                  backgroundColor: 'var(--red-solid)',
+                  borderColor: 'var(--red)',
+                  color: '#ffffff',
+                  padding: '8px',
+                  fontSize: '0.85rem',
+                }}
+              >
+                Точно сбросить? Нажми для подтверждения
+              </button>
+              <button
+                onClick={() => setConfirmReset(false)}
+                className="pixel-btn"
+                style={{ padding: '8px 12px', fontSize: '0.85rem' }}
+              >
+                Отмена
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmReset(true)}
+              className="pixel-btn"
+              style={{
+                width: '100%',
+                backgroundColor: 'var(--tint-red)',
+                borderColor: 'var(--red)',
+                color: '#fca5a5',
+                padding: '8px',
+                fontSize: '0.85rem',
+              }}
+            >
+              Сбросить весь прогресс
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -686,6 +751,10 @@ export const OfflineModal: React.FC = () => {
   const cardRef = useDialogFocus<HTMLDivElement>(offlineReport !== null, requestClose, false);
 
   if (!offlineReport) return null;
+
+  const capHours = offlineCapHours(state);
+  const capSeconds = capHours * 3600;
+  const isCapped = offlineReport.seconds >= capSeconds;
 
   const gen = CATALOG[state.generation];
 
@@ -761,12 +830,28 @@ export const OfflineModal: React.FC = () => {
         </h2>
 
         <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>
-          Пока ты отдыхал (
+          Пока тебя не было (
           <span style={{ color: 'var(--gold)', fontWeight: 700 }}>
             {formatDuration(offlineReport.seconds)}
           </span>
           ), твои ИИ-Агенты усердно трудились и заработали:
         </div>
+
+        {isCapped && (
+          <div
+            style={{
+              fontSize: '0.8rem',
+              color: 'var(--gold)',
+              backgroundColor: 'var(--tint-gold)',
+              border: '1px solid var(--gold)',
+              borderRadius: '4px',
+              padding: '6px 10px',
+              maxWidth: '420px',
+            }}
+          >
+            Достигнут потолок Оффлайн-дохода (<Num>{capHours}</Num> ч). Время отсутствия сверх лимита было срезано потолком.
+          </div>
+        )}
 
         <div
           style={{
@@ -930,6 +1015,7 @@ export const PrestigeModal: React.FC = () => {
   const isOpen = useGameStore((s) => s.prestigePrompt);
   const dismiss = useGameStore((s) => s.dismissPrestigePrompt);
   const triggerPrestige = useGameStore((s) => s.triggerPrestige);
+  const openFinale = useGameStore((s) => s.openFinale);
   const state = useGameStore((s) => s.state);
   // Хуки стоят до раннего выхода, иначе окно то ловило бы Esc, то нет. Выход — тем же
   // closing-путём, что и у остальных окон: мгновенный dismiss возвращал бы карточку в DOM
@@ -977,20 +1063,28 @@ export const PrestigeModal: React.FC = () => {
   // уже сменил Поколение, и оставшийся кадр выхода показал бы вместо разбора «нужен Агент
   // Флагмана» нового Поколения — вперемешку с оверлеем Престижа.
   const handleConfirm = () => {
+    if (finale) {
+      // Финал — тупик с честным выходом: не сбрасываем забег молча, а открываем экран финала,
+      // где игрок видит итоги и сам решает, начинать ли заново.
+      dismiss();
+      openFinale();
+      return;
+    }
     triggerPrestige();
     dismiss();
   };
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        backgroundColor: 'var(--bg-scrim)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 60,
+    <>
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'var(--bg-scrim)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 60,
         padding: '16px',
         // Вход — существующий toast-fade, выход — тот же кадр в реверсе (только opacity,
         // поэтому при reducedMotion картина та же, нового CSS ноль).
@@ -1138,16 +1232,253 @@ export const PrestigeModal: React.FC = () => {
           </button>
           <button
             onClick={handleConfirm}
-            disabled={preview.blocked}
+            disabled={preview.blocked && !finale}
             className="pixel-btn pixel-btn-gold"
             style={{ flex: 2, padding: '12px' }}
           >
-            {preview.blocked
-              ? finale
-                ? 'Финал контента'
-                : 'Нужен Агент Флагмана'
-              : 'Сделать Престиж!'}
+            {finale
+              ? 'Экран финала'
+              : preview.blocked
+                ? 'Нужен Агент Флагмана'
+                : 'Сделать Престиж!'}
           </button>
+        </div>
+      </div>
+    </div>
+    </>
+  );
+};
+
+/**
+ * Экран финала контента: полноценная модалка, открывающаяся при прохождении последнего
+ * доступного Поколения и найме всех Моделей (isContentFinale === true).
+ *
+ * Показывает итоги забега: Поколение, престижи, общее число Токенов, Достижения,
+ * реплики в Переписке и Compute. Сообщает игроку о будущем («продолжение выйдет с новыми
+ * реальными Моделями»). Даёт возможность продолжить осмотр империи либо начать заново
+ * с подтверждением в два шага («Точно начать заново?»), сбрасывающим Забег через resetGame.
+ */
+export const FinaleModal: React.FC = () => {
+  const state = useGameStore((s) => s.state);
+  const resetGame = useGameStore((s) => s.resetGame);
+  const finaleDismissed = useGameStore((s) => s.finaleDismissed);
+  const dismissFinale = useGameStore((s) => s.dismissFinale);
+  const notation = state.settings.notation;
+
+  const isFinale = isContentFinale(state);
+  const [confirmReset, setConfirmReset] = useState(false);
+
+  // Флаг «игрок закрыл» живёт в сторе вместе с openFinale: экран должен открываться сам при
+  // входе в последнее Поколение и возвращаться из Престижа — модульная переменная компонента
+  // для этого не годится, её не видно ни в отладке, ни в тестах.
+  const isOpen = isFinale && !finaleDismissed;
+  const { closing, requestClose } = useModalExit(isOpen, () => {
+    // Закрытие без рестарта оставляет игру в финале целой: экран можно вернуть из Престижа.
+    dismissFinale();
+    setConfirmReset(false);
+  });
+  const cardRef = useDialogFocus<HTMLDivElement>(isOpen, requestClose);
+
+  if (!isOpen) return null;
+
+  const gen = CATALOG[state.generation];
+
+  const handleResetClick = () => {
+    if (!confirmReset) {
+      setConfirmReset(true);
+      return;
+    }
+    resetGame();
+    requestClose();
+  };
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        backgroundColor: 'var(--bg-scrim)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 65,
+        padding: '16px',
+        animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.2s ease-out',
+      }}
+      onClick={requestClose}
+    >
+      <div
+        ref={cardRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="finale-title"
+        className="pixel-card"
+        style={{
+          position: 'relative',
+          width: '100%',
+          maxWidth: '520px',
+          maxHeight: '90vh',
+          padding: '24px',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: '14px',
+          border: '2px solid var(--gold)',
+          boxShadow: '0 0 24px rgba(251, 191, 36, 0.25)',
+          animation: closing ? MODAL_EXIT_ANIMATION : 'toast-fade 0.2s ease-out',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={requestClose}
+          className="pixel-btn"
+          style={{
+            position: 'absolute',
+            top: '12px',
+            right: '12px',
+            padding: '4px 8px',
+            fontSize: '0.9rem',
+            color: 'var(--text-muted)',
+          }}
+          aria-label="Закрыть"
+          title="Закрыть"
+        >
+          ✕
+        </button>
+
+        <div style={{ fontSize: '2.5rem', lineHeight: 1 }}>
+          <Icon name="trophy" size={38} />
+        </div>
+
+        <h2 id="finale-title" style={{ fontSize: '1.4rem', color: 'var(--gold)' }}>
+          ФИНАЛ КОНТЕНТА
+        </h2>
+
+        {/* Что произошло */}
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-main)' }}>
+            Последнее Поколение пройдено, все Модели собраны!
+          </div>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+            Твоя империя искусственного интеллекта достигла вершины доступных технологий.
+          </div>
+        </div>
+
+        {/* Честная строка про будущее по CONTEXT.md */}
+        <div
+          style={{
+            width: '100%',
+            padding: '8px 12px',
+            backgroundColor: 'var(--tint-gold)',
+            border: '1px solid var(--gold)',
+            borderRadius: '4px',
+            fontSize: '0.85rem',
+            color: 'var(--gold)',
+            textAlign: 'center',
+          }}
+        >
+          Продолжение выйдет с новыми реальными Моделями.
+        </div>
+
+        {/* Итоги забега */}
+        <div
+          style={{
+            width: '100%',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(2, 1fr)',
+            gap: '8px',
+            textAlign: 'left',
+          }}
+        >
+          <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Поколение</div>
+            <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--accent-color)' }}>
+              Поколение <Num>{state.generation + 1}</Num>: {gen.name}
+            </div>
+          </div>
+
+          <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Престижей за всё время</div>
+            <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>
+              <Num>{state.prestiges}</Num>
+            </div>
+          </div>
+
+          <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Токенов всего</div>
+            <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--green)' }}>
+              <Num>{formatNumber(state.totalTokens, notation)}</Num>
+            </div>
+          </div>
+
+          <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Compute в запасе</div>
+            <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--accent-color)' }}>
+              <Num>{formatNumber(state.compute, notation)}</Num>
+            </div>
+          </div>
+
+          <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Достижений</div>
+            <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--gold)' }}>
+              <Num>{state.achievements.length}</Num> / <Num>{ACHIEVEMENTS.length}</Num>
+            </div>
+          </div>
+
+          <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Реплик в Переписке</div>
+            <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>
+              <Num>{(state.quipsSeen ?? []).length}</Num>
+            </div>
+          </div>
+        </div>
+
+        {/* Кнопки действий и рестарта */}
+        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center' }}>
+            {confirmReset
+              ? 'Весь прогресс будет сброшен! Забег начнётся с первого Поколения.'
+              : 'Хочешь пройти путь с начала? Можно начать заново.'}
+          </div>
+
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              onClick={handleResetClick}
+              className={`pixel-btn ${confirmReset ? '' : 'pixel-btn-accent'}`}
+              style={{
+                flex: 1,
+                padding: '10px 14px',
+                fontSize: '0.95rem',
+                ...(confirmReset
+                  ? {
+                      backgroundColor: 'var(--red-solid)',
+                      borderColor: 'var(--red)',
+                      color: '#ffffff',
+                    }
+                  : {}),
+              }}
+            >
+              {confirmReset ? 'Точно начать заново? (весь прогресс сбросится)' : 'Начать заново'}
+            </button>
+
+            {confirmReset ? (
+              <button
+                onClick={() => setConfirmReset(false)}
+                className="pixel-btn"
+                style={{ padding: '10px 14px', fontSize: '0.95rem' }}
+              >
+                Отмена
+              </button>
+            ) : (
+              <button
+                onClick={requestClose}
+                className="pixel-btn"
+                style={{ padding: '10px 14px', fontSize: '0.95rem', color: 'var(--text-muted)' }}
+              >
+                Продолжить осмотр
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

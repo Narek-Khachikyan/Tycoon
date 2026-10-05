@@ -1,51 +1,91 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { LABS } from '../data/labs';
 import { QUIPS } from '../data/quips';
 import { quipsSeenOf, useGameStore } from '../store/useGameStore';
 import { MascotSprite } from './MascotSprite';
 import { useDialogFocus } from './useDialogFocus';
+import { THREE_COL_MIN } from '../layout';
+
+export interface QuipBubbleProps {
+  /**
+   * Место монтажа:
+   * - "office" (по умолчанию): на Сцене Офиса (абсолютное позиционирование). На десктопе
+   *   (>= THREE_COL_MIN) это единственный пузырь на экране.
+   * - "prompt": в колонке Клика над кнопкой «Отправить промпт». На десктопе скрывается,
+   *   чтобы не дублировать пузырь в Офисе. На мобильном (< THREE_COL_MIN) оживает, так как
+   *   вкладка «Офис» спрятана за нижней навигацией.
+   */
+  placement?: "office" | "prompt";
+}
+
+function useIsSingleCol(): boolean {
+  const [isSingle, setIsSingle] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth < THREE_COL_MIN : false
+  );
+
+  useEffect(() => {
+    const handleResize = () => setIsSingle(window.innerWidth < THREE_COL_MIN);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  return isSingle;
+}
 
 /**
  * Пузырь реплики говорящей Модели: портрет Маскота говорящего плюс текст.
  *
- * Слой декоративный (pointerEvents none): пузырь живёт поверх Сцены и не должен
- * перехватывать клики по Глюкам и Золотому Токену. Когда Маскотов ещё нет, пузырь
- * встаёт по центру Сцены — у «пустого стола», и первая реплика видна до первой покупки.
- * Вход — pop пружиной, уход — fade с CSS-задержкой (см. quip-pop/quip-fade в index.css);
- * стор гасит поле уже после fade, при reducedMotion остаётся только opacity.
+ * Слой декоративный (pointerEvents none): пузырь не должен перехватывать клики по Глюкам,
+ * Золотому Токену или кнопке «Отправить промпт». На десктопе живёт на Сцене Офиса. На
+ * узком экране колонка Офиса скрыта во вкладке, поэтому пузырь переезжает в ClickColumn
+ * над кнопкой действия.
  */
-export const QuipBubble: React.FC = () => {
+export const QuipBubble: React.FC<QuipBubbleProps> = ({ placement = "office" }) => {
   const lastQuip = useGameStore((s) => s.lastQuip);
   const agents = useGameStore((s) => s.state.agents);
+  const isSingle = useIsSingleCol();
+
   if (!lastQuip) return null;
+
+  // На десктопе пузырь в ClickColumn не нужен — там уже открыт полноценный Офис.
+  if (placement === "prompt" && !isSingle) {
+    return null;
+  }
 
   const empty = Object.values(agents).every((n) => (n ?? 0) <= 0);
   const lab = lastQuip.lab ? LABS[lastQuip.lab] : null;
+  const isPrompt = placement === "prompt";
 
   return (
     <div
       key={lastQuip.nonce}
       className="quip-bubble pixel-card"
       style={{
-        position: 'absolute',
-        left: '50%',
-        transform: 'translateX(-50%)',
-        ...(empty ? { top: '30%' } : { bottom: '104px' }),
+        position: isPrompt ? "relative" : "absolute",
+        left: "50%",
+        transform: "translateX(-50%)",
+        ...(isPrompt
+          ? { margin: "0 auto 12px auto" }
+          : empty
+          ? { top: "30%" }
+          : { bottom: "104px" }),
         zIndex: 4,
-        pointerEvents: 'none',
-        maxWidth: 'min(320px, 86%)',
-        padding: '10px 12px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '10px',
+        pointerEvents: "none",
+        maxWidth: isPrompt ? "min(360px, 94%)" : "min(320px, 86%)",
+        width: isPrompt ? "max-content" : undefined,
+        padding: "10px 12px",
+        display: "flex",
+        alignItems: "center",
+        gap: "10px",
+        boxSizing: "border-box",
       }}
     >
       {lab && lastQuip.lab && <MascotSprite lab={lastQuip.lab} size={32} />}
       <div style={{ minWidth: 0 }}>
         {lab && (
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{lab.name}</div>
+          <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>{lab.name}</div>
         )}
-        <div style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>{lastQuip.text}</div>
+        <div style={{ fontSize: "0.9rem", color: "var(--text-main)" }}>{lastQuip.text}</div>
       </div>
     </div>
   );
@@ -77,15 +117,15 @@ export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
   return (
     <div
       style={{
-        position: 'fixed',
+        position: "fixed",
         inset: 0,
-        backgroundColor: 'var(--bg-scrim)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
+        backgroundColor: "var(--bg-scrim)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
         zIndex: 50,
-        padding: '16px',
-        animation: 'toast-fade 0.18s ease-out',
+        padding: "16px",
+        animation: "toast-fade 0.18s ease-out",
       }}
       onClick={onClose}
     >
@@ -96,19 +136,19 @@ export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
         aria-labelledby="quiplog-title"
         className="pixel-card"
         style={{
-          width: '100%',
-          maxWidth: '560px',
-          maxHeight: '80vh',
-          display: 'flex',
-          flexDirection: 'column',
-          padding: '20px',
-          gap: '14px',
-          animation: 'toast-fade 0.18s ease-out',
+          width: "100%",
+          maxWidth: "560px",
+          maxHeight: "80vh",
+          display: "flex",
+          flexDirection: "column",
+          padding: "20px",
+          gap: "14px",
+          animation: "toast-fade 0.18s ease-out",
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 id="quiplog-title" style={{ fontSize: '1.3rem', color: 'var(--gold)' }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <h2 id="quiplog-title" style={{ fontSize: "1.3rem", color: "var(--gold)" }}>
             ПЕРЕПИСКА ({seen.size} собрано)
           </h2>
           <button
@@ -116,36 +156,36 @@ export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
             onClick={onClose}
             aria-label="Закрыть"
             title="Закрыть"
-            style={{ padding: '4px 10px' }}
+            style={{ padding: "4px 10px" }}
           >
             ✕
           </button>
         </div>
 
-        <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div style={{ overflowY: "auto", display: "flex", flexDirection: "column", gap: "8px" }}>
           {found.length === 0 ? (
-            <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>
+            <div style={{ fontSize: "0.9rem", color: "var(--text-muted)" }}>
               Пока пусто — кликай, и Модели заговорят.
             </div>
           ) : (
             found.map((q) => (
               <div
                 key={q.id}
-                style={{ display: 'flex', alignItems: 'center', gap: '10px' }}
+                style={{ display: "flex", alignItems: "center", gap: "10px" }}
               >
                 <MascotSprite lab={q.lab} size={28} />
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
                     {LABS[q.lab].name}
                   </div>
-                  <div style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>{q.text}</div>
+                  <div style={{ fontSize: "0.9rem", color: "var(--text-main)" }}>{q.text}</div>
                 </div>
               </div>
             ))
           )}
         </div>
 
-        <button className="pixel-btn" onClick={onClose} style={{ alignSelf: 'flex-end' }}>
+        <button className="pixel-btn" onClick={onClose} style={{ alignSelf: "flex-end" }}>
           Закрыть
         </button>
       </div>

@@ -1514,6 +1514,89 @@ body {
   }
 }
 
+/* Шапка. Базовые размеры — инлайном в Header.tsx, здесь только то, что зависит от ширины
+   окна: медиазапрос в компоненте означал бы сырой <style>-тег и хардкод числа, а сам порог
+   лежит в layout.ts (NARROW_MAX). Ниже него шапка обязана уместиться в один ряд — иначе на
+   390 px она занимала две строки, а строка атрибуции Artificial Analysis в подвале
+   обрезалась. Приём тот же, что у .toast-stack: база плюс один медиазапрос. */
+.header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  gap: 10px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 48px;
+}
+.header-left,
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.header-logo {
+  font-size: 1.4rem;
+  color: var(--accent-color);
+  letter-spacing: 1px;
+  margin: 0;
+  white-space: nowrap;
+}
+/* Полный и короткий варианты подписи: короткий включается только на узком экране, а полный
+   остаётся в title бейджа — иначе игрок теряет название Поколения совсем. */
+.header-gen-full,
+.header-compute-full,
+.header-stats-text {
+  display: inline;
+}
+.header-gen-short,
+.header-compute-short {
+  display: none;
+}
+.header-btn {
+  padding: 6px 12px;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+.header-btn-icon-only {
+  padding: 6px 10px;
+  font-size: 0.9rem;
+}
+
+@media (max-width: 600px) {
+  /* 600 px = NARROW_MAX из src/layout.ts: здесь число продублировано намеренно, медиазапрос
+     не умеет взять константу, а правило и комментарий живут рядом. */
+  .header-bar {
+    padding: 6px 8px;
+    gap: 4px;
+  }
+  .header-left {
+    gap: 6px;
+  }
+  .header-right {
+    gap: 4px;
+  }
+  .header-logo {
+    font-size: 1.05rem;
+    letter-spacing: 0.5px;
+  }
+  .header-gen-full,
+  .header-compute-full,
+  .header-stats-text {
+    display: none;
+  }
+  .header-gen-short,
+  .header-compute-short {
+    display: inline;
+  }
+  .header-btn,
+  .header-btn-icon-only {
+    padding: 5px 6px;
+    font-size: 0.8rem;
+  }
+}
+
 /* Пузырь реплики говорящей Модели. Вход — pop пружиной 0.25с (opacity+scale),
    уход — fade 0.18с с задержкой 4.32с: стор гасит lastQuip через 4.5с, и fade видно
    целиком. Хвостик — статичный треугольник, а не движение, поэтому при reducedMotion

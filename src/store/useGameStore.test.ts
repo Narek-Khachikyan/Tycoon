@@ -997,6 +997,26 @@ describe('starting a challenge', () => {
   });
 });
 
+describe('the finale screen flag', () => {
+  // Регрессия: комментарий обещал, что рестарт вернёт флаг, а код этого не делал — второе
+  // прохождение до последнего Поколения встречало игрока молчащим финалом.
+  it('comes back armed after a reset, so the next run shows the finale again', () => {
+    freshStore();
+    expect(store().finaleDismissed).toBe(false);
+    store().dismissFinale();
+    expect(store().finaleDismissed).toBe(true);
+    store().resetGame();
+    expect(store().finaleDismissed).toBe(false);
+  });
+
+  it('openFinale re-arms the flag after the player closed it', () => {
+    freshStore();
+    store().dismissFinale();
+    store().openFinale();
+    expect(store().finaleDismissed).toBe(false);
+  });
+});
+
 describe('shattering a crystal', () => {
   it('pays the gain into the wallet, names the sum and sounds the achievement', () => {
     freshStore();

@@ -5,6 +5,8 @@ import { formatCount, formatNumber } from '../economy/format';
 import { Num } from './Num';
 import { Icon } from './Icon';
 import { GoldenToken } from './GoldenToken';
+import { QuipBubble } from './QuipBubble';
+import { OnboardingCoach } from './OnboardingCoach';
 
 /** За сколько миллисекунд счётчик съедает 63% расстояния до цели: каждый кадр отнимает
  *  долю dt / APPROACH_MS остатка, поэтому число тормозит, а не разгоняется, и скорость
@@ -139,7 +141,11 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
 
   // Прогресс до ближайшей покупки Агента: цена приходит из движка, компонент только делит.
   const nextCost = nextAgentCost(state);
-  const missing = shortfall(nextCost, state.tokens);
+  const rawMissing = shortfall(nextCost, state.tokens);
+  // Math.ceil защищает от обещания нехватки целого, когда списание дробное: formatNumber
+  // режет дробную часть вниз (Math.floor), поэтому без округления вверх на дробной цене
+  // игрок накопил бы на единицу меньше необходимого.
+  const missing = Math.ceil(rawMissing);
   const progress = nextCost > 0 ? Math.min(1, state.tokens / nextCost) : 0;
   const canHire = nextCost > 0 && state.tokens >= nextCost;
 
@@ -210,6 +216,15 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
         )}
       </div>
 
+      {/* Подсказка онбординга живёт здесь, а не поверх экрана: плавающая карточка вставала бы
+          на сток тостов и перекрывала главное действие. В потоке колонки она всегда рядом с
+          кнопкой Клика и на узком экране, и на широком. */}
+      <OnboardingCoach />
+
+      {/* Реплика говорящей Модели: на узком экране монтируется над кнопкой Клика,
+          на десктопе скрывается внутри QuipBubble по THREE_COL_MIN, чтобы не дублировать Офис. */}
+      <QuipBubble placement="prompt" />
+
       {/* Золотой Токен: появляется на время окна события прямо над кнопкой Клика, чтобы
           находка попадала в ту же область взгляда, что и главное действие игры. Карточка
           монтируется и размонтируется вместе с окном, поэтому её появление и есть
@@ -221,6 +236,7 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
         ref={btnRef}
         onClick={handleClick}
         onAnimationEnd={handleSquashEnd}
+        aria-label="Отправить промпт"
         className="pixel-btn pixel-btn-accent pulse-glow"
         style={{
           width: '100%',

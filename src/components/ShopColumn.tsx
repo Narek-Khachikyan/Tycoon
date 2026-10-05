@@ -83,22 +83,25 @@ const TokenDeficit: React.FC<{ amount: number; notation: Notation }> = ({ amount
   const handleDenyEnd = (e: React.AnimationEvent<HTMLDivElement>) => {
     e.currentTarget.classList.remove('deny-flash');
   };
+  // Math.ceil защищает от округления вниз при дробных остатках, чтобы не обещать целое
+  // число, которого на самом деле не хватит для покупки.
+  const displayAmount = Math.ceil(amount);
   return (
     <div
       className="token-deficit"
       onAnimationEnd={handleDenyEnd}
       style={{
         minHeight: '1em',
-        fontSize: '0.75rem',
+        fontSize: '0.8rem',
         color: 'var(--text-muted)',
         textAlign: 'right',
       }}
     >
       {amount > 0 && (
         <>
-          Не хватает <Num>{formatNumber(amount, notation)}</Num>{' '}
+          Не хватает <Num>{formatNumber(displayAmount, notation)}</Num>{' '}
           {/* Нотация обязательна: форма считается по цифрам той же записи, что и число. */}
-          {formatCount(amount, 'Токен', 'Токена', 'Токенов', notation)}
+          {formatCount(displayAmount, 'Токен', 'Токена', 'Токенов', notation)}
         </>
       )}
     </div>
@@ -354,6 +357,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
       <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
         <button
           onClick={() => setTab('models')}
+          aria-label="Вкладка Модели"
           className={`pixel-btn ${tab === 'models' ? 'pixel-btn-accent' : ''}`}
           style={{ flex: 1, padding: '8px 4px', fontSize: '0.9rem' }}
         >
@@ -361,6 +365,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
         </button>
         <button
           onClick={() => setTab('upgrades')}
+          aria-label={`Вкладка Апгрейды${upgrades.length > 0 ? ` (${upgrades.length} доступно)` : ''}`}
           className={`pixel-btn ${tab === 'upgrades' ? 'pixel-btn-accent' : ''}`}
           style={{ flex: 1, padding: '8px 4px', fontSize: '0.9rem', position: 'relative' }}
         >
@@ -375,7 +380,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                 /* Чистый белый на насыщенной заливке: --text-main уводит подпись в тёплый
                    и роняет и без того пограничную пару до 3.06:1. */
                 color: '#fff',
-                fontSize: '0.7rem',
+                fontSize: '0.8rem',
                 padding: '1px 5px',
                 borderRadius: '8px',
               }}
@@ -386,6 +391,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
         </button>
         <button
           onClick={() => setTab('perks')}
+          aria-label="Вкладка Престиж"
           className={`pixel-btn ${tab === 'perks' ? 'pixel-btn-accent' : ''}`}
           title={
             finale
@@ -435,6 +441,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
             <button
               onClick={() => setSellMode(false)}
               className="pixel-btn"
+              aria-label="Режим покупки"
               aria-pressed={!sellMode}
               style={{ padding: '4px 8px', fontSize: '0.8rem' }}
             >
@@ -443,6 +450,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
             <button
               onClick={() => setSellMode(true)}
               className="pixel-btn pixel-btn-sell"
+              aria-label="Режим продажи"
               aria-pressed={sellMode}
               style={{ padding: '4px 8px', fontSize: '0.8rem' }}
             >
@@ -457,6 +465,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                 key={amt}
                 onClick={() => setBuyAmount(amt)}
                 className="pixel-btn"
+                aria-label={amt === 'max' ? 'Купить максимум' : `Количество покупки: ${amt}`}
                 aria-pressed={buyAmount === amt}
                 style={{ padding: '4px 7px', fontSize: '0.8rem' }}
               >
@@ -468,7 +477,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
           {/* Строка про возврат живёт только в режиме продажи: в режиме покупки её нечего
               читать, а возврат и так назван прямо на кнопке карточки. */}
           {sellMode && (
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', flexShrink: 0 }}>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', flexShrink: 0 }}>
               Возврат 25% от цены
             </div>
           )}
@@ -541,7 +550,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                           {m.isFlagship && (
                             <span
                               style={{
-                                fontSize: '0.65rem',
+                                fontSize: '0.8rem',
                                 backgroundColor: 'var(--gold-solid)',
                                 color: 'var(--text-main)',
                                 padding: '1px 5px',
@@ -553,7 +562,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                             </span>
                           )}
                         </div>
-                        <div style={{ fontSize: '0.75rem', color: lab.color }}>
+                        <div style={{ fontSize: '0.8rem', color: lab.color }}>
                           {lab.name} • Ранг {m.rank + 1}
                         </div>
                       </div>
@@ -600,6 +609,15 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                     <button
                       onClick={() => (sellMode ? sellAgents(m.id) : buyAgents(m.id))}
                       disabled={!canAfford}
+                      aria-label={
+                        sellMode
+                          ? count > 0
+                            ? `Продать ${count} ${formatCount(count, 'Агента', 'Агентов', 'Агентов')} Модели ${m.name} за ${formatNumber(refund, notation)} ${formatCount(refund, 'Токен', 'Токена', 'Токенов', notation)}`
+                            : `Продать Агентов Модели ${m.name}`
+                          : count > 0
+                            ? `Купить ${count} ${formatCount(count, 'Агента', 'Агентов', 'Агентов')} Модели ${m.name} за ${formatNumber(cost, notation)} ${formatCount(cost, 'Токен', 'Токена', 'Токенов', notation)}`
+                            : `Купить Агента Модели ${m.name}`
+                      }
                       className={`pixel-btn pixel-btn-accent model-row__buy`}
                       style={{
                         padding: '6px 12px',
@@ -657,7 +675,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         display: 'flex',
                         flexDirection: 'column',
                         gap: '2px',
-                        fontSize: '0.75rem',
+                        fontSize: '0.8rem',
                         color: 'var(--text-muted)',
                       }}
                     >
@@ -670,7 +688,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                             {formatCount(singleCount, 'Агент', 'Агента', 'Агентов')} до датасета
                             {singleCount >= SYNERGY_MIN_AGENTS
                               ? ' — забирай во вкладке Апгрейды'
-                              : ''}
+                              : ' — каждый Датасет из Достижений и купленный Датасет множит Доход'}
                           </div>
                         ))}
                       {pairSynergies.map((u) => {
@@ -724,12 +742,13 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       aria-expanded={isAAOpen}
                       aria-controls={`aa-${m.id}`}
                       id={`aa-toggle-${m.id}`}
+                      aria-label={isAAOpen ? `Скрыть справку Artificial Analysis для ${m.name}` : `Показать справку Artificial Analysis для ${m.name}`}
                       style={{
                         width: '100%',
                         background: 'none',
                         border: 'none',
                         padding: 0,
-                        fontSize: '0.75rem',
+                        fontSize: '0.8rem',
                         color: 'var(--accent-color)',
                         cursor: 'pointer',
                         display: 'flex',
@@ -754,7 +773,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                           padding: '6px 8px',
                           backgroundColor: 'var(--bg-void)',
                           borderRadius: '4px',
-                          fontSize: '0.75rem',
+                          fontSize: '0.8rem',
                           display: 'grid',
                           gridTemplateColumns: 'repeat(3, 1fr)',
                           gap: '6px',
@@ -839,6 +858,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                     <button
                       onClick={() => buyUpgrade(u.id)}
                       disabled={!canAfford}
+                      aria-label={`Купить апгрейд ${u.name} за ${formatNumber(u.cost, notation)} ${formatCount(u.cost, 'Токен', 'Токена', 'Токенов', notation)}`}
                       className="pixel-btn pixel-btn-accent"
                       style={{
                         padding: '6px 10px',
@@ -898,7 +918,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         и расходиться они не должны. */}
                     <Num>+{formatNumber(prestigeGain(state), notation)}</Num>
                   </div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '2px' }}>
                     (Каждая единица Compute даёт постоянный бонус +1% к Доходу)
                   </div>
                 </div>
@@ -909,6 +929,13 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                   который проверяет стор. */}
               <button
                 onClick={requestPrestige}
+                aria-label={
+                  finale
+                    ? 'Финал контента'
+                    : canPrestige(state)
+                      ? 'Сделать Престиж в следующее поколение'
+                      : 'Престиж недоступен: нужен 1 Агент Флагмана'
+                }
                 className="pixel-btn pixel-btn-gold"
                 style={{ width: '100%', marginTop: '4px' }}
               >
@@ -942,6 +969,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                   </div>
                   <button
                     onClick={() => setTab('models')}
+                    aria-label="Вернуться к Моделям"
                     className="pixel-btn pixel-btn-accent"
                     style={{ width: '100%' }}
                   >
@@ -1003,6 +1031,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       <button
                         onClick={buyPledge}
                         disabled={!canPledge(state)}
+                        aria-label={state.covenant ? 'Лицензия уже активна' : `Откупиться от красных событий за ${formatNumber(pledgeCost(state), notation)} Токенов`}
                         className="pixel-btn pixel-btn-accent"
                         style={{ padding: '6px 10px', fontSize: '0.85rem' }}
                       >
@@ -1039,6 +1068,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         <button
                           onClick={revokeLicense}
                           disabled={state.tokens < revokeCost(state)}
+                          aria-label={`Отозвать Лицензию за ${formatNumber(revokeCost(state), notation)} Токенов`}
                           className="pixel-btn"
                           style={{ padding: '6px 10px', fontSize: '0.85rem' }}
                         >
@@ -1070,6 +1100,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         <button
                           onClick={buyLicense}
                           disabled={!canLicense(state)}
+                          aria-label={`Взять Лицензию за ${formatNumber(licenseCost(state), notation)} Токенов`}
                           className="pixel-btn pixel-btn-gold"
                           style={{ padding: '6px 10px', fontSize: '0.85rem' }}
                         >
@@ -1154,6 +1185,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                   <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                     <button
                       onClick={shatter}
+                      aria-label="Разбить кристалл"
                       className="pixel-btn"
                       style={{ padding: '6px 10px', fontSize: '0.85rem' }}
                     >
@@ -1222,6 +1254,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         <button
                           onClick={() => buyCrystalUpgrade(u.id)}
                           disabled={owned || !canAfford}
+                          aria-label={owned ? `Апгрейд кристаллов ${u.name} уже куплен` : `Купить апгрейд кристаллов ${u.name} за ${u.cost} ${formatCount(u.cost, 'кристалл', 'кристалла', 'кристаллов')}`}
                           className={`pixel-btn ${owned ? '' : 'pixel-btn-accent'}`}
                           style={{ padding: '6px 10px', fontSize: '0.85rem' }}
                         >
@@ -1293,6 +1326,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         }}
                         onAnimationEnd={handleSquashEnd}
                         disabled={owned || !canAfford}
+                        aria-label={owned ? `Перк ${p.name} уже куплен` : `Купить перк ${p.name} за ${p.cost} Compute`}
                         className={`pixel-btn ${owned ? '' : 'pixel-btn-gold'}`}
                         style={{
                           padding: '6px 10px',
@@ -1372,7 +1406,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                           делать. Прошлые Поколения подписи не получают: они покупаемы как
                           обычные, упущенности нет. */}
                       {locked && (
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                           {isFutureGen
                             ? <>Откроется в поколении «{genName}»</>
                             : needFlagship
@@ -1397,6 +1431,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         }}
                         onAnimationEnd={handleSquashEnd}
                         disabled={owned || !canAfford}
+                        aria-label={owned ? `Перк Наследия ${p.name} уже куплен` : `Купить перк Наследия ${p.name} за ${nextGenPerkCost} Compute`}
                         className={`pixel-btn ${owned ? '' : 'pixel-btn-gold'}`}
                         style={{
                           padding: '6px 10px',
