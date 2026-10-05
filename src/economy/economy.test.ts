@@ -35,7 +35,7 @@ import {
 import { formatCount, formatNumber } from './format';
 import { GENERATIONS } from '../data/generations';
 import { LAB_IDS, type LabId } from '../data/labs';
-import { heatRate, OVERHEAT_STUN_SEC, TEMP_MAX, TEMP_START, TEMP_YIELD_MAX } from './thermal';
+import { HEAT_COOL_SEC, heatRate, OVERHEAT_STUN_SEC, TEMP_MAX, TEMP_START, TEMP_YIELD_MAX } from './thermal';
 import { claimMilestones, MILESTONES, nextMilestone } from './milestones';
 import { GEN_SCALE } from './catalog';
 
@@ -2086,11 +2086,19 @@ describe('temperature', () => {
    * уходит в оффлайн-ветку, где нет ни перегрева, ни Галлюцинаций. Один шаг и крупный шаг
    * проверяли бы разные ветки тика, а не Температуру.
    */
+  /**
+   * `temp` ставится, а `cold` — нет: обнуление перегрева внутри помощника стирало бы
+   * заданный стартовый перегрев, и проверка стягивания измеряла бы ноль вместо стягивания.
+   * Обнучать жар обязан вызывающий, и делает это один раз, до прогона.
+   */
   const over = (s: GameState, seconds: number, t: number, rnd: () => number = () => 1) => {
-    let cur: GameState = { ...cold(s), temp: t };
+    let cur: GameState = { ...s, temp: t };
     for (let i = 0; i < seconds; i++) cur = advanceTime(cur, 1, rnd);
     return cur;
   };
+
+  /** Состояние с заданным перегревом: перегрев нельзя «долить» тиками без перегрева. */
+  const at_heat = (heat: number): GameState => ({ ...cold(newGame(T0)), heat });
 
   it('pays nothing extra in the cold and rises with the heat', () => {
     const base = buyAgents(rich(cold(newGame(T0)), 1e6), first.id, 10);
@@ -2100,31 +2108,57 @@ describe('temperature', () => {
     expect(over(base, 1, 0.5).tokens - base.tokens).toBeCloseTo(rate * (1 + TEMP_YIELD_MAX * 0.5), 6);
   });
 
-  it('accumulates heat faster the hotter it runs, and vents it in the cold', () => {
+  it('accumulates heat faster the hotter it runs, and vents it on its own', () => {
     const base = cold(newGame(T0));
-    expect(over(base, 10, 0.5).heat).toBeCloseTo(heatRate(0.5) * 10, 9);
-    // Полный жар копит вдвое быстрее, и за те же десять секунд до потолка не доходит:
-    // до единицы от 1.0 нужно дольше, чем 1 / HEAT_RATE секунд, — это и есть окно игрока.
-    expect(over(base, 10, 1).heat).toBeCloseTo(heatRate(1) * 10, 9);
-    expect(over(base, 10, 1).overheatedAt).toBe(0);
-    // В холоде перегрев не растёт: остужает игрок движением шкалы, а не само время.
-    expect(over(base, 10, 0).heat).toBe(0);
+    // Жар копится, но одновременно стягивается, поэтому за десять секунд на 0.5 шкала
+    // приходит к меньшему, чем простое накопление: это и есть цена жара, выраженная числом.
+    expect(over(base, 10, 0.5).heat).toBeGreaterThan(0);
+    expect(over(base, 10, 0.5).heat).toBeLessThan(heatRate(0.5) * 10);
+    // Чем горячее, тем быстрее копится: разница за ту же секунду обязана быть положительной,
+    // иначе «жарче» перестало бы значить «опаснее».
+    expect(over(base, 1, 1.6).heat).toBeGreaterThan(over(base, 1, 1).heat);
+    // Полный перегрев уходит примерно за HEAT_COOL_SEC, а не мгновенно: игрок должен уметь
+    // остудить офис движением шкалы, иначе ошибку можно было бы исправить только Престижем.
+    // Начало чуть ниже единицы: ровно единица — это уже перегрев, и он сбросился бы на
+    // первом же тике, проверив не стягивание, а сброс.
+    const hot = at_heat(0.99);
+    expect(over(hot, HEAT_COOL_SEC / 2, 0).heat).toBeCloseTo(0.49, 1);
+    // Остаток обязан быть неотрицательным: перегрев не может стать отрицательным «запасом»
+    // жара, который потом начислят обратно — иначе охлаждение платило бы игроку.
+    expect(over(hot, HEAT_COOL_SEC * 2, 0).heat).toBe(0);
   });
 
   it('overheats, dumps the heat and punishes the income for a while', () => {
     const base = buyAgents(rich(cold(newGame(T0)), 1e6), first.id, 10);
     const rate = first.baseIncome * 10;
-    // Жар держится до перегрева, потом сбрасывается в ноль — и это обязано занять секунды,
-    // а не наступить мгновенно: сброс за один тик означал бы, что жар нельзя удержать.
-    const hot = over(base, 30, 1);
+    // Держим предельный жар: окно до перегрева обязано быть минутами, а не секундами, и
+    // каждый следующий градус Температуры обязан его сокращать — иначе «горячее» перестало
+    // бы значить «опаснее».
+    // Окно до перегрева обязано быть минутами, а не секундами, и каждый следующий градус
+    // Температуры обязан его сокращать — иначе «горячее» перестало бы значить «опаснее».
+    // Полминуты на предельном жаре и на 1.0: оба окна заведомо длиннее перегрева.
+    const atMax = over(base, 15, TEMP_MAX);
+    const atOne = over(base, 15, 1);
+    expect(atMax.overheatedAt).toBe(0);
+    expect(atOne.overheatedAt).toBe(0);
+    expect(atMax.heat).toBeGreaterThan(atOne.heat);
+    // Жар сбрасывается в ноль, и это обязательно занимает время, а не наступает мгновенно:
+    // сброс за один тик означал бы, что жар нельзя удержать. Предельный жар перегревается
+    // примерно за 19 секунд, поэтому 25 секунд — заведомо за его окном.
+    const hot = over(base, 25, TEMP_MAX);
     expect(hot.temp).toBe(0);
     expect(hot.heat).toBe(0);
     expect(hot.overheatedAt).toBeGreaterThan(0);
+    // Оглушение длится OVERHEAT_STUN_SEC, а `hot` уже отработал 25 секунд после сброса,
+    // поэтому срез давно сошёл. Проверять его надо на состоянии сразу после перегрева, и
+    // для этого прогон короткий: ровно столько секунд, сколько нужно, чтобы дойти до сброса.
+    const justBoiled = over(base, 20, TEMP_MAX);
+    expect(justBoiled.overheatedAt).toBeGreaterThan(0);
     // Сразу после сброса Доход срезан, и срез сходит на нет к концу окна оглушения.
-    expect(totalIncome(hot) / rate).toBeLessThan(1);
-    expect(over(hot, OVERHEAT_STUN_SEC + 1, 0)).toMatchObject({ temp: 0 });
-    const healed = over(hot, OVERHEAT_STUN_SEC + 1, 0);
+    expect(totalIncome(justBoiled) / rate).toBeLessThan(1);
+    const healed = over(justBoiled, OVERHEAT_STUN_SEC + 1, 0);
     expect(totalIncome(healed) / rate).toBeCloseTo(1, 6);
+    expect(healed.temp).toBe(0);
   });
 
   it('takes a share of the wallet on a hallucination, and never goes negative', () => {

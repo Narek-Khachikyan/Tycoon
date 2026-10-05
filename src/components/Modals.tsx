@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useGameStore } from '../store/useGameStore';
 import { ACHIEVEMENTS, ordinaryEarned, shadowEarned } from '../economy/achievements';
 import { GLOSSARY } from '../data/glossary';
+import { ThermalSection } from './ThermalSection';
 import { PERKS } from '../economy/perks';
 import { exportSave } from '../economy/save';
 import { formatCount, formatDuration, formatNumber } from '../economy/format';
@@ -428,6 +429,11 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
               <span style={{ color: 'var(--text-main)', fontWeight: 600 }}>{val}</span>
             </div>
           ))}
+
+          {/* Температура идёт ПЕРВОЙ, до словаря: это главная механика игры, и игрок,
+              открывший «Инфо» на второй минуте, обязан найти её раньше тридцати семи
+              терминов. */}
+          <ThermalSection />
 
           {/* Справка по словарю игры. Формулировки сверены с CONTEXT.md — он источник
               правды для словаря, а не этот файл. Живёт в том же прокручиваемом теле,

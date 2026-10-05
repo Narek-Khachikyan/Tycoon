@@ -52,6 +52,7 @@ import {
   audioContext,
 } from '../audio/sound';
 import { playCoolingSound, playHallucinationSound, updateThermalAudio } from '../audio/thermal';
+import { playMilestoneSound } from '../audio/sfx';
 
 export type BuyAmount = 1 | 10 | 100 | 'max';
 export type ActiveTab = 'click' | 'office' | 'shop' | 'upgrades' | 'perks' | 'stats' | 'achievements' | 'settings';
@@ -508,9 +509,19 @@ export const useGameStore = create<GameStore>((set, get) => {
       announceThermal(state, advanced);
       // Вехи забираются после Достижений и до сериализации: награда обязана попасть в тот же
       // тик, что и Доход, иначе игрок увидит «0 / 10» при полном кошельке на следующем кадре.
-      const { state: withMilestones, titles } = claimMilestoneRewards(advanced);
-      for (const title of titles) {
-        pushToast('Веха выполнена', title, 'Награда уже в кошельке.');
+      const { state: withMilestones, claimed } = claimMilestoneRewards(advanced);
+      // Звук один на событие, а не на веху: за тик их может закрыться несколько, и три
+      // аккорда разом звучали бы как заминка, а не как награда.
+      if (claimed.length > 0) {
+        playMilestoneSound(advanced.settings.muted);
+        // Несколько вех за тик сворачиваются в один тост с перечислением: очередь тостов
+        // растёт вниз, и шесть карточек перекрыли бы половину экрана ровно тогда, когда
+        // игрок смотрит на веху.
+        pushToast(
+          claimed.length > 1 ? `Вехи выполнены: ${claimed.length}` : 'Веха выполнена',
+          claimed.map((m) => m.title).join(' · '),
+          'Награда уже в кошельке.',
+        );
       }
       // Расписание Глюка живёт в экономике и тикает вместе с событиями, поэтому стор видит спавн
       // только по счётчику id — и то лишь ради первого Глюка в жизни игрока.

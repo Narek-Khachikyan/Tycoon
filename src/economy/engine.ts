@@ -1,13 +1,14 @@
 import { CATALOG, computeGain, LAST_GENERATION, MODEL_BY_ID, prestigeDivisor, type Model } from './catalog';
 import type { LabId } from '../data/labs';
 import { collectCrystals, crystalIncomeMult } from './crystal';
-import { claimMilestones } from './milestones';
+import { claimMilestones, type Milestone } from './milestones';
 import {
   applyOverheat,
   clampTemp,
   HALLUC_HEAT,
   HALLUC_LOSS,
   HEAT_LIMIT,
+  HEAT_COOL_RATE,
   heatRate,
   halluRate,
   thermalRead,
@@ -528,7 +529,8 @@ function applyHallucination(state: GameState): GameState {
 }
 
 /**
- * Шаг Температуры за `dt`: копит перегрев, ловит Галлюцинацию, сбрасывает жар при перегреве.
+ * Шаг Температуры за `dt`: копит и стягивает перегрев, ловит Галлюцинацию, сбрасывает жар
+ * при перегреве.
  *
  * Порядок именно такой. Перегрев проверяется ПЕРВЫМ и до Галлюцинации: сброс в ноль должен
  * отменять накопленное, а не наоборот — иначе игрок, пойманный перегревом на границе, терял бы
@@ -537,7 +539,9 @@ function applyHallucination(state: GameState): GameState {
 export function advanceThermal(state: GameState, dt: number, rnd: () => number, now: number): GameState {
   if (dt <= 0) return state;
   const temp = clampTemp(state.temp);
-  const heat = Math.min(1, state.heat + heatRate(temp) * dt);
+  // Нижняя граница обязательна: без неё перегрев уходил бы в минус, и отрицательный
+  // перегрев резал бы Доход сильнее полного — то есть охлаждение платило бы игроку.
+  const heat = Math.min(1, Math.max(0, state.heat + (heatRate(temp) - HEAT_COOL_RATE) * dt));
   let next: GameState = { ...state, temp, heat };
   if (next.heat >= HEAT_LIMIT) return applyOverheat(next, now);
   if (rnd() < halluRate(temp) * dt) next = applyHallucination(next);
@@ -731,10 +735,10 @@ export function prestigePreview(state: GameState): PrestigePreview {
  * правилам — возвращает тот же объект, если забирать нечего. Стор зовёт его раз в тик рядом
  * с Достижениями, потому что обе системы проверяются одним и тем же тиком.
  */
-export function claimMilestoneRewards(state: GameState): { state: GameState; total: number; titles: string[] } {
+export function claimMilestoneRewards(state: GameState): { state: GameState; total: number; claimed: Milestone[] } {
   const { state: claimed, total, claimed: list } = claimMilestones(state);
-  if (claimed === state) return { state, total: 0, titles: [] };
-  return { state: claimed, total, titles: list.map((m) => m.title) };
+  if (claimed === state) return { state, total: 0, claimed: [] };
+  return { state: claimed, total, claimed: list };
 }
 
 export function prestige(state: GameState, now: number): GameState {

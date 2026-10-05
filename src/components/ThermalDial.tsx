@@ -1,7 +1,8 @@
 import React from 'react';
 import { useGameStore } from '../store/useGameStore';
-import { HEAT_PENALTY, TEMP_MAX, thermalRead } from '../economy/thermal';
+import { HEAT_PENALTY, TEMP_MAX, overloadShare, thermalRead } from '../economy/thermal';
 import { formatNumber } from '../economy/format';
+import { ThermalSparks } from './ThermalSparks';
 
 /**
  * Температура — живая шкала, а не покупка. Она стоит под кнопкой Клика, потому что это
@@ -64,6 +65,9 @@ export const ThermalDial: React.FC = () => {
       {/* Дорожка: сама ручка и вся зона нагрева. Полоса перегрева лежит СНАРУЖИ шкалы, а не
           поверх неё, потому что это две разные величины — жар и его последствие. */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        {/* Искры жара живут ПОВЕРХ дорожки и выходят за её пределы: офис должен выглядеть
+            горящим, а не «штриховым». Слой не обрезается — обрезка съела бы половину жеста. */}
+        <div style={{ position: 'relative' }}>
         <div
           role="slider"
           tabIndex={0}
@@ -89,18 +93,31 @@ export const ThermalDial: React.FC = () => {
             overflow: 'hidden',
           }}
         >
-          {/* Заливка до текущей температуры: чем длиннее, тем горячее видно боковым зрением. */}
+          {/* Заливка до текущей температуры: чем длиннее, тем горячее видно боковым зрением.
+              Градиент кладётся на всю дорожку, а не на заливку: иначе при 20% температуры
+              игрок увидел бы только холодный синий и не понял бы, куда вообще двинулась шкала. */}
           <div
             style={{
               position: 'absolute',
               inset: 0,
+              background:
+                'linear-gradient(90deg, var(--thermal-cold) 0%, var(--accent-color) 62%, var(--thermal-hot) 100%)',
+              opacity: 0.28,
+            }}
+          />
+          <div
+            className="thermal-dial__fill"
+            style={{
+              position: 'absolute',
+              inset: 0,
               width: `${pct}%`,
-              background: 'linear-gradient(90deg, var(--thermal-cold) 0%, var(--accent-color) 62%, var(--thermal-hot) 100%)',
-              transition: 'width 0.08s linear',
+              background:
+                'linear-gradient(90deg, var(--thermal-cold) 0%, var(--accent-color) 62%, var(--thermal-hot) 100%)',
             }}
           />
           {/* Ручка — тёмная плашка, читаемая на любом участке заливки. */}
           <div
+            className="thermal-dial__handle"
             style={{
               position: 'absolute',
               top: 0,
@@ -109,7 +126,6 @@ export const ThermalDial: React.FC = () => {
               width: '6px',
               backgroundColor: 'var(--bg-void)',
               boxShadow: '0 0 0 1px var(--text-main)',
-              transition: 'left 0.08s linear',
             }}
           />
           {/* Зона перегруза. Заливка читается как «здесь жарче всего», а не как «сломанная
@@ -121,7 +137,7 @@ export const ThermalDial: React.FC = () => {
               position: 'absolute',
               top: 0,
               bottom: 0,
-              left: '62.5%',
+              left: `${overloadShare() * 100}%`,
               right: 0,
               background:
                 'repeating-linear-gradient(135deg, color-mix(in srgb, var(--thermal-hot) 22%, transparent) 0 4px, transparent 4px 8px)',
@@ -146,6 +162,8 @@ export const ThermalDial: React.FC = () => {
             перегруз
           </div>
         </div>
+        <ThermalSparks />
+        </div>
 
         {/* Полоса перегрева. Единственная величина, которая тикает сама, поэтому её приходится
             показывать: без неё игрок не понимает, сколько ещё можно греть. */}
@@ -164,13 +182,13 @@ export const ThermalDial: React.FC = () => {
           }}
         >
           <div
+            className="thermal-dial__heat"
             style={{
               width: `${heatPct}%`,
               height: '100%',
+              // Цвет перегрева — белый кал, а не красный: он остаётся различимым на
+              // акценте любого из восьми Поколений, где красный уходил бы в тот же тон.
               backgroundColor: read.heat > 0.75 ? 'var(--thermal-hot)' : 'var(--accent-color)',
-              // Ширина — единственное анимируемое здесь: это прогресс, а не движение,
-              // поэтому переход остаётся и при выключенной анимации.
-              transition: 'width 0.2s ease-out',
             }}
           />
         </div>
