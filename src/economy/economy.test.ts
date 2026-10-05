@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { buildCatalog, CATALOG, computeGain, genScale, PRESTIGE_DIVISOR_UNITS, prestigeDivisor, softMod } from './catalog';
 import {
   advance, advanceTime, applyOffline, assistClickBonus, BASE_OFFLINE_HOURS, bulkCost, buyAgents, buyPerk, buyUpgrade, canPrestige, click,
-  clickValue, computeShortfall, datasetMult, datasetValue, earnTokens, flagshipMult, incomeGain, isContentFinale, labIncomeShare,
-  maxAffordable, modelIncome, offlineCapHours, offlineIncome, offlineRateMult, prestige, prestigeGain, sellAgents, totalIncome,
+  clickValue, computeShortfall, datasetMult, datasetValue, earnTokens, flagshipMult, generationBoostMult, incomeGain, isContentFinale,
+  labIncomeShare, maxAffordable, modelIncome, offlineCapHours, offlineIncome, offlineRateMult, prestige, prestigeGain, prestigePreview,
+  progressToNextAgent, sellAgents, totalIncome,
 } from './engine';
 import {
   collectCrystals, buyCrystalUpgrade, CRYSTAL_CYCLE_MS, CRYSTAL_PER_STOCK_BONUS, CRYSTAL_STOCK_CAP, CRYSTAL_UPGRADES,
@@ -19,26 +20,28 @@ import {
   isPledgeActive, LICENSE_FLAGSHIP_MULT, LICENSE_INCOME_TAX, PLEDGE_GROWTH, PLEDGE_MAX, PLEDGE_UNITS, pledgeCost, popGlitch,
   licenseCost, redEventChance, RED_TABLES, REVOKE_FLAGSHIP_MULT, revokeCost, revokeLicense, spawnGlitch, uprisingStage,
 } from './glitches';
-import { PERK_BY_ID, type PerkEffect } from './perks';
+import { GEN_PERK_BASE_COST, GEN_PERK_STEP_COST, genPerkId, isGenPerkId, PERK_BY_ID, type PerkEffect } from './perks';
 import { EVENT_KINDS, newGame, SAVE_VERSION, type ActiveEvent, type EventKind, type GameState } from './state';
 import { exportSave, importSave, migrate } from './save';
 import { pickNews } from './news';
-import { ACHIEVEMENTS, ACHIEVEMENT_BY_ID, awardAchievements, newlyEarned, nonShadowCount } from './achievements';
+import { ACHIEVEMENTS, awardAchievements, newlyEarned, nonShadowCount, shadowEarned } from './achievements';
+import { SHADOW_ACHIEVEMENTS } from './shadow';
 import {
   ASSIST1_THRESHOLD, ASSIST1_UNITS, ASSIST2_THRESHOLD, ASSIST2_UNITS, assistUpgradeId, availableUpgrades, clickUpgradeId, DATASET_THRESHOLDS, DATASET_UNITS,
-  datasetUpgradeId, FLAGSHIP_COST_MULT, flagshipUpgradeId, isUpgradeUnlocked, juniorAgents, labFlagship, labTopTier, labWork,
-  modelUpgradeId, MODEL_TIERS, synergyUpgradeId, totalAgents, UPGRADE_BY_ID,
+  datasetUpgradeId, FLAGSHIP_COST_MULT, FLAGSHIP_MULT_CAP, flagshipUpgradeId, isUpgradeUnlocked, juniorAgents, labFlagship, labTopTier, labWork,
+  modelUpgradeId, MODEL_TIERS, PAIR_SYNERGY_MULT, pairSynergyUpgradeId, SYNERGY_MIN_AGENTS, synergyUpgradeId, totalAgents, UPGRADE_BY_ID,
+  UPGRADES_BY_GEN, type Upgrade,
 } from './upgrades';
 import { formatCount, formatNumber } from './format';
 import { GENERATIONS } from '../data/generations';
-import { LAB_IDS } from '../data/labs';
+import { LAB_IDS, type LabId } from '../data/labs';
 
 const T0 = 1_000_000;
 const g0 = CATALOG[0];
 const first = g0.models[0];
 const rich = (s: GameState, tokens = 1e50): GameState => ({ ...s, tokens, runTokens: tokens });
-/** НЕтеневых Достижений в игре: потолок для порогов Датасета. */
-const NON_SHADOW_TOTAL = ACHIEVEMENTS.filter((a) => !a.shadow).length;
+/** Обычных Достижений в игре: потолок для порогов Датасета и знаменатель «N / 21». */
+const NON_SHADOW_TOTAL = ACHIEVEMENTS.length;
 const HOUR = 3600_000;
 
 /**
@@ -74,6 +77,15 @@ describe('catalog', () => {
     expect(genScale(2)).toBe(1e6);
     expect(CATALOG[1].scale / CATALOG[0].scale).toBe(1000);
   });
+  // Инвариант перехода: Флагман следующего Поколения бьёт Флагмана текущего. Масштаб ×1000
+  // перевешивает лестницу Ранга ×6.5 ровно на три ступени, поэтому разница числа Моделей
+  // между соседними Поколениями не может быть меньше −3: 5 Моделей против 9 как раз ломали
+  // переход 6→7.
+  it('makes each generation flagship strictly stronger than the previous', () => {
+    for (let i = 0; i < CATALOG.length - 1; i++) {
+      expect(CATALOG[i + 1].flagship.baseIncome).toBeGreaterThan(CATALOG[i].flagship.baseIncome);
+    }
+  });
   it('prefers snapshot values over seeds unless pinned', () => {
     const seeds = [{ ...GENERATIONS[0], models: GENERATIONS[0].models.map((m, i) => (i === 0 ? { ...m, pin: ['speed' as const] } : m)) }];
     const id = seeds[0].models[0].aa;
@@ -106,6 +118,26 @@ describe('prices', () => {
   it('refuses purchases the player cannot afford', () => {
     const s = newGame(T0);
     expect(buyAgents(s, first.id, 1)).toBe(s);
+  });
+  it('measures progress to the next agent as the missing share of its price', () => {
+    const s = newGame(T0);
+    const cost = bulkCost(first, 0, 1);
+    // Кошелёк пуст: не хватает всей цены, то есть доли 1.
+    expect(progressToNextAgent(s, first)).toBe(1);
+    // Ровно половина цены — ровно половина полосы, а не «почти» и не доля от максимума.
+    expect(progressToNextAgent({ ...s, tokens: cost / 2 }, first)).toBeCloseTo(0.5);
+    expect(progressToNextAgent({ ...s, tokens: cost }, first)).toBe(0);
+    expect(progressToNextAgent({ ...s, tokens: cost * 10 }, first)).toBe(0);
+    // Скидка Перка уменьшает цену, а полоса считает ровно ту же цену, что и кнопка покупки.
+    const withDiscount = { ...s, tokens: cost / 2, perks: ['discount'] };
+    const sale = cost * 0.95; // «Оптовые GPU» снимают 5% с цены
+    expect(progressToNextAgent(withDiscount, first)).toBeCloseTo((sale - cost / 2) / sale);
+    // Уже купленные Агенты подняли цену, поэтому полоса считается от следующей, а не от первой.
+    const hired = buyAgents(rich(s), first.id, 10);
+    const nextCost = bulkCost(first, 10, 1);
+    expect(nextCost).toBeGreaterThan(cost);
+    expect(progressToNextAgent({ ...hired, tokens: nextCost / 2 }, first)).toBeCloseTo(0.5);
+    expect(progressToNextAgent({ ...hired, tokens: 0 }, first)).toBe(1);
   });
 });
 
@@ -194,14 +226,20 @@ describe('income and click', () => {
 });
 
 describe('lab readout', () => {
-  it('splits the income of the eight labs so the roster covers all of it', () => {
-    // Поколение, где Модели есть у всех восьми Лабораторий: доли обязаны дать единицу,
-    // иначе строка ростера показывала бы Лабораторию, будто она не приносит Доход.
-    let s = rich({ ...newGame(T0), generation: 5 }, 1e300);
-    for (const m of CATALOG[5].models) s = buyAgents(s, m.id, 1000);
-    const shares = LAB_IDS.map((l) => labIncomeShare(s, l));
-    expect(shares.every((x) => x > 0)).toBe(true);
-    expect(shares.reduce((a, b) => a + b, 0)).toBeCloseTo(1);
+  it('splits the income of every generation so the roster covers all of it', () => {
+    // Доли обязаны дать единицу в каждом Поколении, иначе строка ростера показывала бы
+    // Лабораторию, будто она не приносит Доход. Нулевая доля допустима только у
+    // Лаборатории, у которой в этом Поколении нет ни одной Модели.
+    for (let g = 0; g < CATALOG.length; g++) {
+      let s = rich({ ...newGame(T0), generation: g }, 1e300);
+      for (const m of CATALOG[g].models) s = buyAgents(s, m.id, 1);
+      const shares = LAB_IDS.map((l) => labIncomeShare(s, l));
+      expect(shares.reduce((a, b) => a + b, 0)).toBeCloseTo(1);
+      for (const l of LAB_IDS) {
+        const inRoster = CATALOG[g].models.some((m) => m.lab === l);
+        expect(shares[LAB_IDS.indexOf(l)] > 0).toBe(inRoster);
+      }
+    }
   });
   it('reads a lab without agents as zero rather than NaN', () => {
     const s = newGame(T0);
@@ -1097,6 +1135,29 @@ describe('prestige', () => {
     expect(buyPerk(s, 'start_tokens')).toBe(s);
     expect(clickValue(s)).toBeCloseTo(2 * 1.04);
   });
+
+  it('previews the same number the prestige pays, and the same refusals', () => {
+    let s = buyAgents(rich(newGame(T0), 1e15), g0.flagship.id, 3);
+    s = buyUpgrade(s, clickUpgradeId(0, 0));
+    const preview = prestigePreview(s);
+    // Разбор обязан считать тем же prestigeGain, что и переход: модалка и кнопка показывают одно
+    // число, иначе Compute, начисленный Престижем, разошёлся бы с обещанным.
+    expect(preview.gain).toBe(prestigeGain(s));
+    expect(preview.gain).toBe(prestige(s, T0 + 1).compute - s.compute);
+    expect(preview.agentsLost).toBe(3);
+    expect(preview.upgradesLost).toBe(1);
+    expect(preview.tokensLost).toBe(s.tokens);
+    expect(preview.generation).toBe(1);
+    expect(preview.blocked).toBe(false);
+    // Те же отказы, что и у самого перехода: нет Флагмана и финал контента.
+    expect(prestigePreview(newGame(T0)).blocked).toBe(true);
+    const last = CATALOG.length - 1;
+    const finale: GameState = { ...newGame(T0), generation: last, maxGeneration: last };
+    expect(prestigePreview(finale).blocked).toBe(true);
+    expect(prestigePreview(buyAgents(rich(finale), CATALOG[last].flagship.id, 1)).blocked).toBe(true);
+    // Отказ — это отказ тем же объектом, а не «полупустой» переход.
+    expect(prestige(finale, T0)).toBe(finale);
+  });
 });
 
 describe('save', () => {
@@ -1422,6 +1483,90 @@ describe('format', () => {
     expect(agent(111)).toBe('Агентов');
     expect(agent(-1)).toBe('Агент');
   });
+
+  it('declines by the digits the player sees once the number outgrows exact integers', () => {
+    const token = (n: number) => formatCount(n, 'Токен', 'Токена', 'Токенов');
+    // Граница точных целых: выше неё единицы float — шум округления, и форма по ним
+    // выбиралась случайно. Раньше 4.67e73 читалось как «Токена», а 9.08e75 как «Токена»
+    // же, при одинаковом виде на экране — теперь обе по значащим цифрам.
+    expect(Number.MAX_SAFE_INTEGER).toBe(9007199254740991);
+    // Ниже границы поведение прежнее и точное.
+    expect(token(9007199254740991)).toBe('Токен');
+    expect(token(9007199254740990)).toBe('Токенов');
+
+    // Форма считается по последним цифрам напечатанной записи, вместе с отменой на 11–14:
+    // 4.67e73 → «467» → 67 → «Токенов», 1.23e70 → «123» → 23 → «Токена» (как у 23 Агента),
+    // 1.11e70 → «111» → 11 → отмена → «Токенов», 1.21e70 → «121» → 21 → «Токен».
+    expect(token(4.67e73)).toBe('Токенов');
+    expect(token(9.08e75)).toBe('Токенов');
+    expect(token(1.23e70)).toBe('Токена');
+    expect(token(1.11e70)).toBe('Токенов');
+    expect(token(1.21e70)).toBe('Токен');
+
+    // Окончание обязано следовать за цифрами на экране. Раньше форма бралась по трём
+    // значащим цифрам, а короткая запись печатает четыре, и примерно в половине случаев
+    // окончание противоречило тому, что видно: «300,8 Sp Токен» при нуле на экране.
+    for (const n of [3.008e47, 4.71e25, 471.0e23, 33.09e45, 1.23e70]) {
+      for (const notation of ['short', 'sci'] as const) {
+        // Мантисса печати, без экспоненты и суффикса: в «3.01e47» форма обязана смотреть
+        // на «01», а не на «47» из экспоненты.
+        const printed = formatNumber(n, notation).split(/[e ]/)[0].replace(/[^\d]/g, '');
+        const lastTwo = Number(printed.slice(-2));
+        const last = lastTwo % 10;
+        const expected =
+          last === 1 && lastTwo !== 11
+            ? 'Токен'
+            : last >= 2 && last <= 4 && (lastTwo < 12 || lastTwo > 14)
+              ? 'Токена'
+              : 'Токенов';
+        expect(formatCount(n, 'Токен', 'Токена', 'Токенов', notation)).toBe(expected);
+      }
+    }
+
+    // Настоящий инвариант: форма не должна зависеть от шума младших разрядов. Два числа,
+    // печатающиеся одинаково, обязаны давать одинаковую форму — до правки именно здесь
+    // и ломалось, поэтому проверка на сам формат без сравнения ничего бы не поймала.
+    for (const n of [1e70, 4.67e73, 9.08e75, 7.77e250]) {
+      const twin = n * (1 + 1e-15);
+      expect(formatNumber(twin, 'sci')).toBe(formatNumber(n, 'sci'));
+      expect(token(twin)).toBe(token(n));
+    }
+  });
+
+  it('prints a float one step off an integer as that integer', () => {
+    // Результат вычитания почти никогда не попадает ровно в целое: дефицит 2 при цене
+    // 1010 и кошельке 1008 приходит как 1.9999999999999998. Печатать его как «2,0» нельзя —
+    // это 2, и так его видит игрок.
+    expect(formatNumber(1.9999999999999998)).toBe('2');
+    expect(formatNumber(5.000000000000001)).toBe('5');
+    expect(formatNumber(7.999999999999999)).toBe('8');
+    expect(formatNumber(-1.9999999999999998)).toBe('-2');
+    // Настоящие дробные и целые значения не изменились.
+    expect(formatNumber(0.1)).toBe('0,1');
+    expect(formatNumber(2)).toBe('2');
+    expect(formatNumber(999)).toBe('999');
+  });
+
+  it('declines below a thousand by the integer it prints', () => {
+    // Строка ShopColumn и ClickColumn печатают число и форму рядом, поэтому форма обязана
+    // следовать за напечатанным целым, а не за младшими разрядами float.
+    const tokens = (n: number) => formatCount(n, 'Токен', 'Токена', 'Токенов');
+    // Тот самый дефицит: на экране «2», значит и «2 Токена», а не «2 Токенов».
+    expect(formatNumber(1.9999999999999998)).toBe('2');
+    expect(tokens(1.9999999999999998)).toBe('Токена');
+    // Настоящая дробь под десятью печатается с одним знаком и склоняется по нему же.
+    expect(formatNumber(2.5)).toBe('2,5');
+    expect(tokens(2.5)).toBe('Токена');
+    // Дробь от десяти и выше печатается целой частью — форма считается по ней.
+    expect(formatNumber(12.5)).toBe('12');
+    expect(tokens(12.5)).toBe('Токенов');
+    expect(formatNumber(21.5)).toBe('21');
+    expect(tokens(21.5)).toBe('Токен');
+    // Целые значения не изменились ни в чём.
+    expect(tokens(1010)).toBe('Токенов');
+    expect(tokens(1021)).toBe('Токен');
+    expect(tokens(111)).toBe('Токенов');
+  });
 });
 describe('news and achievements', () => {
   it('picks relevant news without crashing', () => {
@@ -1457,10 +1602,11 @@ describe('news and achievements', () => {
     expect(awardAchievements(hired).state.achievements).toContain('agents_1');
   });
 
-  it('awards every ordinary achievement from a single maximal run, and nothing on a second pass', () => {
+it('awards every achievement from a single maximal run, and nothing on a second pass', () => {
+    // id Достижения входит в поверхность сохранения: дубль осиротит запись, пустое имя — экран.
     const ids = ACHIEVEMENTS.map((a) => a.id);
-    const ordinary = ACHIEVEMENTS.filter((a) => !a.shadow);
-    const ordinaryIds = ordinary.map((a) => a.id);
+    expect(new Set(ids).size).toBe(ACHIEVEMENTS.length);
+    expect(ACHIEVEMENTS.filter((a) => a.name.length === 0)).toEqual([]);
     // id Достижения входит в поверхность сохранения: дубль осиротит запись, пустое имя — экран.
     expect(new Set(ids).size).toBe(ACHIEVEMENTS.length);
     expect(ACHIEVEMENTS.filter((a) => a.name.length === 0)).toEqual([]);
@@ -1471,19 +1617,22 @@ describe('news and achievements', () => {
     expect(s.generation).toBe(CATALOG.length - 1);
 
     // Финальный Забег: Агент каждой Модели («Полный зоопарк») и 250 Агентов флагмана,
-    // плюс Апгрейд, Перк и 10 000 Кликов — остальные условия.
-    s = rich(s);
+    // плюс Апгрейд, Перк и 10 000 Кликов — остальные условия. Бюджет берётся с запасом:
+    // пачка растёт как 1.15^n, и 250 Агентов флагмана последнего Поколения стоят дороже
+    // прежнего 1e50.
+    s = rich(s, 1e300);
     for (const m of CATALOG[s.generation].models) s = buyAgents(s, m.id, m.isFlagship ? 250 : 1);
     s = buyUpgrade(s, clickUpgradeId(s.generation, 0));
     s = buyPerk(s, 'click_x2');
     for (let i = 0; i < 10_000; i++) s = click(s);
 
-    // Теневые в этом прогоне могут не выполняться (10 000 кликов закрывают sh_no_click):
-    // проверяем только обычные, отфильтровывая теневые из выдачи.
+    // Обычная лестница закрывается целиком, а тени в выдачу не входят: у них отдельный вызов,
+    // и id тени в этом списке означал бы, что она снова слилась с обычными.
     const earned = newlyEarned(s);
-    expect(earned.filter((id) => ordinaryIds.includes(id)).sort()).toEqual([...ordinaryIds].sort());
+    expect(earned).not.toContain(SHADOW_ACHIEVEMENTS[0].id);
+    expect(earned.slice().sort()).toEqual([...ids].sort());
     const first = awardAchievements(s);
-    expect(first.awarded.filter((id) => ordinaryIds.includes(id)).sort()).toEqual([...ordinaryIds].sort());
+    expect(first.awarded.slice().sort()).toEqual([...ids].sort());
 
     // Второй проход — тоже контракт стор-а: не только пустой список, но и тот же самый объект.
     const second = awardAchievements(first.state);
@@ -1545,6 +1694,21 @@ describe('flagship synergy', () => {
     expect(modelIncome(s, junior)).toBeCloseTo(junior.baseIncome * 21);
     expect(modelIncome(buyAgents(s, other.id, 10), other)).toBeCloseTo(other.baseIncome * 10);
   });
+  it('упирается в потолок ×3, дальше младшие Агенты бонус не растят', () => {
+    // Потолок держится на живом состоянии, а не только формулой: без него младших можно было бы
+    // нанять сколько угодно, и весь бонус Лаборатории доставался бы одному её Агенту.
+    let s = buyAgents(rich(newGame(T0), 1e300), flag.id, 10);
+    s = buyUpgrade(buyAgents(s, junior.id, 100), flagshipUpgradeId(0, lab));
+    expect(flagshipMult(s, flag)).toBeCloseTo(FLAGSHIP_MULT_CAP);
+    // Ровно на границе формула ещё не упирается, а за ней — уже потолок: иначе «потолок ×3» был бы
+    // числом, которого нельзя достичь, и Math.min можно было бы выбросить.
+    expect(1 + 0.02 * 100).toBeCloseTo(FLAGSHIP_MULT_CAP);
+    const cap = modelIncome(s, flag);
+    // Сто младших сверх потолка не дают флагману ровно ничего: его вклад неизменен.
+    s = buyAgents(s, junior.id, 100);
+    expect(flagshipMult(s, flag)).toBe(FLAGSHIP_MULT_CAP);
+    expect(modelIncome(s, flag)).toBeCloseTo(cap);
+  });
 });
 
 describe('assist click branch', () => {
@@ -1584,10 +1748,10 @@ describe('assist click branch', () => {
 });
 
 describe('dataset', () => {
-  const withAchievements = (s: GameState, n: number): GameState => {
-    const ordinary = ACHIEVEMENTS.filter((a) => !a.shadow).slice(0, n).map((a) => a.id);
-    return { ...s, achievements: ordinary };
-  };
+  const withAchievements = (s: GameState, n: number): GameState => ({
+    ...s,
+    achievements: ACHIEVEMENTS.slice(0, n).map((a) => a.id),
+  });
   it('unlocks at 5/10/15/20 ordinary achievements and multiplies as (1 + 0.05*N*0.10)^k', () => {
     let s = withAchievements(newGame(T0), 5);
     expect(nonShadowCount(s)).toBe(5);
@@ -1601,8 +1765,9 @@ describe('dataset', () => {
     for (let tier = 0; tier < DATASET_THRESHOLDS.length; tier++) {
       expect(isUpgradeUnlocked(all, UPGRADE_BY_ID[datasetUpgradeId(0, tier)])).toBe(true);
     }
-    // Теневые в порог не входят.
-    const shadowed: GameState = { ...all, achievements: [...all.achievements, 'sh_no_click', 'sh_speed'] };
+    // Ни одна тень в порог не входит — включая те, чей id начинается с `sh_`: префикс и таблица
+    // теней отсекаются вместе, поэтому запись теней в сохранении не раздувает Датасет.
+    const shadowed: GameState = { ...all, achievements: [...all.achievements, ...SHADOW_ACHIEVEMENTS.map((a) => a.id)] };
     expect(nonShadowCount(shadowed)).toBe(NON_SHADOW_TOTAL);
     expect(datasetValue(shadowed)).toBeCloseTo(0.05 * NON_SHADOW_TOTAL);
     const richShadowed = rich(shadowed);
@@ -1652,40 +1817,251 @@ describe('dataset', () => {
   });
 });
 
-describe('shadow achievements', () => {
-  it('marks shadow and excludes them from the dataset count', () => {
-    const shadows = ACHIEVEMENTS.filter((a) => a.shadow);
-    expect(shadows.map((a) => a.id)).toEqual(['sh_no_click', 'sh_speed', 'sh_hardcore', 'sh_777']);
-    const s: GameState = { ...newGame(T0), achievements: shadows.map((a) => a.id) };
-    expect(nonShadowCount(s)).toBe(0);
-    expect(ACHIEVEMENT_BY_ID['sh_no_click'].shadow).toBe(true);
+describe('dataset and shadow accounting', () => {
+  // Тени лежат в своей таблице и в знаменатель «N / 21» не входят: тот же список сохранения
+  // обслуживает обе лестницы, поэтому числитель обязан считаться по таблице, а не по длине.
+  it('не впускает тени ни в знаменатель, ни в базу Датасета', () => {
+    expect(SHADOW_ACHIEVEMENTS.length).toBeGreaterThan(ACHIEVEMENTS.length);
+    const all: GameState = {
+      ...newGame(T0),
+      achievements: [...ACHIEVEMENTS, ...SHADOW_ACHIEVEMENTS].map((a) => a.id),
+    };
+    expect(all.achievements.length).toBeGreaterThan(ACHIEVEMENTS.length);
+    expect(nonShadowCount(all)).toBe(ACHIEVEMENTS.length);
+    expect(shadowEarned(all)).toBe(SHADOW_ACHIEVEMENTS.length);
+    expect(datasetValue(all)).toBeCloseTo(0.05 * ACHIEVEMENTS.length);
   });
-  it('earns sh_no_click only with few clicks', () => {
-    const ok: GameState = { ...newGame(T0), runTokens: 1e6, runClicks: 15 };
-    const many: GameState = { ...ok, runClicks: 16 };
-    expect(newlyEarned(ok, T0)).toContain('sh_no_click');
-    expect(newlyEarned(many, T0)).not.toContain('sh_no_click');
+  it('считает только известные обычные id: тень и чужой id в базу Датасета не идут', () => {
+    // Числитель читается по таблице, а не по `achievements.length`: запись, которой в игре больше
+    // нет (переименованное или удалённое Достижение), не должна раздувать множитель, иначе
+    // импорт чужого сохранения печатал бы игроку несуществующий заработок.
+    const junk: GameState = { ...newGame(T0), achievements: ['sh_777', 'shadow_swarm_10k', 'неизвестный-id'] };
+    expect(nonShadowCount(junk)).toBe(0);
+    expect(datasetValue(junk)).toBe(0);
+    expect(datasetMult(junk)).toBe(1);
+    // Тот же чужой id не открывает и первый тир Датасета.
+    expect(isUpgradeUnlocked(junk, UPGRADE_BY_ID[datasetUpgradeId(0, 0)])).toBe(false);
   });
-  it('earns sh_speed only within 900s of the run start', () => {
-    const base: GameState = { ...newGame(T0), runTokens: 1e6, runStartedAt: T0 };
-    expect(newlyEarned(base, T0 + 899_000)).toContain('sh_speed');
-    expect(newlyEarned(base, T0 + 901_000)).not.toContain('sh_speed');
+});
+
+describe('pair synergy', () => {
+  // Пары нулевого Поколения берём из каталога, а не хардкодим: состав зависит от нарезки
+  // Поколений, и тест обязан пережить её смену, а не сгнить вместе с ней.
+  type Pair = Extract<Upgrade, { kind: 'synergy' }> & { pairLab: LabId };
+  const pairs0 = UPGRADES_BY_GEN[0].filter((u): u is Pair => u.kind === 'synergy' && u.pairLab !== undefined);
+  const pair = pairs0[0];
+  const labA = pair.lab;
+  const labB = pair.pairLab;
+
+  // Порог считается по сумме Агентов Лаборатории, поэтому всех кладём на её первую Модель.
+  const hireLab = (s: GameState, lab: LabId, n: number): GameState => {
+    const m = CATALOG[0].models.find((x) => x.lab === lab)!;
+    return buyAgents(s, m.id, n);
+  };
+  const withPair = (): GameState => {
+    let s = rich(newGame(T0));
+    s = hireLab(s, labA, SYNERGY_MIN_AGENTS);
+    s = hireLab(s, labB, SYNERGY_MIN_AGENTS);
+    return buyUpgrade(s, pair.id);
+  };
+
+  it('builds at most three pairs per generation from labs present, with unique ids', () => {
+    const all = UPGRADES_BY_GEN.flat();
+    // Дубль id молча схлопнулся бы в UPGRADE_BY_ID: проверяем, что пара не затёрла одиночку.
+    expect(new Set(all.map((u) => u.id)).size).toBe(all.length);
+    for (let g = 0; g < CATALOG.length; g++) {
+      const pairs = UPGRADES_BY_GEN[g].filter((u): u is Pair => u.kind === 'synergy' && u.pairLab !== undefined);
+      expect(pairs.length).toBeLessThanOrEqual(3);
+      for (const p of pairs) {
+        expect(p.id).toBe(pairSynergyUpgradeId(g, p.lab, p.pairLab));
+        expect(CATALOG[g].models.some((m) => m.lab === p.lab)).toBe(true);
+        expect(CATALOG[g].models.some((m) => m.lab === p.pairLab)).toBe(true);
+        // Цена — от более дорогой стороны пары тем же приёмом, что одиночная синергия.
+        const costOf = (lab: LabId) => CATALOG[g].models.filter((m) => m.lab === lab)[0].baseCost;
+        expect(p.cost).toBe(Math.max(costOf(p.lab), costOf(p.pairLab)) * 1000);
+      }
+    }
   });
-  it('earns sh_hardcore only for a flagship without upgrades', () => {
-    let s = buyAgents(rich(newGame(T0)), g0.flagship.id, 1);
-    expect(newlyEarned(s, T0)).toContain('sh_hardcore');
-    s = buyUpgrade(s, clickUpgradeId(0, 0));
-    // Апгрейд уже куплен: условие чистого забега больше не выполнено.
-    const recheck: GameState = { ...s, achievements: [] };
-    expect(newlyEarned(recheck, T0)).not.toContain('sh_hardcore');
+  it('opens at 15/15 and buys through the regular upgrade path', () => {
+    let s = rich(newGame(T0));
+    s = hireLab(s, labA, SYNERGY_MIN_AGENTS);
+    s = hireLab(s, labB, SYNERGY_MIN_AGENTS);
+    expect(isUpgradeUnlocked(s, pair)).toBe(true);
+    expect(availableUpgrades(s).map((u) => u.id)).toContain(pair.id);
+    const bought = buyUpgrade(s, pair.id);
+    expect(bought).not.toBe(s);
+    expect(bought.upgrades).toContain(pair.id);
   });
-  it('earns sh_777 when the prestige gain contains 777', () => {
-    const gain777 = 777;
-    const runTokens = Math.pow(gain777, 3) * 1e5 * g0.scale;
-    const s: GameState = { ...rich(newGame(T0), runTokens), runTokens };
-    expect(String(prestigeGain(s))).toContain('777');
-    expect(newlyEarned(s, T0)).toContain('sh_777');
-    const plain: GameState = { ...newGame(T0), runTokens: 1e6 };
-    expect(newlyEarned(plain, T0)).not.toContain('sh_777');
+  it('refuses the purchase at 15/14', () => {
+    let s = rich(newGame(T0));
+    s = hireLab(s, labA, SYNERGY_MIN_AGENTS);
+    s = hireLab(s, labB, SYNERGY_MIN_AGENTS - 1);
+    expect(isUpgradeUnlocked(s, pair)).toBe(false);
+    expect(buyUpgrade(s, pair.id)).toBe(s);
+  });
+  it('multiplies the income of both labs by ×1.5', () => {
+    let s = rich(newGame(T0));
+    s = hireLab(s, labA, SYNERGY_MIN_AGENTS);
+    s = hireLab(s, labB, SYNERGY_MIN_AGENTS);
+    const mA = CATALOG[0].models.find((m) => m.lab === labA)!;
+    const mB = CATALOG[0].models.find((m) => m.lab === labB)!;
+    const beforeA = modelIncome(s, mA);
+    const beforeB = modelIncome(s, mB);
+    s = buyUpgrade(s, pair.id);
+    expect(modelIncome(s, mA)).toBeCloseTo(beforeA * PAIR_SYNERGY_MULT);
+    expect(modelIncome(s, mB)).toBeCloseTo(beforeB * PAIR_SYNERGY_MULT);
+  });
+  it('fades live when sold below the threshold while the purchase stays', () => {
+    const bought = withPair();
+    const mB = CATALOG[0].models.find((m) => m.lab === labB)!;
+    // То же увольнение без покупки: состав Агентов один в один, баффа нет.
+    const plain = hireLab(hireLab(rich(newGame(T0)), labA, SYNERGY_MIN_AGENTS), labB, SYNERGY_MIN_AGENTS);
+    const sold = sellAgents(bought, mB.id, 1);
+    const expected = sellAgents(plain, mB.id, 1);
+    expect(totalIncome(sold)).toBeCloseTo(totalIncome(expected));
+    // Покупка при этом не возвращается: запись жива и оживёт при новом найме.
+    expect(sold.upgrades).toContain(pair.id);
+    expect(totalIncome(buyAgents(sold, mB.id, 1))).toBeCloseTo(totalIncome(bought));
+  });
+  it('burns on prestige like a regular synergy', () => {
+    let s = withPair();
+    s = buyAgents(s, g0.flagship.id, 1);
+    expect(s.upgrades).toContain(pair.id);
+    const p = prestige(s, T0 + 1);
+    expect(p.upgrades).toEqual([]);
+    expect(totalIncome(p)).toBe(0);
+  });
+  it('keeps rank income monotonic with the pair buff active', () => {
+    let s = rich(newGame(T0));
+    for (const m of g0.models) s = buyAgents(s, m.id, SYNERGY_MIN_AGENTS);
+    s = buyUpgrade(s, pair.id);
+    // Состав ровный, одиночных синергий и Перков нет: порядок Дохода обязан повторять
+    // порядок baseIncome — шаг цены ×6.5 на Ранг бафф ×1.5 не переворачивает.
+    const incomes = g0.models.map((m) => modelIncome(s, m));
+    for (let i = 1; i < incomes.length; i++) expect(incomes[i]).toBeGreaterThan(incomes[i - 1]);
+  });
+});
+
+describe('generation perks', () => {
+  // Забег Поколения `gen` в точке Престижа: флагман куплен, Compute хватает на особые Перки.
+  const flagged = (gen: number, compute = 100): GameState => ({
+    ...newGame(T0),
+    generation: gen,
+    maxGeneration: gen,
+    compute,
+    agents: { [CATALOG[gen].flagship.id]: 1 },
+  });
+  const allGenPerks = CATALOG.map((_, i) => genPerkId(i));
+
+  // Лестница цен держится числами, а не константами: тест обязан ломаться, если цена поедет.
+  const priceOfNth = (n: number) => GEN_PERK_BASE_COST + GEN_PERK_STEP_COST * n;
+
+  it('опознаёт особый Перк по id формата gen_<N> и отбрасывает чужое', () => {
+    expect(isGenPerkId(genPerkId(0))).toBe(true);
+    expect(isGenPerkId(genPerkId(CATALOG.length - 1))).toBe(true);
+    // Поколение вне каталога — не особый Перк: его эффекта нет, а покупка прошла бы как обычная.
+    expect(isGenPerkId(`gen_${CATALOG.length}`)).toBe(false);
+    expect(isGenPerkId('gen_-1')).toBe(false);
+    expect(isGenPerkId('gen_x')).toBe(false);
+    expect(isGenPerkId('click_x2')).toBe(false);
+  });
+
+  it('продаётся в своём и прошлых поколениях, флагман нужен только в текущем', () => {
+    const s = flagged(0);
+    // Будущее Поколение — отказ тем же объектом, Compute не тронут.
+    expect(buyPerk(s, 'gen_1')).toBe(s);
+    expect(buyPerk(s, 'gen_7')).toBe(s);
+    // Своё Поколение без флагмана — тоже отказ: Престиж делается не отсюда.
+    const noFlag: GameState = { ...s, agents: {} };
+    expect(buyPerk(noFlag, 'gen_0')).toBe(noFlag);
+    // А в точке Престижа покупка проходит и переживает сам Престиж.
+    const bought = buyPerk(s, 'gen_0');
+    expect(bought.perks).toEqual(['gen_0']);
+    expect(prestige(bought, T0 + 1).perks).toEqual(['gen_0']);
+  });
+  it('докупает прошлый перк в позднем поколении без флагмана, будущее не даёт', () => {
+    // Поздний Забег без флагмана: упущенный gen_0 покупается как обычный.
+    const late: GameState = { ...newGame(T0), generation: 3, maxGeneration: 3, compute: 100, agents: {} };
+    const bought = buyPerk(late, 'gen_0');
+    expect(bought).not.toBe(late);
+    expect(bought.perks).toEqual(['gen_0']);
+    expect(bought.computeSpent).toBe(priceOfNth(0));
+    // Будущий перк в том же Забеге — отказ тем же объектом.
+    expect(buyPerk(late, 'gen_4')).toBe(late);
+    expect(buyPerk(late, 'gen_7')).toBe(late);
+    // Прошлый перк в текущем Поколении с флагманом — тоже проходит.
+    const current = flagged(2);
+    expect(buyPerk(current, 'gen_0').perks).toEqual(['gen_0']);
+  });
+  it('берёт 10 Compute за первый особый и +5 за каждый следующий', () => {
+    let s = flagged(0);
+    s = buyPerk(s, 'gen_0');
+    expect(s.computeSpent).toBe(priceOfNth(0));
+    // Второе и третье Поколения: особые стоят уже 15 и 20.
+    s = { ...s, generation: 1, maxGeneration: 1, agents: { [CATALOG[1].flagship.id]: 1 } };
+    s = buyPerk(s, 'gen_1');
+    expect(s.computeSpent).toBe(priceOfNth(1) + priceOfNth(0));
+    s = { ...s, generation: 2, maxGeneration: 2, agents: { [CATALOG[2].flagship.id]: 1 } };
+    s = buyPerk(s, 'gen_2');
+    expect(s.computeSpent).toBe(priceOfNth(2) + priceOfNth(1) + priceOfNth(0));
+    expect(s.perks).toEqual(['gen_0', 'gen_1', 'gen_2']);
+    // Повторная покупка и нехватка свободного Compute — отказ тем же объектом.
+    expect(buyPerk(s, 'gen_2')).toBe(s);
+    const poor = flagged(3, 5);
+    expect(buyPerk(poor, 'gen_3')).toBe(poor);
+  });
+  it('считает цену по всем купленным особым, включая докупленные позже', () => {
+    // gen_1 пропущен в своём Поколении — докупаем позже без флагмана, цена та же 10.
+    let s: GameState = { ...newGame(T0), generation: 3, maxGeneration: 3, compute: 100, agents: {} };
+    s = buyPerk(s, 'gen_1');
+    expect(s.computeSpent).toBe(priceOfNth(0));
+    // Следующий особый (текущего Поколения, но флагман уже нанят) стоит 15:
+    // счёт идёт по всем купленным особым, а не по Поколению.
+    s = { ...s, agents: { [CATALOG[3].flagship.id]: 1 } };
+    s = buyPerk(s, 'gen_3');
+    expect(s.computeSpent).toBe(priceOfNth(1) + priceOfNth(0));
+    expect(s.perks).toEqual(['gen_1', 'gen_3']);
+  });
+  it('усиливает на +10% только модели своего поколения', () => {
+    const model = CATALOG[0].models[0];
+    const s = buyAgents(rich(newGame(T0), 1e6), model.id, 10);
+    const bare = totalIncome(s);
+    // Чужой особый Перк доход не меняет (подставлен напрямую: купить его вне поколения нельзя).
+    expect(totalIncome({ ...s, perks: ['gen_1'] })).toBeCloseTo(bare);
+    // Свой даёт ровно +10% и только своим моделям.
+    expect(totalIncome({ ...s, perks: ['gen_0'] })).toBeCloseTo(bare * 1.1);
+    expect(modelIncome({ ...s, perks: ['gen_0'] }, model)).toBeCloseTo(model.baseIncome * 10 * 1.1);
+    // А модель чужого Поколения свой Перк не разгоняет: gen_0 молчит в Поколении 1.
+    const g1model = CATALOG[1].models[0];
+    const s1 = buyAgents(rich({ ...newGame(T0), generation: 1, maxGeneration: 1 }, 1e6), g1model.id, 10);
+    expect(modelIncome({ ...s1, perks: ['gen_0'] }, g1model)).toBeCloseTo(modelIncome(s1, g1model));
+  });
+  it('режет суммарный бонус хард-капом ×2', () => {
+    // Синтетическая пачка эффектов одного Поколения: кап обязан сработать раньше +200%.
+    const many: PerkEffect[] = [];
+    for (let i = 0; i < 20; i++) many.push({ kind: 'generationBoost', generation: 0, pct: 0.1 });
+    expect(generationBoostMult(many, 0)).toBe(2);
+    expect(generationBoostMult(many, 1)).toBe(1);
+    // Реальный предел: все 8 особых куплены — в своём Поколении ×1.1, то есть влезли в кап.
+    const model = CATALOG[3].models[2];
+    const s = buyAgents(rich({ ...newGame(T0), generation: 3, maxGeneration: 3 }, 1e6), model.id, 5);
+    const bare = modelIncome(s, model);
+    const perked = modelIncome({ ...s, perks: allGenPerks }, model);
+    expect(perked).toBeCloseTo(bare * 1.1);
+    expect(perked).toBeLessThanOrEqual(bare * 2);
+  });
+  it('держит топ N с капом ниже базы N+1 на каждом переходе', () => {
+    for (let n = 0; n < CATALOG.length - 1; n++) {
+      const top = CATALOG[n].flagship;
+      const next = CATALOG[n + 1].flagship;
+      // Топ-сетап Поколения: 1 Агент флагмана при всех 8 особых (свой даёт ×1.1, чужие — 0).
+      const s: GameState = { ...newGame(T0), generation: n, perks: allGenPerks, agents: { [top.id]: 1 } };
+      const withPerks = modelIncome(s, top);
+      // Тот же сетап, но с бонусом, разогнанным до капа ×2: худший случай, покрытый инвариантом.
+      expect((withPerks / 1.1) * 2).toBeLessThan(next.baseIncome);
+      // Перк не может перевернуть и базовый порядок: с ним Поколение либо всё ещё слабее
+      // следующего, либо, если каталог когда-то снова развернётся, не станет сильнее.
+      expect(withPerks < next.baseIncome).toBe(top.baseIncome < next.baseIncome);
+    }
   });
 });

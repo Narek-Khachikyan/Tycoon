@@ -122,7 +122,7 @@ body {
                       событие, но локальное. Вспышки на весь экран здесь нет намеренно:
                       яркая вспышка большой площади — известный триггер фоточувствительности.
    Престиж         — единственная тряска во всей игре: 10 px и 0.45° за 90 мс плюс провал
-                      яркости. Дальше эта шкала кончается: на Клике, на покупке, на ошибке и
+                      яркости, а поверх — вуаль-оверлей с карточкой нового Поколения (затемнение, не вспышка: яркого кадра нет). Дальше эта шкала кончается: на Клике, на покупке, на ошибке и
                       на повторном Престиже тряски нет, и добавлять её «для соли» не нужно.
    Чат             — приход реплики: тихо, но обязательно, потому что это и есть игра. */
 
@@ -147,6 +147,89 @@ body {
 
 /* Пусто правило: без движения Престиж не сдвигает экран. */
 .app-root--shake {
+}
+
+/* Вуаль Престижа: только opacity — кроссфейд разрешён и при reducedMotion, поэтому
+   базовая анимация вне гейта. Яркого кадра нет: вуаль лишь затемняет. */
+@keyframes prestige-veil-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.prestige-veil {
+  animation: prestige-veil-in 0.35s ease-out;
+}
+
+/* Выход — короткий кроссфейд вместо обруба, по лекалу toast-out. */
+@keyframes prestige-veil-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.prestige-veil--out {
+  animation: prestige-veil-out 0.22s ease-in forwards;
+  pointer-events: none;
+}
+
+/* Карточка нового Поколения: база — тоже только opacity; масштаб добавляет гейт ниже. */
+@keyframes prestige-card-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Только масштаб: opacity уже даёт prestige-card-in, поэтому гейт добавляет поп
+   второй анимацией, а не заменой. */
+@keyframes prestige-card-pop {
+  from {
+    transform: scale(0.9);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+.prestige-card {
+  animation: prestige-card-in 0.45s ease-out 0.18s backwards;
+  border-color: var(--gold);
+  box-shadow: 0 0 24px 4px var(--tint-strong);
+}
+
+/* Восходящие искры Compute: создаются только при разрешённом движении (см. PrestigeOverlay),
+   поэтому базовая анимация не нужна — один вариант живёт в гейте. */
+.prestige-mote {
+  position: absolute;
+  bottom: -12px;
+  width: 8px;
+  height: 8px;
+  background-color: var(--gold);
+  box-shadow: 0 0 8px 2px var(--gold);
+  pointer-events: none;
+}
+
+@keyframes prestige-mote-rise {
+  from {
+    opacity: 0;
+    transform: translateY(0);
+  }
+  15% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-70vh);
+  }
 }
 
 /* Покупка. Масштаб никогда не падает ниже единицы: строка под курсором не должна уехать из-под
@@ -312,6 +395,31 @@ body {
   position: absolute;
   inset: 0;
   pointer-events: none;
+}
+
+/* Полоса до следующего Агента в карточке Модели. Ширину заливки ставит компонент, целым
+   процентам, и перехода здесь намеренно нет: магазин перерисовывается двадцать раз в
+   секунду, поэтому переход на ширину перезапускался бы каждый кадр и тянул заливку позади
+   настоящей доли. Отклика на достигнутую цель у полосы нет — вспышка разблокировки уже
+   есть у самой строки (.model-row--unlock), а вторая на то же событие была бы дублем. */
+.model-goal {
+  /* Обрезку и скругление держит контейнер, а не дорожка: заливка рисуется прямоугольником,
+     и без обрезки её углы вылезали бы из скруглённых углов дорожки. */
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.model-goal__track {
+  height: 6px;
+  /* Дорожка — --bg-void, самая тёмная ступень палитры: на ней акцент Поколения держит
+     5.90–12.55:1 по всем восьми акцентам, то есть заливка читается как заливка, а не как
+     оттенок карточки. */
+  background-color: var(--bg-void);
+}
+
+.model-goal__fill {
+  height: 100%;
+  background-color: var(--accent-color);
 }
 
 /* Достижение. Искры вылетают веером из центра карточки и гаснут, а пик приходится на 18%
@@ -1106,6 +1214,18 @@ body {
 
   .app-root--shake {
     animation: prestige-shake 0.09s ease-out;
+  }
+
+  /* Карточка Престижа догоняет масштабом только при разрешённом движении: база выше —
+     чистый opacity-кроссфейд. Моты живут только здесь же: без движения их нет в DOM. */
+  .prestige-card {
+    animation:
+      prestige-card-in 0.45s ease-out 0.18s backwards,
+      prestige-card-pop 0.5s cubic-bezier(0.2, 0.8, 0.3, 1.2) 0.18s backwards;
+  }
+
+  .prestige-mote {
+    animation: prestige-mote-rise 1.5s steps(14) forwards;
   }
 
   .chat-prompt--in {

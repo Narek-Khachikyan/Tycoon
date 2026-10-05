@@ -1,7 +1,7 @@
 import { CATALOG, computeGain, LAST_GENERATION, MODEL_BY_ID, prestigeDivisor, type Model } from './catalog';
 import type { LabId } from '../data/labs';
 import { collectCrystals, crystalIncomeMult } from './crystal';
-import { perkEffects, PERK_BY_ID, START_TOKENS_UNITS } from './perks';
+import { perkEffects, PERK_BY_ID, START_TOKENS_UNITS, GEN_PERK_MAX_TOTAL, genPerkCost, genPerkGeneration, isGenPerkId, type PerkEffect } from './perks';
 import type { GameState } from './state';
 import { nonShadowCount } from './achievements';
 import {
@@ -43,10 +43,13 @@ import {
   labFlagship,
   modelUpgradeId,
   MODEL_TIERS,
+  PAIR_SYNERGY_MULT,
+  SYNERGY_MIN_AGENTS,
   SYNERGY_PER_AGENT,
   synergyUpgradeId,
   totalAgents,
   UPGRADE_BY_ID,
+  UPGRADES_BY_GEN,
 } from './upgrades';
 
 export const PRICE_GROWTH = 1.15;
@@ -107,6 +110,24 @@ export function nextAgentCost(state: GameState): number {
   return min === Infinity ? 0 : min;
 }
 
+/**
+ * Доля `[0, 1]` того, сколько Токенов ещё не хватает до следующего Агента `model`:
+ * `0` — Агент доступен прямо сейчас, `1` — не хватает всего.
+ *
+ * Не то же самое, что `nextAgentCost`: там минимальная цена по Поколению для одной строки
+ * «сколько не хватает», здесь доля по конкретной Модели, чтобы полоса цели была у каждой
+ * карточки своей. Обе величины считаются через `bulkCost` со скидкой, иначе полоса и кнопка
+ * покупки разошлись бы по цене.
+ *
+ * Верхняя граница защищает долю от Токенов ниже нуля, которые `migrate` из повреждённого
+ * сохранения не отсекает.
+ */
+export function progressToNextAgent(state: GameState, model: Model): number {
+  const cost = bulkCost(model, state.agents[model.id] ?? 0, 1, discountMult(state));
+  if (state.tokens >= cost) return 0;
+  return Math.min(1, 1 - state.tokens / cost);
+}
+
 // ---------- Доход ----------
 
 /**
@@ -165,7 +186,8 @@ export function assistClickBonus(state: GameState): number {
 }
 
 /**
- * Доход Модели от постоянных множителей: Апгрейды, Синергия, флагман, Перки, Датасет, Compute.
+ * Доход Модели от постоянных множителей: Апгрейды, Синергия Лаборатории, парная Синергия,
+ * флагман, Перки (включая особые), Датасет и Compute.
  *
  * Без события и без «Прорыва»: это и есть база, из которой платится и активный тик, и
  * оффлайн-доход. Часы здесь не нужны — ни один из этих множителей не зависит от времени.
@@ -184,10 +206,38 @@ function modelBaseIncome(state: GameState, model: Model): number {
   for (const e of perkEffects(state.perks)) {
     if (e.kind === 'labBoost' && e.lab === model.lab) mult *= e.mult;
   }
+  // Парная синергия проверяет состав live, а не только в момент покупки: продажа Агентов
+  // ниже 15/15 гасит ×1.5 сразу, а запись о покупке остаётся и оживает при новом найме.
+  // Перебор идёт по парам текущего Поколения (их ≤3), а не по купленным id, поэтому
+  // чужой id из повреждённого сохранения бафф дать не может.
+  for (const u of UPGRADES_BY_GEN[state.generation]) {
+    if (u.kind !== 'synergy' || u.pairLab === undefined) continue;
+    if (u.lab !== model.lab && u.pairLab !== model.lab) continue;
+    if (!state.upgrades.includes(u.id)) continue;
+    if (labAgents(state, u.lab) >= SYNERGY_MIN_AGENTS && labAgents(state, u.pairLab) >= SYNERGY_MIN_AGENTS) {
+      mult *= PAIR_SYNERGY_MULT;
+    }
+  }
+  // Особый Перк усиливает только Модели своего Поколения и одинаково все его ранги,
+  // поэтому ранговая лестница внутри Поколения не инвертируется по построению.
+  mult *= generationBoostMult(perkEffects(state.perks), model.generation);
   // Датасет — последний множитель Модели: он считается от числа Достижений, а не от
   // конкретной Модели, поэтому ни один множитель выше не должен стоять после него.
   mult *= datasetMult(state);
   return model.baseIncome * n * mult * globalMult(state);
+}
+
+/**
+ * Множитель особых Перков для Поколения `generation`: сумма бонусов только своих
+ * Перков, но не больше хард-капа. Кап держит инвариант прогрессии: даже в пределе
+ * бонус не дотягивает Поколение до следующего (масштаб ×1000 на Поколение).
+ */
+export function generationBoostMult(effects: PerkEffect[], generation: number): number {
+  const total = effects.reduce(
+    (s, e) => (e.kind === 'generationBoost' && e.generation === generation ? s + e.pct : s),
+    0,
+  );
+  return 1 + Math.min(total, GEN_PERK_MAX_TOTAL);
 }
 
 /**
@@ -370,9 +420,30 @@ export function buyUpgrade(state: GameState, id: string): GameState {
 
 export function buyPerk(state: GameState, id: string): GameState {
   const p = PERK_BY_ID[id];
+  if (!p || state.perks.includes(id)) return state;
+  if (isGenPerkId(id)) return buyGenPerk(state, id);
   const free = state.compute - state.computeSpent;
-  if (!p || state.perks.includes(id) || p.cost > free) return state;
+  if (p.cost > free) return state;
   return { ...state, computeSpent: state.computeSpent + p.cost, perks: [...state.perks, id] };
+}
+
+/**
+ * Покупка особого Перка Поколения. Перк N доступен в Поколении N и позже:
+ * упущенный докупается в любом позднем Забеге по той же цене. Флагман
+ * (canPrestige) требуется только для перка ТЕКУЩЕГО Поколения — переход
+ * дальше уже доказал мастерство прошлого, ведь сам переход требовал флагмана.
+ * Цена растёт с числом уже купленных особых (10/15/20…), а не с Поколением,
+ * и списывается из свободного Compute как у обычных Перков.
+ */
+function buyGenPerk(state: GameState, id: string): GameState {
+  const generation = genPerkGeneration(id);
+  if (generation === null || generation > state.generation) return state;
+  // Прошлое Поколение флагман не требует: факт перехода дальше уже доказывает
+  // мастерство — Престиж оттуда без флагмана был невозможен.
+  if (generation === state.generation && !canPrestige(state)) return state;
+  const cost = genPerkCost(state.perks);
+  if (cost > state.compute - state.computeSpent) return state;
+  return { ...state, computeSpent: state.computeSpent + cost, perks: [...state.perks, id] };
 }
 
 // ---------- Время ----------
@@ -561,6 +632,37 @@ export function startingTokens(state: GameState, generation: number): number {
   return perkEffects(state.perks).some((e) => e.kind === 'startTokens')
     ? START_TOKENS_UNITS * CATALOG[generation].scale
     : 0;
+}
+
+export interface PrestigePreview {
+  /** Compute, который начислит Престиж. */
+  gain: number;
+  agentsLost: number;
+  upgradesLost: number;
+  tokensLost: number;
+  /** Поколение, в которое игрок перейдёт. */
+  generation: number;
+  /** Престиж сейчас невозможен: нет Флагмана или это финал контента. */
+  blocked: boolean;
+}
+
+/**
+ * Разбор Престижа для модалки подтверждения: что игрок получит и что сгорит.
+ *
+ * `gain` — это ровно `prestigeGain(state)`, а не вторая формула: модалка и кнопка
+ * обязаны показывать одно число, иначе Compute, начисленный переходом, разойдётся
+ * с обещанным. `blocked` повторяет условия отказа самого `prestige` (нет Флагмана
+ * либо финал контента), чтобы UI объяснил причину, а не просто погасил кнопку.
+ */
+export function prestigePreview(state: GameState): PrestigePreview {
+  return {
+    gain: prestigeGain(state),
+    agentsLost: Object.values(state.agents).reduce((s, n) => s + n, 0),
+    upgradesLost: state.upgrades.length,
+    tokensLost: state.tokens,
+    generation: Math.min(state.generation + 1, LAST_GENERATION),
+    blocked: !canPrestige(state) || isContentFinale(state),
+  };
 }
 
 export function prestige(state: GameState, now: number): GameState {

@@ -2,7 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useGameStore } from './useGameStore';
 import { CATALOG } from '../economy/catalog';
 import { CRYSTAL_CYCLE_MS, CRYSTAL_PER_STOCK_BONUS, CRYSTAL_UPGRADES, crystalCycleMs, crystalIncomeMult } from '../economy/crystal';
-import { clickValue, computeShortfall, prestigeGain, totalIncome } from '../economy/engine';
+import { ACHIEVEMENTS } from '../economy/achievements';
+import {
+  canPrestige,
+  clickValue,
+  computeShortfall,
+  isContentFinale,
+  prestigeGain,
+  totalIncome,
+} from '../economy/engine';
 import { EVENT_TABLES, grantAmount } from '../economy/events';
 import { RED_TABLES } from '../economy/glitches';
 import { formatNumber } from '../economy/format';
@@ -17,9 +25,17 @@ import {
   pledgeCost,
   revokeCost,
 } from '../economy/glitches';
+import { PERKS } from '../economy/perks';
 import { exportSave, serialize } from '../economy/save';
 import { newGame, type GameState } from '../economy/state';
-import { playBuySound, playClickSound, playEventAlertSound, playUpgradeSound } from '../audio/sound';
+import {
+  playAchievementSound,
+  playBuySound,
+  playClickSound,
+  playEventAlertSound,
+  playPrestigeSound,
+  playUpgradeSound,
+} from '../audio/sound';
 
 vi.mock('../audio/sound', () => ({
   playAchievementSound: vi.fn(),
@@ -685,6 +701,99 @@ describe('event window', () => {
     tick();
     expect(store().eventWindowAt).toBe(started);
     expect(vi.mocked(playEventAlertSound)).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('prestige window', () => {
+  it('asks first and leaves the run on the same object while it is open', () => {
+    freshStore();
+    // Флагман своего Поколения открывает Престиж: дальше окно обязано спрашивать, а не стирать.
+    hire(CATALOG[0].flagship.id, 1);
+    const before = state();
+    expect(canPrestige(before)).toBe(true);
+    store().requestPrestige();
+    expect(store().prestigePrompt).toBe(true);
+    // Окно — только вопрос: тот же объект состояния, а значит те же Токены, Агенты и Забег.
+    expect(state()).toBe(before);
+    store().dismissPrestigePrompt();
+    expect(store().prestigePrompt).toBe(false);
+    expect(state()).toBe(before);
+  });
+
+  it('carries the overlay the numbers of the run it just reset', () => {
+    reachedGeneration(1);
+    hire(CATALOG[1].flagship.id, 1);
+    // Крупный заработок забега: прирост Compute от нулевого в оверлее ничего не показывает.
+    withTokens(1e30);
+    const before = state();
+    const gain = prestigeGain(before);
+    expect(gain).toBeGreaterThan(0);
+    store().triggerPrestige();
+    const burst = store().burst;
+    expect(burst?.kind).toBe('prestige');
+    // Оверлею нужно то, чего в состоянии уже нет: куда перешли и сколько заработали.
+    expect(burst?.prestige?.generation).toBe(before.generation + 1);
+    expect(burst?.prestige?.computeGain).toBe(gain);
+    expect(state().generation).toBe(before.generation + 1);
+  });
+
+  it('keeps the run at the end of the content and stays silent', () => {
+    const last = CATALOG.length - 1;
+    reachedGeneration(last);
+    // Без Флагмана Престиж и так закрыт, поэтому отказ проверяется на честном последнем Забеге.
+    hire(CATALOG[last].flagship.id, 1);
+    expect(isContentFinale(state())).toBe(true);
+    const before = state();
+    const burst = store().burst;
+    vi.mocked(playPrestigeSound).mockClear();
+    store().triggerPrestige();
+    expect(state()).toBe(before);
+    expect(store().burst).toBe(burst);
+    expect(vi.mocked(playPrestigeSound)).not.toHaveBeenCalled();
+  });
+});
+
+describe('achievement awards', () => {
+  it('names an ordinary achievement from the table and stays quiet about the shadows', () => {
+    freshStore();
+    const before = state();
+    vi.mocked(playAchievementSound).mockClear();
+    // Найм Флагмана без единого Апгрейда закрывает обычное «Первый Агент» и тень «Чистый Забег»
+    // разом: повод проверить, что объявляется только первое.
+    hire(CATALOG[0].flagship.id, 1);
+    const awarded = state().achievements.filter((id) => !before.achievements.includes(id));
+    expect(awarded).toContain('agents_1');
+    expect(awarded.length).toBeGreaterThan(1);
+    const toasts = store().toasts.filter((t) => t.title === 'Достижение разблокировано!');
+    expect(toasts).toHaveLength(1);
+    // Название и описание берутся из таблицы, а не собираются из id: тост — единственное, что
+    // игрок читает по этому поводу, и английский id в нём был бы непонятен.
+    const agents1 = ACHIEVEMENTS.find((a) => a.id === 'agents_1');
+    expect(toasts[0].name).toBe(agents1?.name);
+    expect(toasts[0].desc).toBe(agents1?.desc);
+    expect(vi.mocked(playAchievementSound)).toHaveBeenCalledTimes(1);
+    expect(store().burst?.kind).toBe('achievement');
+  });
+
+  it('keeps a shadow that was the only award, because the state still has to reach the save', () => {
+    // Все Перки куплены, а Токенов и Агентов нет: тик не приносит ничего, лестница заработка не
+    // мешает, и закрывается ровно тень «Всё куплено». Обычное «Инвестор» отмечено заранее —
+    // условие тени тянет за собой и обычное, а проверять здесь надо молчание тени, а не пачку
+    // обычных вперемешку с ней.
+    freshStore();
+    useGameStore.setState({
+      state: { ...state(), perks: PERKS.map((p) => p.id), achievements: ['perk_1'] },
+    });
+    expect(state().achievements).not.toContain('shadow_all_perks');
+    vi.mocked(playAchievementSound).mockClear();
+    const before = state();
+    tick();
+    const awarded = state().achievements.filter((id) => !before.achievements.includes(id));
+    // Тень читается обратно из магазина, а не из таблицы: `return s` вместо состояния с тенью
+    // похоронил бы её до сериализации в localStorage, и ни тост, ни звук этого не показали бы.
+    expect(awarded).toEqual(['shadow_all_perks']);
+    expect(store().toasts).toEqual([]);
+    expect(vi.mocked(playAchievementSound)).not.toHaveBeenCalled();
   });
 });
 

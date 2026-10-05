@@ -112,6 +112,28 @@ export function playPrestigeSound(muted: boolean): void {
 
   osc.start(now);
   osc.stop(now + 0.4);
+
+  // Второй слой-арпеджио — мост от удара к тиканью счётчика: свип умирал на 0.4с,
+  // а оверлей живёт 2.6с, и хвост оставался немым. Мажорный треугольник вместо
+  // квадратного минора Достижения, чтобы два торжества не звучали одинаково.
+  const notes = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6
+  notes.forEach((freq, idx) => {
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    const start = now + 0.35 + idx * 0.13;
+
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(freq, start);
+
+    g.gain.setValueAtTime(0.1, start);
+    g.gain.exponentialRampToValueAtTime(0.001, start + 0.2);
+
+    o.connect(g);
+    g.connect(ctx.destination);
+
+    o.start(start);
+    o.stop(start + 0.21);
+  });
 }
 
 export function playAchievementSound(muted: boolean): void {

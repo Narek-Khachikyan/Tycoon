@@ -24,7 +24,7 @@ const NEWS: NewsItem[] = [
   { text: 'OpenAI анонсировала анонс будущего анонса.', when: hasLab('openai') },
   { text: 'Gemini открыл 47 вкладок поиска одновременно.', when: hasLab('google') },
   { text: 'Кит DeepSeek обучился за Токены. Инвесторы нервно пересчитывают бюджеты.', when: hasLab('deepseek') },
-  { text: 'Лама Meta выложила веса в открытый доступ и гордо жуёт сено.', when: hasLab('meta') },
+  { text: 'Плюш Meta выложил веса в открытый доступ и довольно шуршит синтепоном.', when: hasLab('meta') },
   { text: 'Mistral: «Мы европейцы, у нас обед по расписанию».', when: hasLab('mistral') },
   { text: 'Капибара Qwen невозмутимо выдала ещё одну open-weights модель.', when: hasLab('alibaba') },
   { text: 'Модели научились думать перед ответом. Пользователи — пока нет.', when: gen(4) },

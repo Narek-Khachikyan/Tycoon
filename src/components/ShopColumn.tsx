@@ -10,11 +10,12 @@ import {
   isContentFinale,
   maxAffordable,
   prestigeGain,
+  progressToNextAgent,
   sellRefund,
   shortfall,
 } from '../economy/engine';
-import { availableUpgrades } from '../economy/upgrades';
-import { PERKS } from '../economy/perks';
+import { availableUpgrades, labAgents, PAIR_SYNERGY_MULT, SYNERGY_MIN_AGENTS, UPGRADES_BY_GEN } from '../economy/upgrades';
+import { countGenPerks, genPerkCost, genPerkGeneration, genPerkId, isGenPerkId, PERK_BY_ID, PERKS } from '../economy/perks';
 import {
   canLicense,
   canPledge,
@@ -95,7 +96,8 @@ const TokenDeficit: React.FC<{ amount: number; notation: Notation }> = ({ amount
       {amount > 0 && (
         <>
           Не хватает <Num>{formatNumber(amount, notation)}</Num>{' '}
-          {formatCount(Math.round(amount), 'Токен', 'Токена', 'Токенов')}
+          {/* Нотация обязательна: форма считается по цифрам той же записи, что и число. */}
+          {formatCount(amount, 'Токен', 'Токена', 'Токенов', notation)}
         </>
       )}
     </div>
@@ -230,7 +232,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const buyLicense = useGameStore((s) => s.buyLicense);
   const revokeLicense = useGameStore((s) => s.revokeLicense);
   const buyCrystalUpgrade = useGameStore((s) => s.buyCrystalUpgrade);
-  const triggerPrestige = useGameStore((s) => s.triggerPrestige);
+  const requestPrestige = useGameStore((s) => s.requestPrestige);
 
   const gen = CATALOG[state.generation];
   const notation = state.settings.notation;
@@ -243,6 +245,18 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   // не узнал бы, что Престиж вообще существует. На финале контента Престиж недоступен
   // навсегда, поэтому приглушение там не снимается.
   const prestigeLocked = finale || !prestigeReady;
+  // Особые перки живут в том же PERKS, но с другой ценой и условием: реальная цена —
+  // genPerkCost (растёт с числом купленных), покупка — в своём Поколении при
+  // купленном флагмане либо в любом позднем без флагмана (buyGenPerk). Поэтому
+  // список делится здесь, в render, без нового состояния: обычные — со своей
+  // статичной ценой, особые — отдельной подсекцией ниже.
+  const regularPerks = PERKS.filter((p) => !isGenPerkId(p.id));
+  const genPerks = CATALOG.flatMap((g) => {
+    const p = PERK_BY_ID[genPerkId(g.index)];
+    return p ? [p] : [];
+  });
+  const boughtGenPerks = countGenPerks(state.perks);
+  const nextGenPerkCost = genPerkCost(state.perks);
 
   // Откупы: остаток уже купленного глушения — по игровым часам, как всё остальное окно
   // события, поэтому подпись не убегает от реальности после возвращения из простоя.
@@ -257,49 +271,10 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const crystalProgress = crystalCycle > 0 ? Math.min(1, crystalGrownMs / crystalCycle) : 0;
   const crystalBonusPct = Math.round((crystalIncomeMult(state) - 1) * 100);
 
-  // Двухшаговый Престиж: сброс Забега необратим, поэтому первый Клик только взводит
-  // кнопку, а второй в течение ARM_MS выполняет переход в новое Поколение. Звук живёт
-  // внутри triggerPrestige и на взводе молчит. Взвод держится локально в этом файле,
-  // общий компонент не выделяем — кнопки в проекте живут локально. Красная заливка —
-  // тот же знак необратимости, что у режима продажи.
-  const ARM_MS = 6000;
-  const [prestigeArmed, setPrestigeArmed] = useState(false);
-  const prestigeTimer = useRef<number | null>(null);
-  // Размонтирование гасит one-shot: иначе он сбросил бы подпись уже несуществующей кнопки.
-  useEffect(
-    () => () => {
-      if (prestigeTimer.current !== null) window.clearTimeout(prestigeTimer.current);
-    },
-    [],
-  );
-  // Взвод не переживает условия, при которых кнопку показали: недоступный Престиж
-  // или уход с вкладки снимают его вместе с таймером.
-  useEffect(() => {
-    if (prestigeLocked || tab !== 'perks') {
-      if (prestigeTimer.current !== null) {
-        window.clearTimeout(prestigeTimer.current);
-        prestigeTimer.current = null;
-      }
-      setPrestigeArmed(false);
-    }
-  }, [prestigeLocked, tab]);
-
-  const handlePrestige = () => {
-    if (!prestigeArmed) {
-      setPrestigeArmed(true);
-      prestigeTimer.current = window.setTimeout(() => {
-        prestigeTimer.current = null;
-        setPrestigeArmed(false);
-      }, ARM_MS);
-      return;
-    }
-    if (prestigeTimer.current !== null) {
-      window.clearTimeout(prestigeTimer.current);
-      prestigeTimer.current = null;
-    }
-    setPrestigeArmed(false);
-    triggerPrestige();
-  };
+  // Престиж открывает окно подтверждения, а не выполняется здесь: сброс Забега необратим,
+  // и игрок должен увидеть, сколько Compute начислит, что сгорит и в какое Поколение он
+  // попадёт. Один путь на обе колонки — свой взвод здесь означал бы два разных подтверждения
+  // одного и того же действия. Сам переход живёт в triggerPrestige, его зовёт окно.
 
   const toggleAA = (id: string) => {
     setExpandedAA((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -435,6 +410,13 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
+            // Перенос строк обязателен: сумма двух групп кнопок не помещается в
+            // SHOP_COL_MIN, и без переноса «Max» уезжал за правый край колонки на всём
+            // диапазоне от трёхколоночного порога до ~1190px. Поднимать минимум колонки
+            // ради этого не стоит — он поднял бы и порог одноколоночного режима, а перенос
+            // читается: на узкой колонке множители просто встают вторым рядом.
+            flexWrap: 'wrap',
+            rowGap: '4px',
             marginBottom: '12px',
             backgroundColor: 'var(--bg-card)',
             padding: '6px 10px',
@@ -526,6 +508,23 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               // которая не по карману, подпись всё равно заслуживает: рядом стоит строка дефицита.
               // А вот продать нечего — и обе цифры, и кнопка были бы пустыми.
               const showsGain = sellMode ? owned > 0 : count > 0;
+
+              // Доля для полосы цели — из движка, по той же цене, что и покупка. Число дефицита
+              // ниже показывает, сколько не хватает, а полоса показывает, как близко цель:
+              // одно без другого игроку не сообщает, что цель достижима.
+              const missingShare = progressToNextAgent(state, m);
+
+              // Прогресс до синергий — чистый derived render из состояния: число Агентов
+              // каждой Лаборатории через labAgents, без нового состояния и без таймеров.
+              // Одиночная синергия есть не у всех лаб (нужны ≥2 Модели в Поколении).
+              const singleSynergy = UPGRADES_BY_GEN[state.generation].find(
+                (u) => u.kind === 'synergy' && u.pairLab === undefined && u.lab === m.lab,
+              );
+              const singleBought = singleSynergy !== undefined && state.upgrades.includes(singleSynergy.id);
+              const singleCount = labAgents(state, m.lab);
+              const pairSynergies = UPGRADES_BY_GEN[state.generation].filter(
+                (u) => u.kind === 'synergy' && u.pairLab !== undefined && (u.lab === m.lab || u.pairLab === m.lab),
+              );
 
               return (
                 <ModelRow key={m.id} owned={owned} isFlagship={m.isFlagship} canAfford={canAfford}>
@@ -628,7 +627,85 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                   {/* Дефицит — отдельной строкой с зарезервированной высотой, поэтому ни размер
                       кнопки, ни высота карточки не прыгают на каждом тике. */}
                   <TokenDeficit amount={missing} notation={notation} />
+
+                  {/* Полоса цели: строка дефицита отвечает на «сколько не хватает», полоса — на
+                      «как близко». Подписи у полосы нет, число уже показано строкой выше.
+
+                      Ширина целым процентами и без перехода: магазин перерисовывается двадцать
+                      раз в секунду, а переход на ширину, который перезапускался бы каждый кадр,
+                      тянул бы заливку позади настоящей доли и перезапускал бы анимацию на ровном
+                      месте. */}
+                  <div className="model-goal">
+                    <div className="model-goal__track">
+                      <div
+                        className="model-goal__fill"
+                        style={{ width: `${Math.round((1 - missingShare) * 100)}%` }}
+                      />
+                    </div>
                   </div>
+                  </div>
+
+                  {/* Прогресс до синергий Лаборатории: одиночный датасет — счёт одной лабы,
+                      совместный — состав пары. Только чтение состояния, без своих таймеров. */}
+                  {(singleSynergy !== undefined || pairSynergies.length > 0) && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '2px',
+                        fontSize: '0.75rem',
+                        color: 'var(--text-muted)',
+                      }}
+                    >
+                      {singleSynergy !== undefined &&
+                        (singleBought ? (
+                          <div>Общий датасет активен</div>
+                        ) : (
+                          <div>
+                            <Num>{singleCount}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num>{' '}
+                            {formatCount(singleCount, 'Агент', 'Агента', 'Агентов')} до датасета
+                            {singleCount >= SYNERGY_MIN_AGENTS
+                              ? ' — забирай во вкладке Апгрейды'
+                              : ''}
+                          </div>
+                        ))}
+                      {pairSynergies.map((u) => {
+                        if (u.kind !== 'synergy' || u.pairLab === undefined) return null;
+                        const first = labAgents(state, u.lab);
+                        const second = labAgents(state, u.pairLab);
+                        const bought = state.upgrades.includes(u.id);
+                        const ready =
+                          first >= SYNERGY_MIN_AGENTS && second >= SYNERGY_MIN_AGENTS;
+                        const pairName = `${LABS[u.lab].name} × ${LABS[u.pairLab].name}`;
+                        if (bought) {
+                          return (
+                            <div key={u.id}>
+                              {ready ? (
+                                <>
+                                  Совместный датасет {pairName} активен (×
+                                  <Num>{formatNumber(PAIR_SYNERGY_MULT, notation)}</Num>)
+                                </>
+                              ) : (
+                                <>
+                                  Совместный датасет {pairName} ждёт состав{' '}
+                                  <Num>{first}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num> +{' '}
+                                  <Num>{second}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num>
+                                </>
+                              )}
+                            </div>
+                          );
+                        }
+                        return (
+                          <div key={u.id}>
+                            <Num>{first}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num> +{' '}
+                            <Num>{second}</Num>/<Num>{SYNERGY_MIN_AGENTS}</Num> до совместного
+                            датасета {pairName}
+                            {ready ? ' — забирай во вкладке Апгрейды' : ''}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
 
                   {/* Справка AA переключатель */}
                   {/* Волосяная линия остаётся литералом: 6% белого — это заведомо слабее
@@ -724,7 +801,19 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       gap: '6px',
                     }}
                   >
-                    <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{u.name}</span>
+                    {/* Заголовок с пиктограммой: спрайт 32×32 нельзя сжимать под narrower
+                        колонки, поэтому у него фиксированный размер и flexShrink: 0. */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <img
+                        src={`/sprites/upgrades/${u.sprite}.png`}
+                        width={32}
+                        height={32}
+                        alt=""
+                        aria-hidden="true"
+                        style={{ imageRendering: 'pixelated', flexShrink: 0 }}
+                      />
+                      <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{u.name}</span>
+                    </div>
 
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                       {u.desc}
@@ -788,44 +877,45 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                 Сбросит текущий забег (токены, агенты, апгрейды) и перенесёт тебя в следующее поколение.
               </div>
 
-              <div
-                style={{
-                  backgroundColor: 'var(--tint-strong)',
-                  padding: '8px',
-                  borderRadius: '4px',
-                  fontSize: '0.85rem',
-                }}
-              >
-                <div>
-                  Получишь Compute: <Num>{prestigeGain(state)}</Num>
-                </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                  (Каждая единица Compute даёт постоянный бонус +1% к доходу)
-                </div>
-              </div>
-
               {!finale && (
-                <button
-                  onClick={handlePrestige}
-                  disabled={!canPrestige(state)}
-                  className="pixel-btn pixel-btn-gold"
+                <div
                   style={{
-                    width: '100%',
-                    marginTop: '4px',
-                    ...(prestigeArmed
-                      ? { backgroundColor: 'var(--red-solid)', borderColor: 'var(--red)' }
-                      : undefined),
+                    backgroundColor: 'var(--tint-strong)',
+                    padding: '8px',
+                    borderRadius: '4px',
+                    fontSize: '0.85rem',
                   }}
                 >
-                  {prestigeArmed
-                    ? 'Точно в новое Поколение? Забег сбросится — нажми ещё раз'
-                    : canPrestige(state)
-                      ? 'Сделать престиж!'
-                      : 'Нужен 1 агент флагмана'}
-                </button>
+                  <div>
+                    Получишь Compute:{' '}
+                    {/* Через formatNumber, иначе в поздней игре это число с пятнадцатью
+                        значащими цифрами: `Num` только набирает пиксельным шрифтом (ADR-0003)
+                        и ничего не форматирует. То же число показывает окно подтверждения,
+                        и расходиться они не должны. */}
+                    <Num>+{formatNumber(prestigeGain(state), notation)}</Num>
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    (Каждая единица Compute даёт постоянный бонус +1% к Доходу)
+                  </div>
+                </div>
               )}
 
-              {/* Финал контента: кнопка Престижа здесь скрыта навсегда, поэтому плашка без
+              {/* Кнопка не гаснет, даже когда Престиж невозможен: погашенная кнопка молчит о
+                  причине, а окно подтверждения её объясняет и отказывает тем же переходом,
+                  который проверяет стор. */}
+              <button
+                onClick={requestPrestige}
+                className="pixel-btn pixel-btn-gold"
+                style={{ width: '100%', marginTop: '4px' }}
+              >
+                {finale
+                  ? 'Финал контента'
+                  : canPrestige(state)
+                    ? 'Сделать Престиж!'
+                    : 'Нужен 1 Агент Флагмана'}
+              </button>
+
+              {/* Финал контента: кнопка Престижа выше ничего не выполнит, поэтому плашка без
                   действия — тупик. CTA ведёт на вкладку «Модели» тем же локальным setTab,
                   без новой навигации; текст не противоречит плашке Сцены в OfficeColumn. */}
               {finale && (
@@ -1136,7 +1226,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {PERKS.map((p) => {
+                {regularPerks.map((p) => {
                   const owned = state.perks.includes(p.id);
                   const canAfford = !owned && unspentCompute >= p.cost;
 
@@ -1190,6 +1280,114 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         }}
                       >
                         {owned ? 'Куплено' : <>Купить перк (<Num>{p.cost}</Num> Compute)</>}
+                      </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Наследие поколений: особые перки переживают Престиж и усиливают только своё
+                Поколение. Цена общая на всех — genPerkCost за следующий некупленный, поэтому
+                карточка показывает её, а не статичный cost из таблицы. Покупка идёт тем же
+                buyPerk (движок сам сверяет Поколение и флагмана), новых экшенов нет. */}
+            <div>
+              <div
+                style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: '4px' }}
+              >
+                Наследие поколений (Куплено: <Num>{boughtGenPerks}</Num> из{' '}
+                <Num>{genPerks.length}</Num>)
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                Усиливают только своё Поколение навсегда. Следующий —{' '}
+                <Num>{nextGenPerkCost}</Num> Compute: цена растёт с числом купленных.
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {genPerks.map((p) => {
+                  const owned = state.perks.includes(p.id);
+                  // Поколение особого перка: null быть не может (список собран через genPerkId
+                  // по каталогу), но чужой id из старого сохранения разбираем в 0, чтобы
+                  // карточка не упала, а ушла в приглушённые.
+                  const perkGen = genPerkGeneration(p.id) ?? 0;
+                  const genName = CATALOG[perkGen]?.name ?? '';
+                  const isCurrentGen = perkGen === state.generation;
+                  const isFutureGen = perkGen > state.generation;
+                  // Флагман — то же условие, что у кнопки Престижа, но только для перка
+                  // ТЕКУЩЕГО Поколения: прошлые докупаются позже без флагмана, ведь сам
+                  // переход дальше уже доказал мастерство (Престиж требовал флагмана).
+                  const needFlagship = !owned && isCurrentGen && !prestigeReady;
+                  // Приглушены только будущие (ещё не открыты) и текущее без флагмана;
+                  // прошлые некупленные — обычные покупаемые, «упущенности» нет.
+                  const locked = !owned && (isFutureGen || needFlagship);
+                  const canAfford = !locked && unspentCompute >= nextGenPerkCost;
+
+                  return (
+                    <div
+                      key={p.id}
+                      style={{
+                        backgroundColor: 'var(--bg-card)',
+                        border: owned ? '1px solid var(--green)' : '1px solid var(--border)',
+                        borderRadius: '6px',
+                        padding: '10px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '6px',
+                        ...(locked ? { opacity: 0.6 } : undefined),
+                      }}
+                    >
+                      <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{p.name}</span>
+
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                        {p.desc}
+                      </div>
+
+                      {/* Подпись причины: будущее Поколение и missing флагман текущего —
+                          разные тупики, и молча приглушённая карточка не объяснила бы, что
+                          делать. Прошлые Поколения подписи не получают: они покупаемы как
+                          обычные, упущенности нет. */}
+                      {locked && (
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          {isFutureGen
+                            ? <>Откроется в поколении «{genName}»</>
+                            : needFlagship
+                              ? 'Нужен флагман поколения'
+                              : null}
+                        </div>
+                      )}
+
+                      <div
+                        onClickCapture={handleBuyDeny(owned || canAfford)}
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'flex-end',
+                          ...(owned || canAfford ? undefined : { cursor: 'not-allowed' }),
+                        }}
+                      >
+                      <button
+                        onClick={(e) => {
+                          restartSquash(e);
+                          buyPerk(p.id);
+                        }}
+                        onAnimationEnd={handleSquashEnd}
+                        disabled={owned || !canAfford}
+                        className={`pixel-btn ${owned ? '' : 'pixel-btn-gold'}`}
+                        style={{
+                          padding: '6px 10px',
+                          fontSize: '0.85rem',
+                          alignSelf: 'flex-end',
+                          pointerEvents: owned || canAfford ? undefined : 'none',
+                        }}
+                      >
+                        {owned ? (
+                          'Куплено'
+                        ) : (
+                          <>
+                            Купить перк (<Num>{nextGenPerkCost}</Num> Compute)
+                          </>
+                        )}
                       </button>
                       </div>
                     </div>

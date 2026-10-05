@@ -36,8 +36,8 @@ const MASCOT_SIZE = 48;
 // чуть шире самих ног, как в пиксель-арт-референсах.
 const SHADOW_W = MASCOT_SIZE * 0.7;
 const SHADOW_H = MASCOT_SIZE / 3;
-// Ось эллипса на 83% высоты бокса: ступни восьми Маскотов в сетке 24×24 стоят вразброс от
-// 71% (Четырёхцвет, Китик) до 92% (Искорка, Ветерок), и 83% — их средняя линия. Тень такой
+// Ось эллипса на 83% высоты бокса: ступни восьми Маскотов стоят вразброс от
+// 70% (краб, кит) до 87% (капибара, вихрь), и 83% — их средняя линия. Тень такой
 // высоты накрывает любые из этих ног, поэтому Маскоты нигде не отрываются от пола.
 const SHADOW_CENTER_Y = MASCOT_SIZE * 0.83;
 
@@ -100,7 +100,7 @@ const moteCount = (agents: number): number => {
 
 export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const state = useGameStore((s) => s.state);
-  const triggerPrestige = useGameStore((s) => s.triggerPrestige);
+  const requestPrestige = useGameStore((s) => s.requestPrestige);
   const notation = state.settings.notation;
 
   const gen = CATALOG[state.generation];
@@ -121,50 +121,10 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
     setSceneShown((s) => (s.curr === sceneIndex ? s : { prev: s.curr, curr: sceneIndex }));
   }, [sceneIndex]);
 
-  // Двухшаговый Престиж, как в магазине: первый Клик только взводит кнопку, второй
-  // в течение ARM_MS выполняет переход в новое Поколение — сброс Забега необратим.
-  // Логика продублирована локально, общий компонент не выделяем. Звук только
-  // на выполнении внутри triggerPrestige. Взвод — текстом и красной заливкой
-  // (знак необратимости, как у продажи), без движения: в reducedMotion это те же
-  // текст и цвет, ничего отключать не нужно.
-  const ARM_MS = 6000;
-  const [prestigeArmed, setPrestigeArmed] = useState(false);
-  const prestigeTimer = useRef<number | null>(null);
-  // Размонтирование гасит one-shot: иначе он сбросил бы подпись уже несуществующей кнопки.
-  useEffect(
-    () => () => {
-      if (prestigeTimer.current !== null) window.clearTimeout(prestigeTimer.current);
-    },
-    [],
-  );
-  // Взвод не переживает потерю готовности: armed-кнопка не должна остаться после того,
-  // как условия Престижа ушли.
-  useEffect(() => {
-    if (!prestigeReady || finale) {
-      if (prestigeTimer.current !== null) {
-        window.clearTimeout(prestigeTimer.current);
-        prestigeTimer.current = null;
-      }
-      setPrestigeArmed(false);
-    }
-  }, [prestigeReady, finale]);
-
-  const handlePrestige = () => {
-    if (!prestigeArmed) {
-      setPrestigeArmed(true);
-      prestigeTimer.current = window.setTimeout(() => {
-        prestigeTimer.current = null;
-        setPrestigeArmed(false);
-      }, ARM_MS);
-      return;
-    }
-    if (prestigeTimer.current !== null) {
-      window.clearTimeout(prestigeTimer.current);
-      prestigeTimer.current = null;
-    }
-    setPrestigeArmed(false);
-    triggerPrestige();
-  };
+  // Престиж открывает окно подтверждения, а не выполняется здесь: сброс Забега необратим,
+  // и игрок должен увидеть, сколько Compute начислит, что сгорит и в какое Поколение он
+  // попадёт. Один путь на обе колонки — свой взвод здесь означал бы два разных подтверждения
+  // одного и того же действия. Сам переход живёт в triggerPrestige, его зовёт окно.
 
   // Прогрев соседних Сцен: без неё Престиж на секунду показывает пустой кадр, потому что
   // кадр начинает грузиться только когда src уже назначен. Вперёд — для следующего
@@ -281,17 +241,11 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
 
         {prestigeReady && !finale && (
           <button
-            onClick={handlePrestige}
+            onClick={requestPrestige}
             className="pixel-btn pixel-btn-gold"
-            style={{
-              fontSize: '1rem',
-              padding: '10px 16px',
-              ...(prestigeArmed
-                ? { backgroundColor: 'var(--red-solid)', borderColor: 'var(--red)' }
-                : undefined),
-            }}
+            style={{ fontSize: '1rem', padding: '10px 16px' }}
           >
-            {prestigeArmed ? 'Точно в новое Поколение? Забег сбросится — нажми ещё раз' : 'Совершить престиж'}
+            🚀 Совершить Престиж
           </button>
         )}
 
