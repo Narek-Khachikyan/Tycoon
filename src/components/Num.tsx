@@ -7,7 +7,29 @@ import React from 'react';
  * вроде «+1,50 K к доходу» разбирается на части: число здесь, слово рядом в Nunito. Примитив
  * существует, чтобы правило не повторялось двадцатью одинаковыми `className="pixel-font"` и
  * чтобы его можно было нарушить в одном месте, а не в двадцати.
+ *
+ * `bump` — тактильный микро-отклик на смену значения (.num-bump), а при reducedMotion только
+ * opacity-всплеск. Он ВЫКЛЮЧЕН по умолчанию и включается только там, где значение меняется
+ * редко: тик идёт 20 раз в секунду, любое число, завязанное на кошелёк («не хватает N»
+ * меняется на каждом тике), при пересоздании узла по key дёргалось бы непрерывно. Отклик
+ * должен быть событием, а не фоном.
  */
-export const Num: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <span className="pixel-font">{children}</span>
-);
+export const Num: React.FC<{ children: React.ReactNode; className?: string; bump?: boolean }> = ({
+  children,
+  className,
+  bump = false,
+}) => {
+  const textKey =
+    bump && (typeof children === 'string' || typeof children === 'number')
+      ? String(children)
+      : undefined;
+
+  return (
+    <span
+      key={textKey}
+      className={`pixel-font${bump ? ' num-bump' : ''}${className ? ` ${className}` : ""}`}
+    >
+      {children}
+    </span>
+  );
+};

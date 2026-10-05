@@ -20,10 +20,11 @@ import React from 'react';
 export interface EventSpriteProps {
   size?: number;
   className?: string;
+  style?: React.CSSProperties;
 }
 
 /** Золотой токен: Событие, которое игрок ловит кликом. */
-export const GoldenToken: React.FC<EventSpriteProps> = ({ size = 32, className }) => (
+export const GoldenToken: React.FC<EventSpriteProps> = ({ size = 32, className, style }) => (
   <svg
     width={size}
     height={size}
@@ -33,7 +34,7 @@ export const GoldenToken: React.FC<EventSpriteProps> = ({ size = 32, className }
     focusable="false"
     role="presentation"
     className={className}
-    style={{ display: 'block', imageRendering: 'pixelated' }}
+    style={{ display: 'block', imageRendering: 'pixelated', ...style }}
   >
     {/* Тёмный ободок по всей окружности: у диска нет отдельной обводки, а на светлой подложке
         магазина без него Токен сливается с карточкой. */}
@@ -77,7 +78,7 @@ export const GoldenToken: React.FC<EventSpriteProps> = ({ size = 32, className }
 );
 
 /** Глюк: паразит, сосущий Доход, который игрок перезапускает. */
-export const GlitchSprite: React.FC<EventSpriteProps> = ({ size = 28, className }) => (
+export const GlitchSprite: React.FC<EventSpriteProps> = ({ size = 28, className, style }) => (
   <svg
     width={size}
     height={size}
@@ -87,7 +88,7 @@ export const GlitchSprite: React.FC<EventSpriteProps> = ({ size = 28, className 
     focusable="false"
     role="presentation"
     className={className}
-    style={{ display: 'block', imageRendering: 'pixelated' }}
+    style={{ display: 'block', imageRendering: 'pixelated', ...style }}
   >
     {/* Зелёный контур рисуется первым и на +2 px вправо, −2 px вверх от фиолетового тела: в
         видимой части остаётся только кайма, и силуэт читается как «двойной», без отдельной
@@ -191,7 +192,57 @@ export const GpuDrone: React.FC<EventSpriteProps> = ({ size = DRONE_VIEW_W, clas
  * набор событий, не повторяя его руками в своём коде — как `IconName` у иконок. Ключи совпадают с
  * ид события в экономике, поэтому перебор не требует отдельной карты «событие → спрайт».
  */
+/** Брызги пикселей при лопании Глюка: остатки паразита разлетаются на пиксели. */
+export const GlitchPopSprite: React.FC<EventSpriteProps> = ({ size = 28, className, style }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 28 28"
+    shapeRendering="crispEdges"
+    aria-hidden={true}
+    focusable="false"
+    role="presentation"
+    className={className}
+    style={{ display: 'block', imageRendering: 'pixelated', ...style }}
+  >
+    {/* Зелёные осколки разлетаются по углам */}
+    <g fill="#22c55e">
+      <rect x="2" y="3" width="3" height="3" />
+      <rect x="23" y="4" width="3" height="3" />
+      <rect x="3" y="22" width="3" height="3" />
+      <rect x="22" y="21" width="3" height="3" />
+    </g>
+    {/* Фиолетовые фрагменты ядра */}
+    <g fill="#6d28d9">
+      <rect x="7" y="8" width="4" height="3" />
+      <rect x="17" y="7" width="4" height="3" />
+      <rect x="8" y="17" width="4" height="3" />
+      <rect x="16" y="18" width="4" height="3" />
+    </g>
+    {/* Светлый фиолет */}
+    <g fill="#7c3aed">
+      <rect x="12" y="5" width="4" height="2" />
+      <rect x="12" y="21" width="4" height="2" />
+    </g>
+    {/* Маджентовые глитч-артефакты */}
+    <g fill="#e879f9">
+      <rect x="0" y="13" width="5" height="2" />
+      <rect x="23" y="13" width="5" height="2" />
+      <rect x="10" y="13" width="8" height="2" />
+    </g>
+    {/* Белая вспышка в центре и искры */}
+    <g fill="#ffffff">
+      <rect x="12" y="11" width="4" height="4" />
+      <rect x="5" y="5" width="2" height="2" />
+      <rect x="21" y="6" width="2" height="2" />
+      <rect x="6" y="20" width="2" height="2" />
+      <rect x="20" y="19" width="2" height="2" />
+    </g>
+  </svg>
+);
+
 export const EVENT_SPRITES = {
+  glitchPop: GlitchPopSprite,
   goldenToken: GoldenToken,
   glitch: GlitchSprite,
   gpuDrone: GpuDrone,

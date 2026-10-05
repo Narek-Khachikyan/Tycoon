@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { quipsSeenOf, useGameStore } from '../store/useGameStore';
+import { motionAllowed, quipsSeenOf, useGameStore } from '../store/useGameStore';
 import { CATALOG } from '../economy/catalog';
 import { LABS, LAB_IDS, type LabId } from '../data/labs';
 import { canPrestige, isContentFinale, labIncomeShare } from '../economy/engine';
@@ -8,7 +8,9 @@ import { formatCount, formatNumber } from '../economy/format';
 import { MascotSprite } from './MascotSprite';
 import { Num } from './Num';
 import { QuipBubble, QuipLogModal } from './QuipBubble';
-import { SceneDrone, SceneGlitchBand, SceneGlitchSwarm } from './SceneEvents';
+import { SceneDrone, SceneGlitchBand } from './SceneEvents';
+import { GLITCH_CLICKS } from '../economy/glitches';
+import { GlitchPopSprite, GlitchSprite } from './EventSprites';
 import { OFFICE_COL_MIN } from '../layout';
 
 // Сцен четыре, по два Поколения на каждую (ADR-0002), поэтому индекс Сцены —
@@ -95,8 +97,172 @@ const moteStyle = (i: number): React.CSSProperties =>
 // Шкала логарифмическая, потому что Агентов бывает и тысяча, и 1e300, а длина округляется
 // до целого — иначе список узлов пересоздавался бы двадцать раз в секунду.
 const moteCount = (agents: number): number => {
+  // До первого найма Сцена не должна быть мёртвой: держим активный воздух (24 мотылька),
+  // чтобы пустой офис дышал и жил с первых секунд игры.
+  if (agents === 0) return 24;
   const full = Math.min(Math.max(Math.log10(agents + 1) / 4, 0), 1);
   return Math.round(MOTE_MIN + (MOTE_MAX - MOTE_MIN) * full);
+};
+
+const GLITCH_SIZE = 28;
+const DARK_STRIP = 'var(--bg-void)';
+
+const GLITCH_CHIP = {
+  backgroundColor: DARK_STRIP,
+  border: '1px solid var(--border)',
+  borderRadius: '3px',
+  color: 'var(--text-main)',
+  fontSize: '0.7rem',
+  lineHeight: 1.4,
+  padding: '0 4px',
+} as const;
+
+interface PoppedGlitchItem {
+  id: number;
+  nonce: number;
+}
+
+let glitchNonceCounter = 0;
+
+/** Паразиты на Сцене: отклик на удар через масштаб и яркость, при лопании — мгновенный разлёт пикселей. */
+const OfficeGlitchSwarm: React.FC = () => {
+  const state = useGameStore((s) => s.state);
+  const hitGlitch = useGameStore((s) => s.hitGlitch);
+  const notation = state.settings.notation;
+  const glitches = state.glitches;
+
+  // Лопнувшие Глюки: кратковременный локальный отклик в точке лопания до 0.4с.
+  const [popped, setPopped] = useState<PoppedGlitchItem[]>([]);
+  const [hitNonces, setHitNonces] = useState<Record<number, number>>({});
+
+  const handleGlitchHit = (gId: number, clicks: number) => {
+    const left = GLITCH_CLICKS - clicks;
+    if (left <= 1) {
+      // 3-й удар — Глюк лопается. В точке лопания создаётся отклик выстрела.
+      setPopped((prev) => [...prev, { id: gId, nonce: ++glitchNonceCounter }]);
+    } else {
+      // Первые удары — отклик через сжатие и яркость, без горизонтальной тряски.
+      setHitNonces((prev) => ({ ...prev, [gId]: (prev[gId] ?? 0) + 1 }));
+    }
+    hitGlitch(gId);
+  };
+
+  const removePopped = (nonce: number) => {
+    setPopped((prev) => prev.filter((p) => p.nonce !== nonce));
+  };
+
+  if (glitches.length === 0 && popped.length === 0) return null;
+
+  return (
+    <div
+      className="scene__glitches"
+      style={{
+        position: 'absolute',
+        top: '30%',
+        left: '6%',
+        right: '6%',
+        zIndex: 3,
+        display: 'flex',
+        flexWrap: 'wrap',
+        justifyContent: 'center',
+        alignContent: 'flex-start',
+        gap: '10px 12px',
+        pointerEvents: 'none',
+      }}
+    >
+      {glitches.map((g) => {
+        const left = GLITCH_CLICKS - g.clicks;
+        const nonce = hitNonces[g.id] ?? 0;
+        return (
+          <button
+            key={g.id}
+            className="glitch-node"
+            onClick={() => handleGlitchHit(g.id, g.clicks)}
+            aria-label={`Глюк: осталось ${left} ${formatCount(left, 'удар', 'удара', 'ударов')}`}
+            title={`Осталось ${left} ${formatCount(left, 'удар', 'удара', 'ударов')} — кликни, чтобы лопнул`}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '3px',
+              padding: 0,
+              background: 'none',
+              border: 'none',
+              lineHeight: 0,
+              cursor: 'pointer',
+              pointerEvents: 'auto',
+            }}
+          >
+            <span
+              key={nonce}
+              className="glitch-jitter"
+              style={{
+                display: 'block',
+                lineHeight: 0,
+                // Отклик на удар: масштаб и яркость вместо горизонтальной тряски экрана.
+                animation:
+                  nonce > 0
+                    ? motionAllowed()
+                      ? 'click-squash 0.18s cubic-bezier(0.2, 0.8, 0.3, 1.2)'
+                      : 'glitch-hit-fade 0.18s ease-out'
+                    : undefined,
+              }}
+            >
+              <GlitchSprite size={GLITCH_SIZE} />
+            </span>
+            <span style={GLITCH_CHIP}>
+              ×<Num>{formatNumber(left, notation)}</Num>
+            </span>
+          </button>
+        );
+      })}
+
+      {/* Лопнувшие Глюки: мгновенный разряд в точке паразита до 0.4с */}
+      {popped.map((p) => (
+        <div
+          key={p.nonce}
+          onAnimationEnd={() => removePopped(p.nonce)}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '3px',
+            pointerEvents: 'none',
+            animation: motionAllowed()
+              ? 'tab-badge-pulse 0.32s cubic-bezier(0.2, 0.8, 0.3, 1.2) forwards'
+              : 'toast-fade 0.25s ease-out forwards',
+          }}
+        >
+          <span style={{ display: 'block', lineHeight: 0, position: 'relative' }}>
+            <GlitchPopSprite size={GLITCH_SIZE + 4} />
+            {motionAllowed() && (
+              <span
+                style={{
+                  position: 'absolute',
+                  inset: '-4px',
+                  borderRadius: '50%',
+                  border: '2px solid var(--accent-color)',
+                  boxShadow: '0 0 10px 2px var(--accent-glow)',
+                  animation: 'burst-fly 0.35s ease-out forwards',
+                  pointerEvents: 'none',
+                }}
+              />
+            )}
+          </span>
+          <span
+            style={{
+              ...GLITCH_CHIP,
+              borderColor: 'var(--green)',
+              color: 'var(--green)',
+              animation: 'toast-fade 0.25s ease-out forwards',
+            }}
+          >
+            ✓
+          </span>
+        </div>
+      ))}
+    </div>
+  );
 };
 
 export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
@@ -477,7 +643,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
 
         {/* Глюки сидят на Сцене: каждый показывает, сколько кликов до разрыва, и лопается
             от третьего. Полоса с долей кражи — выше, в обёртке HUD. */}
-        <SceneGlitchSwarm />
+        <OfficeGlitchSwarm />
 
         {/* Пыль в воздухе Сцены: часть Сцены, а не слой поверх неё, поэтому гаснет вместе
             с полом, а не светится поверх затемнения. Держит порядок разметка: у пыли и у
@@ -524,11 +690,50 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
                 borderRadius: '6px',
                 padding: '18px 24px',
                 textAlign: 'center',
+                boxShadow: '0 4px 16px rgba(0, 0, 0, 0.45)',
               }}
             >
-              <div style={{ fontSize: '1.1rem', color: 'var(--text-main)' }}>Офис пока пуст</div>
+              {/* Пиксельный питающий индикатор активности Сцены */}
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  marginBottom: '10px',
+                  padding: '3px 8px',
+                  backgroundColor: 'var(--bg-void)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '3px',
+                }}
+              >
+                <span
+                  className="pulse-glow"
+                  style={{
+                    display: 'inline-block',
+                    width: '8px',
+                    height: '8px',
+                    backgroundColor: 'var(--green)',
+                    borderRadius: '2px',
+                    boxShadow: '0 0 6px var(--green)',
+                  }}
+                />
+                <span
+                  style={{
+                    fontSize: '0.75rem',
+                    color: 'var(--green)',
+                    fontWeight: 600,
+                    letterSpacing: '0.5px',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  Стендбай: Сцена готова к запуску
+                </span>
+              </div>
+              <div style={{ fontSize: '1.1rem', color: 'var(--text-main)', fontWeight: 600 }}>
+                Офис пока пуст
+              </div>
               <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: '6px' }}>
-                Найми своего первого ИИ-агента в магазине справа!
+                Найми первого ИИ-агента в магазине справа!
               </div>
             </div>
           </div>

@@ -1,5 +1,5 @@
-import React from 'react';
-import { useGameStore } from '../store/useGameStore';
+import React, { useEffect, useRef, useState } from 'react';
+import { motionAllowed, useGameStore } from '../store/useGameStore';
 import { MODEL_BY_ID } from '../economy/catalog';
 import { activeSpec, type EventSpec } from '../economy/events';
 import type { RedSpec } from '../economy/glitches';
@@ -86,6 +86,22 @@ export const GoldenToken: React.FC = () => {
   const crashArmedAt = useGameStore((s) => s.crashArmedAt);
   const catchEvent = useGameStore((s) => s.catchEvent);
 
+  // Мгновенный локальный отклик в точке самого знака. Nonce перезапускает анимацию сжатия-разряда
+  // длительностью до 0.4с. При выключенном движении остаётся только вспышка прозрачности.
+  const [hitNonce, setHitNonce] = useState(0);
+  const prevCaught = useRef(caught);
+  useEffect(() => {
+    if (caught && !prevCaught.current) {
+      setHitNonce((n) => n + 1);
+    }
+    prevCaught.current = caught;
+  }, [caught]);
+
+  const handleCatch = () => {
+    setHitNonce((n) => n + 1);
+    catchEvent();
+  };
+
   // Поле `red` живёт в событии, а вид и его числа — в таблице, поэтому подпись читает и то и
   // другое и обязана спросить оба: по одному виду неизвестно, обычное это событие или красное.
   const spec = activeSpec(state);
@@ -129,7 +145,58 @@ export const GoldenToken: React.FC = () => {
         gap: '10px',
       }}
     >
-      <GoldenTokenSprite size={40} className="event-token" />
+      <button
+        type="button"
+        onClick={!caught ? handleCatch : undefined}
+        disabled={caught}
+        aria-label={caught ? 'Золотой Токен поймано' : `Поймать Золотой Токен: ${spec.name}`}
+        title={caught ? undefined : 'Кликни, чтобы поймать Токен'}
+        style={{
+          background: 'none',
+          border: 'none',
+          padding: 0,
+          margin: 0,
+          cursor: caught ? 'default' : 'pointer',
+          lineHeight: 0,
+          position: 'relative',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+        }}
+      >
+        <span
+          key={hitNonce}
+          className={hitNonce === 0 ? 'event-token' : undefined}
+          style={{
+            display: 'inline-block',
+            lineHeight: 0,
+            animation:
+              hitNonce > 0
+                ? motionAllowed()
+                  ? 'click-squash 0.28s cubic-bezier(0.2, 0.8, 0.3, 1.2)'
+                  : 'click-fade 0.28s ease-out'
+                : undefined,
+          }}
+        >
+          <GoldenTokenSprite size={40} />
+        </span>
+        {/* Мгновенная локальная вспышка-разряд знака при поимке */}
+        {hitNonce > 0 && motionAllowed() && (
+          <span
+            key={`halo-${hitNonce}`}
+            style={{
+              position: 'absolute',
+              inset: '-4px',
+              borderRadius: '50%',
+              border: '2px solid var(--gold)',
+              boxShadow: '0 0 14px 4px var(--accent-glow)',
+              pointerEvents: 'none',
+              animation: 'tab-badge-pulse 0.35s ease-out forwards',
+            }}
+          />
+        )}
+      </button>
 
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--gold)' }}>
@@ -164,7 +231,7 @@ export const GoldenToken: React.FC = () => {
           должно остаться пустым, если у окна появится причина её не показывать. disabled стоит
           только у пойманного окна. */}
       <button
-        onClick={catchEvent}
+        onClick={handleCatch}
         disabled={caught}
         aria-describedby={EFFECT_ID}
         aria-label={

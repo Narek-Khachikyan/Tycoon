@@ -150,7 +150,8 @@ body {
 }
 
 /* Вуаль Престижа: только opacity — кроссфейд разрешён и при reducedMotion, поэтому
-   базовая анимация вне гейта. Яркого кадра нет: вуаль лишь затемняет. */
+   базовая анимация вне гейта. Яркого кадра нет: вуаль лишь затемняет.
+   toast-fade и prestige-veil-in слиты в единый словарь (чистый fade-in 0→1). */
 @keyframes prestige-veil-in {
   from {
     opacity: 0;
@@ -161,10 +162,10 @@ body {
 }
 
 .prestige-veil {
-  animation: prestige-veil-in 0.35s ease-out;
+  animation: toast-fade 0.35s ease-out;
 }
 
-/* Выход — короткий кроссфейд вместо обруба, по лекалу toast-out. */
+/* Выход — короткий кроссфейд вместо обруба. Слит с float-fade (чистый fade-out 1→0). */
 @keyframes prestige-veil-out {
   from {
     opacity: 1;
@@ -175,11 +176,11 @@ body {
 }
 
 .prestige-veil--out {
-  animation: prestige-veil-out 0.22s ease-in forwards;
+  animation: float-fade 0.22s ease-in forwards;
   pointer-events: none;
 }
 
-/* Карточка нового Поколения: база — тоже только opacity; масштаб добавляет гейт ниже. */
+/* Карточка нового Поколения: база — чистый opacity-fade (toast-fade); масштаб добавляет гейт ниже. */
 @keyframes prestige-card-in {
   from {
     opacity: 0;
@@ -189,7 +190,7 @@ body {
   }
 }
 
-/* Только масштаб: opacity уже даёт prestige-card-in, поэтому гейт добавляет поп
+/* Только масштаб: opacity уже даёт toast-fade, поэтому гейт добавляет поп
    второй анимацией, а не заменой. */
 @keyframes prestige-card-pop {
   from {
@@ -201,7 +202,7 @@ body {
 }
 
 .prestige-card {
-  animation: prestige-card-in 0.45s ease-out 0.18s backwards;
+  animation: toast-fade 0.45s ease-out 0.18s backwards;
   border-color: var(--gold);
   box-shadow: 0 0 24px 4px var(--tint-strong);
 }
@@ -249,17 +250,13 @@ body {
 .model-row--pop {
 }
 
-/* Сквош кнопки Клика. Площадь сохраняется: 1.06 × 0.94 ≈ 1.0, поэтому кнопка читается
-   как нажатая, а не раздутая — тот же приём, что у .pixel-btn:active. Вспышка яркости
-   идёт через opacity, а не filter: анимируются только transform и opacity. */
+/* Сквош кнопки Клика. Честный hit-stop: отклик происходит В ТОТ ЖЕ кадр (0% сразу
+   имеет сжатие и всплеск прозрачности), без задержки на 40% анимации. Площадь
+   сохраняется: 1.05 × 0.95 ≈ 1.0, плавный отскок к исходной форме на 100%. */
 @keyframes click-squash {
   0% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  40% {
-    transform: scale(1.06, 0.94);
-    opacity: 0.82;
+    transform: scale(1.05, 0.95);
+    opacity: 0.85;
   }
   100% {
     transform: scale(1);
@@ -267,12 +264,9 @@ body {
   }
 }
 
-/* Та же вспышка без сдвига и масштаба: при выключенном движении кнопка только мигает. */
+/* Та же вспышка без масштаба: мгновенный спад прозрачности в кадре клика и возврат. */
 @keyframes click-fade {
   0% {
-    opacity: 1;
-  }
-  40% {
     opacity: 0.7;
   }
   100% {
@@ -281,12 +275,11 @@ body {
 }
 
 .click-btn--squash {
+  animation: click-fade 0.13s ease-out;
 }
 
 /* Вспышка разблокировки Модели. Анимируются только background-color и opacity:
-   transform здесь ни к чему — строка не нажималась, ей не за что «прыгать».
-   background-color в keyframes — не вестибулярный триггер, в отличие от
-   сдвига/масштаба/тряски. */
+   transform здесь ни к чему — строка не нажималась, ей не за что «прыгать». */
 @keyframes unlock-flash {
   0% {
     background-color: var(--bg-card);
@@ -316,16 +309,14 @@ body {
 }
 
 .model-row--unlock {
+  animation: unlock-fade 0.5s ease-out;
 }
 
-/* Отказ по недоступной покупке. Только opacity — вспышка и так вестибулярно
-   нейтральна, поэтому отдельный reduced-вариант ей не нужен. */
+/* Отказ по недоступной покупке: мгновенный hit-stop отклик В ТОТ ЖЕ кадр. Opacity сразу
+   на 0% падает до 0.35, подтверждая отказ мгновенно, без задержки до середины фазы. */
 @keyframes deny-flash {
   0% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.4;
+    opacity: 0.35;
   }
   100% {
     opacity: 1;
@@ -333,6 +324,7 @@ body {
 }
 
 .deny-flash {
+  animation: deny-flash 0.2s ease-out;
 }
 
 /* Сигнал «появился доступный Апгрейд» на бейдже вкладки. Перезапускается через
@@ -366,6 +358,7 @@ body {
 }
 
 .tab-badge--pulse {
+  animation: tab-badge-fade 0.5s ease-out;
 }
 
 @keyframes spark-fly {
@@ -865,6 +858,30 @@ body {
   }
 }
 
+/* Пульс кнопки Клика с нарастанием силы от --click-power (0..1):
+   амплитуда масштаба и плотность свечения растут с прогрессом офиса. */
+@keyframes pulse-glow-power {
+  0%, 100% {
+    opacity: calc(0.35 + var(--click-power, 0) * 0.15);
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(calc(1.02 + var(--click-power, 0) * 0.03));
+  }
+}
+
+/* Тот же нарастающий ореол без масштаба для режима reduced-motion:
+   только opacity, без движения. */
+@keyframes pulse-fade-power {
+  0%, 100% {
+    opacity: calc(0.35 + var(--click-power, 0) * 0.15);
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 .pulse-glow {
   position: relative;
 }
@@ -878,6 +895,108 @@ body {
   border-radius: inherit;
   box-shadow: 0 0 10px 4px var(--accent-glow);
   animation: pulse-fade 2s infinite ease-in-out;
+}
+
+/* ── Кнопка Клика и рост с прогрессом ──────────────────────────────────────────
+   Кнопка Клика растёт с прогрессом: сила берётся из числа нанятых Агентов и Дохода.
+   CSS-переходы на свойствах box-shadow и ореоле ::after честно реагируют на 50-мс тике
+   без псевдорандома и без новых таймеров. */
+.click-btn {
+  transition:
+    background-color 0.08s ease-in-out,
+    border-color 0.08s ease-in-out,
+    box-shadow 0.25s ease-out,
+    transform 0.24s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Ореол pulse-glow на кнопке Клика динамически масштабирует радиус от --click-power */
+.click-btn.pulse-glow::after {
+  box-shadow: 0 0 calc(8px + var(--click-power, 0) * 14px) calc(2px + var(--click-power, 0) * 6px) var(--accent-glow);
+  transition: box-shadow 0.3s ease-out;
+  animation: pulse-fade-power 2s infinite ease-in-out;
+}
+
+/* Ступени силы: на высоких ступенях появляется тонкая обводка и ореол силы */
+.click-btn[data-power-tier="1"] {
+  box-shadow: 0 4px 0 var(--accent-shadow);
+}
+
+.click-btn[data-power-tier="2"] {
+  box-shadow:
+    0 4px 0 var(--accent-shadow),
+    0 0 0 1px var(--accent-color);
+}
+
+.click-btn[data-power-tier="3"] {
+  box-shadow:
+    0 4px 0 var(--accent-shadow),
+    0 0 0 1.5px var(--accent-hover),
+    0 0 12px 2px var(--accent-glow);
+}
+
+.click-btn[data-power-tier="4"] {
+  box-shadow:
+    0 4px 0 var(--accent-shadow),
+    0 0 0 2px var(--gold),
+    0 0 18px 4px var(--accent-glow),
+    0 0 6px 1px var(--gold);
+}
+
+/* При нажатии: нижняя тень оседает (hit-stop), обводка и ореол силы сохраняются */
+.click-btn:active:not(:disabled)[data-power-tier="1"] {
+  box-shadow: 0 1px 0 var(--accent-shadow);
+}
+
+.click-btn:active:not(:disabled)[data-power-tier="2"] {
+  box-shadow:
+    0 1px 0 var(--accent-shadow),
+    0 0 0 1px var(--accent-color);
+}
+
+.click-btn:active:not(:disabled)[data-power-tier="3"] {
+  box-shadow:
+    0 1px 0 var(--accent-shadow),
+    0 0 0 1.5px var(--accent-hover),
+    0 0 12px 2px var(--accent-glow);
+}
+
+.click-btn:active:not(:disabled)[data-power-tier="4"] {
+  box-shadow:
+    0 1px 0 var(--accent-shadow),
+    0 0 0 2px var(--gold),
+    0 0 18px 4px var(--accent-glow),
+    0 0 6px 1px var(--gold);
+}
+
+/* ── Микро-отклик чисел (Num) ──────────────────────────────────────────────────
+   Num оборачивает числа в .pixel-font (ADR-0003). При смене значения (по key в React)
+   срабатывает краткий микро-отклик (0.16s): лёгкий тактильный импульс вверх и возврат.
+   display: inline-block необходим, иначе transform игнорируется на строчных span.
+   vertical-align: baseline сохраняет позиционирование в тексте строки. */
+.num-bump {
+  display: inline-block;
+  vertical-align: baseline;
+  animation: num-fade 0.16s ease-out;
+}
+
+@keyframes num-bump {
+  0% {
+    opacity: 0.65;
+    transform: translateY(-1.5px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes num-fade {
+  0% {
+    opacity: 0.65;
+  }
+  100% {
+    opacity: 1;
+  }
 }
 
 /* Бегущая строка. Двигается только transform внутренней дорожки: background-position —
@@ -1014,6 +1133,10 @@ body {
   }
 }
 
+.event-token {
+  animation: event-token-fade 1.6s ease-in-out infinite;
+}
+
 /* Дёрганье Глюка в покое. Смещение 2 px, цикл 0.8 с и провал прозрачности до 0.7 — того же
    порядка, что у .ach-badge--pulse по площади и частоте, поэтому и не опаснее его. */
 @keyframes glitch-jitter {
@@ -1069,6 +1192,10 @@ body {
   100% {
     opacity: 1;
   }
+}
+
+.glitch-hit {
+  animation: glitch-hit-fade 0.22s ease-out;
 }
 
 /* Пролёт Дрона через Сцену. Двигается слой целиком, а спрайт стоит у его левого края:
@@ -1146,16 +1273,13 @@ body {
 
   .pixel-btn:active:not(:disabled) {
     /* Подъём и сплющивание идут навстречу друг другу: 1.04 × 0.96 ≈ 1.0, площадь
-       сохраняется, поэтому кнопка читается как нажатая, а не раздутая. Масштаб взят так,
-       чтобы верхний край вместе с уже существующим translateY(3px) уехал меньше чем на
-       6% высоты: иначе он уходит из-под курсора и браузер глотает click на самой
-       кнопке Клика. */
+       сохраняется, поэтому кнопка читается как нажатая, а не раздутая. */
     transform: translateY(3px) scale(1.04, 0.96);
     background-image: none;
-    /* Вдавливание быстрое и тупое, а пружина отпускания живёт в базовом переходе:
-       CSS берёт переход из стиля после изменения, поэтому на отпускании, когда
-       палец снят и остаётся только :hover, снова применяется кривая с перелётом. */
-    transition: transform 0.11s cubic-bezier(0.2, 0, 0.2, 1);
+    /* Мгновенная реакция В ТОТ ЖЕ кадр (0s): физический hit-stop при нажатии без задержки.
+       Пружина отпускания (0.24s cubic-bezier(0.34, 1.56, 0.64, 1)) срабатывает
+       при снятии пальца/курсора из базового перехода .pixel-btn. */
+    transition: transform 0s;
   }
 
   .floater {
@@ -1256,6 +1380,14 @@ body {
     animation: pulse-glow 2s infinite ease-in-out;
   }
 
+  .click-btn.pulse-glow::after {
+    animation: pulse-glow-power 2s infinite ease-in-out;
+  }
+
+  .num-bump {
+    animation: num-bump 0.16s cubic-bezier(0.2, 0.8, 0.4, 1);
+  }
+
   .news-ticker-track {
     width: max-content;
     /* Срок цикла задаёт компонент: --marquee-dur = половина копий × 20 с, то есть одна копия
@@ -1325,6 +1457,11 @@ body {
   animation: none;
 }
 
+/* Престиж в режиме reduced-motion: только кроссфейд toast-fade, без масштабного поп-эффекта */
+[data-motion='reduced'] .prestige-card {
+  animation: toast-fade 0.45s ease-out 0.18s backwards;
+}
+
 [data-motion='reduced'] .model-row--pop {
   animation: none;
 }
@@ -1391,6 +1528,14 @@ body {
   animation: pulse-fade 2s infinite ease-in-out;
 }
 
+[data-motion='reduced'] .click-btn.pulse-glow::after {
+  animation: pulse-fade-power 2s infinite ease-in-out;
+}
+
+[data-motion='reduced'] .num-bump {
+  animation: num-fade 0.16s ease-out;
+}
+
 [data-motion='reduced'] .news-ticker-track {
   width: 100%;
   animation: none;
@@ -1455,10 +1600,9 @@ body {
    Слух занимает всю полосу новостей целиком, а не дописывается к строке: кликать по
    движущемуся тексту нельзя, и слух, который надо успеть поймать бегущей строкой, не был бы
    лутбоксом. Оформление живёт здесь, потому что это кнопка, а не текст. */
+/* Слух в Новостной ленте: вход через словарь toast-fade (только opacity 0→1). */
 .news-rumor {
   flex: 1;
-  /* min-width: 0 обязателен по той же причине, что у .news-ticker-viewport: без него
-     длинный слух распирает полосу и выталкивает кнопки ленты за край. */
   min-width: 0;
   display: flex;
   align-items: center;
@@ -1467,8 +1611,6 @@ body {
   border: 1px solid var(--green);
   border-radius: 3px;
   background-color: var(--tint-green);
-  /* Светлее --green: на подложке из 10% зелёного сам --green даёт 4.1:1, а насыщенная
-     рамка на границе сливалась бы с подписью. Тот же приём, что у открытого Достижения. */
   color: #86efac;
   font: inherit;
   text-align: left;
@@ -1476,7 +1618,7 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: pointer;
-  animation: rumor-in 0.2s ease-out;
+  animation: toast-fade 0.2s ease-out;
   transition:
     color 0.08s ease-in-out,
     border-color 0.08s ease-in-out;
@@ -1492,6 +1634,7 @@ body {
   outline-offset: 2px;
 }
 
+/* Алиас rumor-in для обратной совместимости, слит с toast-fade */
 @keyframes rumor-in {
   from {
     opacity: 0;
@@ -1622,6 +1765,12 @@ body {
   }
 }
 
+.quip-bubble {
+  animation:
+    toast-fade 0.25s ease-out,
+    float-fade 0.18s ease-in 4.32s forwards;
+}
+
 .quip-bubble::after {
   content: '';
   position: absolute;
@@ -1640,12 +1789,12 @@ body {
   .quip-bubble {
     animation:
       quip-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
-      quip-fade 0.18s ease-in 4.32s forwards;
+      float-fade 0.18s ease-in 4.32s forwards;
   }
 }
 
 [data-motion='reduced'] .quip-bubble {
   animation:
-    rumor-in 0.25s ease-out,
-    quip-fade 0.18s ease-in 4.32s forwards;
+    toast-fade 0.25s ease-out,
+    float-fade 0.18s ease-in 4.32s forwards;
 }

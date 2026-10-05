@@ -74,9 +74,10 @@ function useOneShot(started: boolean, name: string, settle: () => void) {
   return { ref, onAnimationEnd };
 }
 
-const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void }> = ({
+const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void; isNewest?: boolean }> = ({
   toast,
   onRemove,
+  isNewest,
 }) => {
   const [leaving, setLeaving] = useState(false);
 
@@ -102,6 +103,8 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void 
       ref={ref}
       onClick={dismiss}
       onAnimationEnd={onAnimationEnd}
+      data-toast-id={toast.id}
+      data-toast-newest={isNewest ? 'true' : undefined}
       className={`pixel-card toast-card${leaving ? ' toast-card--out' : ''}`}
       style={{
         padding: '12px 14px',
@@ -114,7 +117,9 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void 
         alignItems: 'center',
         gap: '10px',
         cursor: 'pointer',
-        maxWidth: '320px',
+        width: '320px',
+        maxWidth: 'calc(100vw - 40px)',
+        boxSizing: 'border-box',
       }}
     >
       <Icon name="trophy" size={22} />
@@ -162,8 +167,11 @@ export const Toasts: React.FC = () => {
   useEffect(() => {
     if (burst?.kind !== 'achievement') return;
     if (!motionAllowed()) return;
-    // Якорь — свежайшая карточка в стопке: она и есть отметка о Достижении, на неё и летят искры.
-    const card = stackRef.current?.lastElementChild;
+    // Якорь — свежайшая карточка в стопке: именно на карточку Достижения летят искры,
+    // а не на счётчик очереди или случайный соседний узел.
+    const card =
+      stackRef.current?.querySelector('[data-toast-newest="true"]') ??
+      stackRef.current?.querySelector('.toast-card');
     const rect = card instanceof HTMLElement ? card.getBoundingClientRect() : null;
     setFan({
       id: ++fanCounter,
@@ -188,6 +196,11 @@ export const Toasts: React.FC = () => {
 
           Отступ снизу перекрывает подвал на широком экране; в одноколоночном режиме
           сток поднимает `.toast-stack` в index.css, иначе тост ложился бы на табы. */}
+      {/* Стопка прижата к левому нижнему краю. Используем column-reverse:
+          самый старый видимый тост стабильно лежит внизу у базы (bottom: 72px / 132px),
+          а новые карточки и кнопка очереди аккуратно ложатся поверх. Ранее при column
+          каждый новый входящий тост внизу отталкивал всю стопку вверх, вызывая скачки
+          высоты и дёрганье экрана для читающего игрока. */}
       <div
         ref={stackRef}
         className="toast-stack"
@@ -195,17 +208,23 @@ export const Toasts: React.FC = () => {
           position: 'fixed',
           left: '20px',
           display: 'flex',
-          flexDirection: 'column',
+          flexDirection: 'column-reverse',
           gap: '8px',
           zIndex: 100,
         }}
       >
-        {visible.map((t) => (
-          <ToastItem key={t.id} toast={t} onRemove={removeToast} />
+        {visible.map((t, idx) => (
+          <ToastItem
+            key={t.id}
+            toast={t}
+            onRemove={removeToast}
+            isNewest={idx === visible.length - 1}
+          />
         ))}
 
         {/* Хвост очереди виден, но не занимает место: счётчик не перекрывает колонку,
-            а игрок понимает, что Достижения ещё предъявят. Он же и кнопка закрытия
+            а игрок понимает, что Достижения ещё предъявят. В column-reverse он встаёт
+            наверху стопки и не толкает уже показанные тосты. Он же и кнопка закрытия
             очереди — молчаливый хвост выглядел бы как зависшая игра. */}
         {queued > 0 && (
           <button

@@ -32,6 +32,26 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const notation = state.settings.notation;
   const reducedMotion = state.settings.reducedMotion;
 
+  // Сила Клика: честный расчёт из существующего состояния (число Агентов и Доход).
+  // Без новых полей GameState, без таймеров — обновляется на существующем 50-мс тике.
+  const totalAgents = Object.values(state.agents).reduce((sum, n) => sum + n, 0);
+  const clickPowerTier =
+    totalAgents >= 200 || income >= 2500
+      ? 4
+      : totalAgents >= 50 || income >= 100
+        ? 3
+        : totalAgents >= 10 || income >= 5
+          ? 2
+          : totalAgents >= 1 || income > 0
+            ? 1
+            : 0;
+
+  // Нормализованная сила 0..1 для плавной интерполяции ореола через CSS-переход:
+  const clickPower =
+    totalAgents === 0 && income === 0
+      ? 0
+      : Math.min(1, Math.log10(totalAgents + 1) / 2.6);
+
   const counterRef = useRef<HTMLDivElement>(null);
   const targetRef = useRef(state.tokens);
   const shownRef = useRef(state.tokens);
@@ -205,7 +225,7 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
             fontWeight: 600,
           }}
         >
-          +<Num>{formatNumber(income, notation)}</Num> / сек
+          +<Num bump>{formatNumber(income, notation)}</Num> / сек
         </div>
         {/* Подсказка при нулевом Доходе: игрок без Агентов иначе видит голый «+0/сек»
             без следующего шага. Только текст, без анимаций. */}
@@ -231,13 +251,14 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
           объявление. */}
       <GoldenToken />
 
-      {/* Большая кнопка Клика */}
+      {/* Большая кнопка Клика: сила растёт с прогрессом офиса */}
       <button
         ref={btnRef}
         onClick={handleClick}
         onAnimationEnd={handleSquashEnd}
         aria-label="Отправить промпт"
-        className="pixel-btn pixel-btn-accent pulse-glow"
+        data-power-tier={clickPowerTier}
+        className="pixel-btn pixel-btn-accent pulse-glow click-btn"
         style={{
           width: '100%',
           padding: '24px 16px',
@@ -245,7 +266,8 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
           borderRadius: '8px',
           flexDirection: 'column',
           gap: '8px',
-        }}
+          '--click-power': clickPower.toFixed(2),
+        } as React.CSSProperties}
       >
         <Icon name="chat" size={30} />
         <span>Отправить промпт</span>
