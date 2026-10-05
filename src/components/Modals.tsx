@@ -464,6 +464,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   const state = useGameStore((s) => s.state);
   const setNotation = useGameStore((s) => s.setNotation);
   const toggleMute = useGameStore((s) => s.toggleMute);
+  const setVolume = useGameStore((s) => s.setVolume);
   const setReducedMotion = useGameStore((s) => s.setReducedMotion);
   const importSaveData = useGameStore((s) => s.importSaveData);
   const resetGame = useGameStore((s) => s.resetGame);
@@ -611,6 +612,36 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
             <Icon name={state.settings.muted ? 'sound-off' : 'sound-on'} />{' '}
             {state.settings.muted ? 'выключен' : 'включен'}
           </button>
+        </div>
+
+        {/* Громкость: честная доля, а не только мьют. Ползунок нативный — стрелки, Home/End и
+            PageUp работают без строки кода, а трек и бегунок нельзя перекрасить из inline-стиля
+            (это псевдоэлементы), поэтому настраивается только accentColor. */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <label htmlFor="settings-volume" style={{ fontWeight: 600 }}>
+              Громкость
+            </label>
+            <span style={{ color: 'var(--text-main)' }}>
+              <Num>{Math.round(state.settings.volume * 100)}</Num>%
+            </span>
+          </div>
+          <input
+            id="settings-volume"
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={state.settings.volume}
+            onChange={(e) => setVolume(Number(e.target.value))}
+            aria-describedby="settings-volume-hint"
+            aria-valuetext={`${Math.round(state.settings.volume * 100)} процентов`}
+            style={{ width: '100%', margin: 0, accentColor: 'var(--accent-color)', cursor: 'pointer' }}
+          />
+          <div id="settings-volume-hint" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            0 — тишина, как при выключенном звуке. По умолчанию 60%, а не 100: на одном Клике
+            сходятся Клик, реплика и Достижение, и их сумма на полной шкале хрипит.
+          </div>
         </div>
 
         {/* Настройка анимации */}

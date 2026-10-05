@@ -251,6 +251,10 @@ interface GameStore {
   setNotation: (notation: Notation) => void;
   toggleMute: () => void;
   setReducedMotion: (on: boolean) => void;
+  /** Громкость 0..1. Зажимается здесь, а не в ползунке: значение приходит из импортируемого
+   *  файла и из разметки, а громкий хрип на полной шкале — это испорченное впечатление,
+   *  поэтому границы держит стор, единственный владелец состояния. */
+  setVolume: (volume: number) => void;
   /** Пауза Новостной ленты: останавливает и движение строки, и смену новости. Живёт в UI-слое
    *  и не сохраняется — персистентность означала бы новое поле в `GameState.settings` и правку
    *  контракта сохранения ради одного переключателя. */
@@ -408,7 +412,7 @@ export const useGameStore = create<GameStore>((set, get) => {
     // только тень, и она не дошла бы до сериализации в localStorage.
     if (awarded.length === 0) return withShadows;
 
-    playAchievementSound(s.settings.muted);
+    playAchievementSound(s.settings);
     // Текст берётся из таблицы, а не собирается из id: awardAchievements отдаёт id, и
     // подставить его в тост — значит отдать компоненту то, что она не умеет перевести.
     const won = new Set(awarded);
@@ -456,7 +460,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       // покупает такую возможность сам. Ищем по виду эффекта, а не по id, чтобы переименование
       // Перка не оставило здесь мёртвую проверку.
       if (perkEffects(state.perks).some((e) => e.kind === 'eventAlert')) {
-        playEventAlertSound(state.settings.muted);
+        playEventAlertSound(state.settings);
       }
       if (spec) pushToast('Событие', spec.name, spec.desc);
       // Объявить окно и поймать его — разные вещи: окно могло достаться уже пойманным (импорт в
@@ -529,7 +533,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       const { state, floaters, chatHistory, lastBoughtModelId } = get();
       const earned = clickValue(state);
       const clicked = engineClick(state);
-      playClickSound(state.settings.muted);
+      playClickSound(state.settings);
 
       // Добавление всплывающего числа
       const floaterId = ++floaterCounter;
@@ -562,7 +566,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       const quip = pickQuip(speakerLab(clicked, lastBoughtModelId), clicked.clicks, seen);
       if (quip && !seen.includes(quip.id)) {
         const nonce = ++quipCounter;
-        playQuipSound(clicked.settings.muted);
+        playQuipSound(clicked.settings);
         set({
           state: awardEarned(recordQuip(clicked, quip.id)),
           floaters: newFloaters,
@@ -588,7 +592,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       const { state, buyAmount } = get();
       const bought = engineBuyAgents(state, modelId, buyAmount);
       if (bought === state) return;
-      playBuySound(state.settings.muted);
+      playBuySound(state.settings);
       // Покупка Агентов — единственный путь роста их числа: продажа и Престиж его только
       // уменьшают, а тиканье Апгрейды не открывает. Поэтому появление Апгрейда ловим только здесь,
       // сравнением до/после внутри экшена — без нового поля в GameState и без миграции.
@@ -596,7 +600,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       // «звук = Апгрейды» есть у покупки Апгрейда): два звука подряд — избыточное подтверждение
       // готовности Апгрейда двумя каналами сразу, новый тембр не вводим.
       if (availableUpgrades(bought).length > availableUpgrades(state).length) {
-        playUpgradeSound(state.settings.muted);
+        playUpgradeSound(state.settings);
       }
       // Стадия Восстания растёт ровно здесь и ровно один раз на Поколение: повод — первый
       // Агент Флагмана, который игрок покупает руками и который же открывает Престиж. По
@@ -604,7 +608,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       // возвращает тот же объект, и ни тост, ни звук не срабатывают.
       const risen = modelId === CATALOG[state.generation].flagship.id ? raiseUprising(bought) : bought;
       if (risen !== bought) {
-        playUpgradeSound(state.settings.muted);
+        playUpgradeSound(state.settings);
         pushToast('Восстание моделей', 'Восстание', UPRISING_LINES[risen.uprising]);
       }
       // Отметка о последней покупке — это голос офиса: следующий Клик заговорит
@@ -617,7 +621,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       const count = buyAmount === 'max' ? (state.agents[modelId] ?? 0) : buyAmount;
       const next = engineSellAgents(state, modelId, count);
       if (next !== state) {
-        playBuySound(state.settings.muted);
+        playBuySound(state.settings);
         set({ state: awardEarned(next) });
       }
     },
@@ -626,7 +630,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       const { state } = get();
       const next = engineBuyUpgrade(state, upgradeId);
       if (next !== state) {
-        playUpgradeSound(state.settings.muted);
+        playUpgradeSound(state.settings);
         set({ state: awardEarned(next) });
       }
     },
@@ -635,7 +639,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       const { state } = get();
       const next = engineBuyPerk(state, perkId);
       if (next !== state) {
-        playUpgradeSound(state.settings.muted);
+        playUpgradeSound(state.settings);
         set({ state: awardEarned(next) });
       }
     },
@@ -652,7 +656,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       const next = engineBuyPledge(state, state.lastTick);
       if (next === state) return;
       // Тот же звук, что у Перка: обе покупки навсегда меняют правила забега.
-      playUpgradeSound(state.settings.muted);
+      playUpgradeSound(state.settings);
       set({ state: next });
     },
 
@@ -667,7 +671,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       const { state } = get();
       const { state: licensed, payout } = engineBuyLicense(state);
       if (licensed === state) return;
-      playUpgradeSound(state.settings.muted);
+      playUpgradeSound(state.settings);
       // Выплата идёт через earnTokens, поэтому попадает во все три счётчика, как обычный доход;
       // саму сумму считает экономика по общему котлу Глюков. Тост обязателен: Глюки исчезают с
       // экрана разом, и без него выплата была бы видна только в счётчике Токенов.
@@ -682,7 +686,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       const next = engineRevokeLicense(state);
       if (next === state) return;
       // Отзыв — трата, поэтому звук покупки, а не отказа: деньги здесь действительно сходят.
-      playBuySound(state.settings.muted);
+      playBuySound(state.settings);
       set({ state: next });
     },
 
@@ -696,7 +700,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       const { state } = get();
       const next = engineBuyCrystalUpgrade(state, id);
       if (next === state) return;
-      playUpgradeSound(state.settings.muted);
+      playUpgradeSound(state.settings);
       set({ state: next });
     },
 
@@ -711,7 +715,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       const next = engineShatterCrystal(state);
       if (next === state) return;
       const gained = next.tokens - state.tokens;
-      playAchievementSound(state.settings.muted);
+      playAchievementSound(state.settings);
       pushToast('Кристалл разбит', 'Compute-кристалл', `+${formatNumber(gained, state.settings.notation)} Токенов`);
       set({ state: next });
     },
@@ -742,19 +746,19 @@ export const useGameStore = create<GameStore>((set, get) => {
       // нажать и уйти — честный отказ, окно просто уйдёт. Второй вариант (сделать красный «Грант»
       // неловимым вовсе) запрещён карточкой: она обещает минус и обязана его показывать.
       if (amount < 0 && crashArmedAt !== event.startedAt) {
-        playClickSound(state.settings.muted);
+        playClickSound(state.settings);
         pushToast('Крах', spec?.name ?? 'Крах', `Ещё раз, чтобы поймать: ${tokens} Токенов`);
         set({ crashArmedAt: event.startedAt });
         return;
       }
       if (amount > 0) {
-        playBuySound(state.settings.muted);
+        playBuySound(state.settings);
         pushToast('Грант получен', spec?.name ?? 'Грант', `+${tokens} Токенов`);
       } else if (amount < 0) {
-        playDenySound(state.settings.muted);
+        playDenySound(state.settings);
         pushToast('Крах', spec?.name ?? 'Крах', `${tokens} Токенов`);
       } else {
-        playClickSound(state.settings.muted);
+        playClickSound(state.settings);
         // Подтверждение нужно и тут: клик без ответа читался бы как сломанная кнопка.
         if (spec) pushToast('Событие поймано', spec.name, spec.desc);
       }
@@ -776,13 +780,13 @@ export const useGameStore = create<GameStore>((set, get) => {
       if (hit === state) return;
       if (!popped) {
         // Первые два удара только трясут паразита, поэтому берётся звук отказа.
-        playDenySound(state.settings.muted);
+        playDenySound(state.settings);
         set({ state: hit });
         return;
       }
       // Выплата идёт через earnTokens, поэтому попадает во все три счётчика, как и доход; саму
       // сумму считает экономика по `stolen` именно этого Глюка, а не по общему котлу.
-      playBuySound(state.settings.muted);
+      playBuySound(state.settings);
       pushToast('Глюк лопнул', 'Глюк', `+${formatNumber(payout, state.settings.notation)} Токенов`);
       set({ state: awardEarned(earnTokens(hit, payout)) });
     },
@@ -812,13 +816,13 @@ export const useGameStore = create<GameStore>((set, get) => {
       // показанная где-либо цифра разошлась бы с выплатой.
       const amount = grantAmount(state.tokens, totalIncome(state));
       if (amount > 0) {
-        playBuySound(state.settings.muted);
+        playBuySound(state.settings);
         pushToast('Слух пойман', 'Слух', `+${formatNumber(amount, state.settings.notation)} Токенов`);
       } else {
         // Выплаты нет, когда нечего делить: «Грант» берёт минимум из запаса Токенов и пятнадцати
         // минут Дохода, а Доход у игрока без Агентов нулевой. Молчать нельзя — клик без ответа
         // читается как сломанная кнопка, — поэтому слух подтверждается словами, а не суммой.
-        playClickSound(state.settings.muted);
+        playClickSound(state.settings);
         pushToast('Слух пойман', 'Слух', 'В этот раз никто ничего не принёс.');
       }
       set({ state: awardEarned(earnTokens(state, amount)), collectedRumorId: id });
@@ -834,7 +838,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       const { state } = get();
       // На финальном Поколении Престиж обнулил бы забег без перехода в новое Поколение.
       if (!canPrestige(state) || isContentFinale(state)) return;
-      playPrestigeSound(state.settings.muted);
+      playPrestigeSound(state.settings);
       const gain = prestigeGain(state);
       // Поле activeChallenge приезжает ядром испытаний из параллельной ветки: пока его нет в
       // GameState, чтение через каст, как quipsSeenOf выше. Нужно оверлею, чтобы назвать награду
@@ -868,7 +872,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       const { state } = get();
       const next = engineStartChallenge(state, id);
       if (next === state) return;
-      playUpgradeSound(state.settings.muted);
+      playUpgradeSound(state.settings);
       if (id !== null) {
         const def = CHALLENGES.find((c) => c.id === id);
         if (def) pushToast('Испытание принято', def.name, def.desc);
@@ -896,6 +900,19 @@ export const useGameStore = create<GameStore>((set, get) => {
     setReducedMotion: (on: boolean) =>
       set((s) => ({
         state: { ...s.state, settings: { ...s.state.settings, reducedMotion: on } },
+      })),
+
+    // Ноль — честная тишина, а не «выключено»: мьют и громкость означают разное (молчат и
+    // события, и музыка; ноль глушит всё, но сохраняет настройку), поэтому здесь только зажим.
+    setVolume: (volume: number) =>
+      set((s) => ({
+        state: {
+          ...s.state,
+          settings: {
+            ...s.state.settings,
+            volume: Number.isFinite(volume) ? Math.min(1, Math.max(0, volume)) : s.state.settings.volume,
+          },
+        },
       })),
 
     newsPaused: false,

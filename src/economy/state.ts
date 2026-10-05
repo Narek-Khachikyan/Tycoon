@@ -1,4 +1,15 @@
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
+
+/**
+ * Громкость по умолчанию: 0.6, а не 1.
+ *
+ * Одноразовые звуки не звучат поодиночке: на одном Клике вместе идут Клик (0.08), стрекот реплики
+ * (0.05) и, если повезло, Достижение (0.08), а музыка подкладывает снизу ещё слой. На полной
+ * шкале сумма уходит за 1.0, и усилитель клиппит: вместо чиптюна игрок получает хрип. 0.6 даёт
+ * запас на сумму слоёв, остаётся отчётливо слышным на тихих ноутбуках, а кому тихо — тот поднимет
+ * ползунок сам. Ноль означает тишину: это честное положение «звука нет», а не отдельный режим.
+ */
+export const DEFAULT_VOLUME = 0.6;
 
 export type Notation = 'short' | 'sci';
 
@@ -89,7 +100,18 @@ export interface GameState {
   lastTick: number;
   startedAt: number;
   runStartedAt: number;
-  settings: { notation: Notation; muted: boolean; reducedMotion: boolean };
+  /**
+   * Настройки игрока. Живут в состоянии, а не в UI-слое, потому что обязаны переживать
+   * перезагрузку: мьют и громкость, выбранные вчера, сегодня игрок не должен выбирать заново.
+   */
+  settings: {
+    notation: Notation;
+    muted: boolean;
+    /** Общая доля 0..1 для эффектов и музыки; 0 = тишина. Разбор сохранения зажимает её в эти
+     *  границы: число вне диапазона означало бы или неслышимую игру, или удар по ушам. */
+    volume: number;
+    reducedMotion: boolean;
+  };
 }
 
 export function newGame(now: number): GameState {
@@ -133,6 +155,6 @@ export function newGame(now: number): GameState {
     lastTick: now,
     startedAt: now,
     runStartedAt: now,
-    settings: { notation: 'short', muted: false, reducedMotion: false },
+    settings: { notation: 'short', muted: false, volume: DEFAULT_VOLUME, reducedMotion: false },
   };
 }

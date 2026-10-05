@@ -2,7 +2,7 @@ import { CATALOG, MODEL_BY_ID } from './catalog';
 import { CRYSTAL_UPGRADE_BY_ID } from './crystal';
 import { uprisingStage } from './glitches';
 import { PERK_BY_ID } from './perks';
-import { EVENT_KINDS, newGame, SAVE_VERSION, type ActiveEvent, type EventKind, type GameState, type Glitch } from './state';
+import { DEFAULT_VOLUME, EVENT_KINDS, newGame, SAVE_VERSION, type ActiveEvent, type EventKind, type GameState, type Glitch } from './state';
 import { QUIPS_SEEN_CAP } from './quips';
 import { UPGRADE_BY_ID } from './upgrades';
 
@@ -72,6 +72,15 @@ const MIGRATIONS: Record<number, Migration> = {
     activeChallenge: null,
     challengesDone: [],
   }),
+  // Громкость появилась в v7. У живого сохранения её нет, а DEFAULT_VOLUME означает ровно то, чем
+  // было состояние до ползунка: звук ненулевой, но не на всю шкалу. Чистое добавление — остальные
+  // настройки (мут, нотация, reducedMotion) миграция обязана сохранить, поэтому settings
+  // разворачивается, а не заменяется.
+  6: (raw) => ({
+    ...raw,
+    version: 7,
+    settings: { ...((raw.settings as object) ?? {}), volume: DEFAULT_VOLUME },
+  }),
 };
 
 const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -90,6 +99,16 @@ const stamp = (v: unknown) => Math.max(0, num(v, 0));
  * половину украденного у живого игрока.
  */
 const share = (v: unknown) => Math.max(0, num(v, 0));
+
+/**
+ * Доля 0..1 — громкость.
+ *
+ * Зажимать обязан именно разбор: `importSave` берёт чужой файл целиком, и без зажима в нём может
+ * лежать `volume: 9999` — тогда следующий звук ударил бы на полной мощности усилителя (и обрезался
+ * бы хрипом), а `volume: -5` дал бы неслышимую игру при настройке «звук включён». Не-число читается
+ * как «игрок ничего не выбирал», то есть как дефолт: мусор в чужом файле не должен выбирать за него.
+ */
+const level = (v: unknown, d: number) => Math.min(1, Math.max(0, num(v, d)));
 
 const strList = (x: unknown) => (Array.isArray(x) ? x.filter((s): s is string => typeof s === 'string') : []);
 
@@ -238,6 +257,7 @@ export function migrate(input: unknown, now: number): GameState {
     settings: {
       notation: settings.notation === 'sci' ? 'sci' : 'short',
       muted: !!settings.muted,
+      volume: level(settings.volume, DEFAULT_VOLUME),
       reducedMotion: !!settings.reducedMotion,
     },
   };

@@ -285,7 +285,10 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
     setExpandedAA((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const muted = state.settings.muted;
+  // Звук получает не флаг мьюта, а настройки целиком: громкость — полноценная настройка игрока,
+  // и компонент не должен собирать их сам, иначе каждый новый звук получил бы свой способ
+  // передачи настроек.
+  const soundSettings = state.settings;
 
   // Класс click-btn--squash переиспользован из ClickColumn для кнопки Перка: карточка
   // Перка после покупки остаётся (меняется на «Куплено»), поэтому сквош успевает
@@ -311,7 +314,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const handleDeny =
     (affordable: boolean) => (e: React.MouseEvent<HTMLDivElement>) => {
       if (affordable) return;
-      playDenySound(muted);
+      playDenySound(soundSettings);
       const node = e.currentTarget.querySelector('.token-deficit');
       if (!(node instanceof HTMLElement)) return;
       node.classList.remove('deny-flash');
@@ -326,7 +329,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const handleBuyDeny =
     (affordable: boolean) => (e: React.MouseEvent<HTMLDivElement>) => {
       if (affordable) return;
-      playDenySound(muted);
+      playDenySound(soundSettings);
       const node = e.currentTarget.querySelector('.pixel-btn');
       if (!(node instanceof HTMLElement)) return;
       node.classList.remove('deny-flash');

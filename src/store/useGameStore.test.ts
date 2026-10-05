@@ -997,6 +997,34 @@ describe('starting a challenge', () => {
   });
 });
 
+describe('the volume setting', () => {
+  // Стор — единственный владелец состояния, поэтому границы держит он: значение приходит из
+  // ползунка и из импортируемого файла, а volume: 9999 означал бы хрип вместо музыки.
+  it('takes a value the player chose', () => {
+    freshStore();
+    store().setVolume(0.25);
+    expect(state().settings.volume).toBe(0.25);
+  });
+
+  it('fences off junk from a slider or an imported file', () => {
+    freshStore();
+    store().setVolume(9999);
+    expect(state().settings.volume).toBe(1);
+    store().setVolume(-5);
+    expect(state().settings.volume).toBe(0);
+    store().setVolume(Number.NaN);
+    // Не число — значит оставляем то, что уже стояло, а не сбрасываем громкость вслепую.
+    expect(state().settings.volume).toBe(0);
+  });
+
+  it('keeps zero as a deliberate silence rather than switching to mute', () => {
+    freshStore();
+    store().setVolume(0);
+    expect(state().settings.volume).toBe(0);
+    expect(state().settings.muted).toBe(false);
+  });
+});
+
 describe('the finale screen flag', () => {
   // Регрессия: комментарий обещал, что рестарт вернёт флаг, а код этого не делал — второе
   // прохождение до последнего Поколения встречало игрока молчащим финалом.

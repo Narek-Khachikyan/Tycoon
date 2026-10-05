@@ -23,7 +23,7 @@ import {
   licenseCost, redEventChance, RED_TABLES, REVOKE_FLAGSHIP_MULT, revokeCost, revokeLicense, spawnGlitch, uprisingStage,
 } from './glitches';
 import { GEN_PERK_BASE_COST, GEN_PERK_STEP_COST, genPerkId, isGenPerkId, PERK_BY_ID, type PerkEffect } from './perks';
-import { EVENT_KINDS, newGame, SAVE_VERSION, type ActiveEvent, type EventKind, type GameState } from './state';
+import { DEFAULT_VOLUME, EVENT_KINDS, newGame, SAVE_VERSION, type ActiveEvent, type EventKind, type GameState } from './state';
 import { exportSave, importSave, migrate } from './save';
 import { pickNews } from './news';
 import { ACHIEVEMENTS, awardAchievements, newlyEarned, nonShadowCount, shadowEarned } from './achievements';
@@ -1404,7 +1404,7 @@ describe('save', () => {
       T0,
     );
     expect(s.version).toBe(SAVE_VERSION);
-    expect(s.settings).toEqual({ notation: 'sci', muted: true, reducedMotion: false });
+    expect(s.settings).toEqual({ notation: 'sci', muted: true, reducedMotion: false, volume: DEFAULT_VOLUME });
     expect(s.tokens).toBe(1234);
     expect(s.totalTokens).toBe(5678);
     expect(s.agents).toEqual({ [first.id]: 7 });

@@ -18,7 +18,19 @@ import { Toasts } from './components/Toasts';
 import { PrestigeOverlay } from './components/PrestigeOverlay';
 import { Icon, type IconName } from './components/Icon';
 import { CATALOG } from './economy/catalog';
+import { totalIncome } from './economy/engine';
+import { startMusic, updateMusic } from './audio/music';
 import { clickColWidth, shopColWidth, THREE_COL_MIN } from './layout';
+
+/**
+ * Насколько «включилась» игра для музыки: логарифм Дохода, зажатый в 0..1.
+ *
+ * Логарифм, потому что Доход за Забег проходит шесть порядков, а линейная шкала либо молчала
+ * бы первые десять минут, либо упиралась в потолок после первго Престижа. Считается здесь, а
+ * не в музыке, чтобы нормализация была одной строкой и проверялась тестом.
+ */
+const musicIntensity = (income: number): number =>
+  income <= 0 ? 0 : Math.min(1, Math.log10(1 + income) / 6);
 
 export const App: React.FC = () => {
   const tick = useGameStore((s) => s.tick);
@@ -66,10 +78,40 @@ export const App: React.FC = () => {
       // dt может оказаться большим, если вкладка была в фоне или машина спала.
       // Ограничивает начисление advanceTime() — иначе простой обошёл бы лимит оффлайна.
       tick(dt);
+      // Музыка читает тот же тик, а не живёт своим интервалом: иначе два таймера решали бы
+      // одно и то же и разошлись бы на тике. Интенсивность — логарифм Дохода, поэтому на
+      // первой минуте она уже слышна, а не начинается с нуля; приглушение держится, пока
+      // открыто окно События, иначе музыка спорила бы с его стингером.
+      const s = useGameStore.getState().state;
+      updateMusic({
+        intensity: musicIntensity(totalIncome(s)),
+        generation: s.generation,
+        ducking: s.event !== null,
+      });
     }, 50);
 
     return () => clearInterval(interval);
   }, [tick]);
+
+  // Первый жест игрока запускает музыку: до него AudioContext suspended, и браузер не даёт
+  // звучать никаким способом. Слушатель одноразовый и снимает себя же — постоянная подписка
+  // на все касания ради проверки флага стоила бы дороже самой музыки.
+  useEffect(() => {
+    let started = false;
+    const wake = () => {
+      if (started) return;
+      started = true;
+      startMusic(useGameStore.getState().state.settings);
+      window.removeEventListener('pointerdown', wake);
+      window.removeEventListener('keydown', wake);
+    };
+    window.addEventListener('pointerdown', wake);
+    window.addEventListener('keydown', wake);
+    return () => {
+      window.removeEventListener('pointerdown', wake);
+      window.removeEventListener('keydown', wake);
+    };
+  }, []);
 
   // Тряска на Престиж — единственное движение всего корня в игре. Класс ставится вручную:
   // пока атрибут на месте, повторный Престиж не перезапустил бы анимацию, а перезапуск
