@@ -28,6 +28,10 @@ export const Header: React.FC<HeaderProps> = ({
   const unlockedAchCount = ordinaryEarned(state);
   const totalAchCount = ACHIEVEMENTS.length;
   const isMuted = state.settings.muted;
+  // Бейдж Compute печатается нотацией игрока, а не значением по умолчанию: иначе в научном
+  // режиме вся игра показывала «1.00e4», а шапка — «10,00 K», то есть два разных числа на
+  // одном экране для одной и той же величины.
+  const notation = state.settings.notation;
 
   // Значок — единственное место на экране, где Достижение остаётся видимым после того, как
   // тост уйдёт, поэтому пульсирует он, а не тост: вспышка тоста длится полсекунды.
@@ -54,16 +58,37 @@ export const Header: React.FC<HeaderProps> = ({
         borderBottom: '2px solid var(--border)',
         flexWrap: 'wrap',
         gap: '10px',
+        // minWidth: 0 обязателен обеим группам: флекс-элемент иначе не сожмётся ниже
+        // содержимого, и на узком экране бейдж Поколения распирал бы строку вместо того,
+        // чтобы уступить её соседу. Прокрутка полосы не участвует — шапка обязана помещаться
+        // в экран целиком, поэтому лишнее уходит в перенос строки, а не под обрез.
+        minWidth: 0,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-        {/* Логотип — единственное место, где пиксельный шрифт законен на словах (ADR-0003). */}
-        <h1 className="pixel-font" style={{ fontSize: '1.4rem', color: 'var(--accent-color)', letterSpacing: '1px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0, flexWrap: 'wrap' }}>
+        {/* Логотип — единственное место, где пиксельный шрифт законен на словах (ADR-0003).
+            clamp вместо фиксированного кегля: на 390 px «TOKEN CLICKER» в 1.4rem переносился
+            на две строки и поднимал всю шапку до 131 px, то есть на шестую часть экрана. */}
+        <h1
+          className="pixel-font"
+          style={{
+            fontSize: 'clamp(1rem, 4.4vw, 1.4rem)',
+            color: 'var(--accent-color)',
+            letterSpacing: '1px',
+            whiteSpace: 'nowrap',
+          }}
+        >
           TOKEN CLICKER
         </h1>
         {/* Бейдж Поколения: key пересоздаёт узел на смене Поколения, появление — только
             opacity через toast-fade, а пульс — классом tab-badge--pulse (scale при движении,
-            мигание при reducedMotion), перезапуск тем же перемонтированием. */}
+            мигание при reducedMotion), перезапуск тем же перемонтированием.
+
+            nowrap плюс многоточие: период Поколения — это данные, и его длина ничем не
+            ограничена, а шапка от него не должна зависеть. Без nowrap бейдж «Поколение 5:
+            Reasoning (конец 2024 — начало 2025)» занимал четыре строки и выдавливал
+            остальную шапку вниз; теперь он всегда одна строка, а не поместившийся хвост
+            обрезается многоточием — имя Поколения, ради которого бейдж и нужен, остаётся. */}
         <span
           key={state.generation}
           style={{
@@ -74,6 +99,10 @@ export const Header: React.FC<HeaderProps> = ({
             padding: '2px 8px',
             borderRadius: '4px',
             animation: 'toast-fade 0.15s ease-out',
+            maxWidth: '100%',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
           }}
         >
           <span className="tab-badge--pulse" style={{ display: 'inline-block' }}>
@@ -92,15 +121,16 @@ export const Header: React.FC<HeaderProps> = ({
               // Появление при монтировании — только opacity через toast-fade: бейдж
               // возникает один раз, пульс ему не нужен.
               animation: 'toast-fade 0.15s ease-out',
+              whiteSpace: 'nowrap',
             }}
             title="Бонус к доходу от Compute"
           >
-            <Num>{formatNumber(state.compute)}</Num> Compute (+<Num>{state.compute}</Num>%)
+            <Num>{formatNumber(state.compute, notation)}</Num> Compute (+<Num>{state.compute}</Num>%)
           </span>
         )}
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
         {/* Иконочные кнопки получают имя из aria-label: картинка помечена декоративной, и
             без подписи озвучка прочитала бы пустую кнопку. */}
         <button
@@ -108,7 +138,7 @@ export const Header: React.FC<HeaderProps> = ({
           onClick={toggleMute}
           title={isMuted ? 'Включить звук' : 'Выключить звук'}
           aria-label={isMuted ? 'Включить звук' : 'Выключить звук'}
-          style={{ padding: '6px 10px', fontSize: '0.9rem' }}
+          style={{ padding: '6px 10px', fontSize: '0.9rem', whiteSpace: 'nowrap' }}
         >
           <Icon name={isMuted ? 'sound-off' : 'sound-on'} />
         </button>
@@ -118,7 +148,10 @@ export const Header: React.FC<HeaderProps> = ({
           className="pixel-btn ach-badge"
           onClick={onOpenAchievements}
           title="Достижения"
-          style={{ padding: '6px 12px', fontSize: '0.9rem' }}
+          // Без aria-label доступное имя кнопки — это «14 / 21», то есть два числа без
+          // единого слова; озвучка читала бы их вслух и не называла, что открывается.
+          aria-label={`Достижения: ${unlockedAchCount} из ${totalAchCount}`}
+          style={{ padding: '6px 12px', fontSize: '0.9rem', whiteSpace: 'nowrap' }}
         >
           <Icon name="trophy" />
           <Num>{unlockedAchCount}</Num>/<Num>{totalAchCount}</Num>
@@ -128,7 +161,7 @@ export const Header: React.FC<HeaderProps> = ({
           className="pixel-btn"
           onClick={onOpenStats}
           title="Инфо"
-          style={{ padding: '6px 12px', fontSize: '0.9rem' }}
+          style={{ padding: '6px 12px', fontSize: '0.9rem', whiteSpace: 'nowrap' }}
         >
           <Icon name="info" />
           Инфо
@@ -139,7 +172,7 @@ export const Header: React.FC<HeaderProps> = ({
           onClick={onOpenSettings}
           title="Настройки"
           aria-label="Настройки"
-          style={{ padding: '6px 12px', fontSize: '0.9rem' }}
+          style={{ padding: '6px 12px', fontSize: '0.9rem', whiteSpace: 'nowrap' }}
         >
           <Icon name="settings" />
         </button>

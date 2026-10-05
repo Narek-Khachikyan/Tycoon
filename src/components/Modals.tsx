@@ -92,6 +92,32 @@ const AchievementRow: React.FC<{
 const MODAL_EXIT_MS = 150;
 const MODAL_EXIT_ANIMATION = 'toast-fade 0.15s ease-out reverse';
 
+// Строка настройки и её управляющий элемент. Общая форма для всех трёх строк нужна из-за
+// узкого экрана: без переноса управление сжималось до ширины, при которой его подпись
+// переносилась внутрь — «Буквы (M, B)» занимала две строки вдвое выше соседней «1e6», и
+// пара выглядела поломанной. nowrap запрещает перенос внутри кнопки, а перенос строки
+// отдаёт управляющий элемент целиком: подпись настройки при этом переносится, то есть
+// текст, который и так читается, вместо текста, который должен помещаться в кнопку.
+// marginLeft: 'auto' прижимает управление к правому краю и на отдельной строке тоже.
+const SETTING_ROW: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  gap: '10px',
+  flexWrap: 'wrap',
+};
+const SETTING_CONTROL: React.CSSProperties = {
+  padding: '6px 12px',
+  fontSize: '0.85rem',
+  whiteSpace: 'nowrap',
+  flexShrink: 0,
+  marginLeft: 'auto',
+};
+// У пары кнопок наружным элементом управления считается группа, поэтому прижимать к правому
+// краю надо её, а не каждую кнопку: auto-отступ внутри группы всегда ноль, потому что
+// свободного места в ней нет.
+const SETTING_GROUP: React.CSSProperties = { display: 'flex', gap: '6px', flexShrink: 0, marginLeft: 'auto' };
+
 // Отложенное размонтирование окна: запрос закрытия лишь взводит closing, а настоящий
 // onClose приходит по одному bounded one-shot таймеру. Очистка в эффекте обязательна —
 // иначе размонтирование с висящим таймером дёрнуло бы onClose уже снятого окна.
@@ -562,118 +588,167 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
           </button>
         </div>
 
-        {/* Настройка нотации чисел */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <div style={{ fontWeight: 600 }}>Формат больших чисел</div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-              1,23 M или 1.23e6
+        {/* Тело окна прокручивается, как в Статистике и подтверждении Престижа: у карточки
+            стоит maxHeight, а без прокрутки содержимое просто обрезалось снизу и до
+            «Сбросить весь прогресс» на низком окне было не добраться (замерено на 390×560:
+            scrollHeight 483 px против clientHeight 472 px). minHeight: 0 обязателен —
+            у флекс-элемента автоматический минимум равен содержимому. */}
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '16px',
+            flex: 1,
+            minHeight: 0,
+            overflowY: 'auto',
+          }}
+        >
+          {/* Настройка нотации чисел */}
+          <div style={SETTING_ROW}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 600 }}>Формат больших чисел</div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                1,23 M или 1.23e6
+              </div>
+            </div>
+            <div style={SETTING_GROUP}>
+              <button
+                onClick={() => setNotation('short')}
+                className={`pixel-btn ${state.settings.notation === 'short' ? 'pixel-btn-accent' : ''}`}
+                style={{ padding: '6px 10px', fontSize: '0.85rem', whiteSpace: 'nowrap' }}
+              >
+                Буквы (M, B)
+              </button>
+              <button
+                onClick={() => setNotation('sci')}
+                className={`pixel-btn ${state.settings.notation === 'sci' ? 'pixel-btn-accent' : ''}`}
+                style={{ padding: '6px 10px', fontSize: '0.85rem', whiteSpace: 'nowrap' }}
+              >
+                1e6
+              </button>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: '6px' }}>
+
+          {/* Настройка звука */}
+          <div style={SETTING_ROW}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 600 }}>8-битный звук</div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                Звуковые эффекты клика и событий
+              </div>
+            </div>
             <button
-              onClick={() => setNotation('short')}
-              className={`pixel-btn ${state.settings.notation === 'short' ? 'pixel-btn-accent' : ''}`}
-              style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+              onClick={toggleMute}
+              className={`pixel-btn ${!state.settings.muted ? 'pixel-btn-accent' : ''}`}
+              style={SETTING_CONTROL}
             >
-              Буквы (M, B)
+              <Icon name={state.settings.muted ? 'sound-off' : 'sound-on'} />{' '}
+              {state.settings.muted ? 'выключен' : 'включен'}
             </button>
+          </div>
+
+          {/* Настройка анимации */}
+          <div style={SETTING_ROW}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 600 }}>Меньше анимации</div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                Выключает движение в игре
+              </div>
+            </div>
             <button
-              onClick={() => setNotation('sci')}
-              className={`pixel-btn ${state.settings.notation === 'sci' ? 'pixel-btn-accent' : ''}`}
-              style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+              onClick={() => setReducedMotion(!state.settings.reducedMotion)}
+              className={`pixel-btn ${state.settings.reducedMotion ? 'pixel-btn-accent' : ''}`}
+              style={SETTING_CONTROL}
             >
-              1e6
+              {state.settings.reducedMotion ? 'Включено' : 'Выключено'}
             </button>
           </div>
-        </div>
 
-        {/* Настройка звука */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <div style={{ fontWeight: 600 }}>8-битный звук</div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-              Звуковые эффекты клика и событий
-            </div>
-          </div>
-          <button
-            onClick={toggleMute}
-            className={`pixel-btn ${!state.settings.muted ? 'pixel-btn-accent' : ''}`}
-            style={{ padding: '6px 12px', fontSize: '0.85rem' }}
-          >
-            <Icon name={state.settings.muted ? 'sound-off' : 'sound-on'} />{' '}
-            {state.settings.muted ? 'выключен' : 'включен'}
-          </button>
-        </div>
+          {/* Экспорт и Импорт */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ fontWeight: 600 }}>Сохранение данных</div>
 
-        {/* Настройка анимации */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <div style={{ fontWeight: 600 }}>Меньше анимации</div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-              Выключает движение в игре
-            </div>
-          </div>
-          <button
-            onClick={() => setReducedMotion(!state.settings.reducedMotion)}
-            className={`pixel-btn ${state.settings.reducedMotion ? 'pixel-btn-accent' : ''}`}
-            style={{ padding: '6px 12px', fontSize: '0.85rem' }}
-          >
-            {state.settings.reducedMotion ? 'Включено' : 'Выключено'}
-          </button>
-        </div>
+            <button onClick={handleExport} className="pixel-btn" style={{ width: '100%' }}>
+              {copyStatus ? 'Скопировано в буфер!' : 'Скопировать сохранение в буфер'}
+            </button>
 
-        {/* Экспорт и Импорт */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <div style={{ fontWeight: 600 }}>Сохранение данных</div>
-
-          <button onClick={handleExport} className="pixel-btn" style={{ width: '100%' }}>
-            {copyStatus ? 'Скопировано в буфер!' : 'Скопировать сохранение в буфер'}
-          </button>
-
-          <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
-            <input
-              type="text"
-              placeholder="Вставь код сохранения..."
-              value={importCode}
-              onChange={(e) => setImportCode(e.target.value)}
+            {/* Подпись вместо placeholder: браузерная подсказка на тёмной подложке даёт
+                3.25:1 (rgb(117,117,117) на --bg-card) и является единственным объяснением,
+                что сюда вставлять. Настоящая подпись в --text-muted держит 5.49:1, остаётся
+                на месте при вводе и вместе с input даёт ему доступное имя. */}
+            <label
               style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '4px',
                 flex: 1,
-                backgroundColor: 'var(--bg-card)',
-                border: '1px solid var(--border)',
-                color: 'var(--text-main)',
-                padding: '8px',
-                borderRadius: '4px',
-                fontSize: '0.85rem',
+                minWidth: 0,
+                marginTop: '4px',
               }}
-            />
-            <button
-              onClick={handleImport}
-              className="pixel-btn pixel-btn-accent"
-              style={{ padding: '8px 12px' }}
             >
-              Импорт
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                Вставь код сохранения
+              </span>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <input
+                  type="text"
+                  value={importCode}
+                  onChange={(e) => setImportCode(e.target.value)}
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    backgroundColor: 'var(--bg-card)',
+                    border: '1px solid var(--border)',
+                    color: 'var(--text-main)',
+                    padding: '8px',
+                    borderRadius: '4px',
+                    fontSize: '0.85rem',
+                  }}
+                />
+                <button onClick={handleImport} className="pixel-btn pixel-btn-accent" style={{ padding: '8px 12px' }}>
+                  Импорт
+                </button>
+              </div>
+            </label>
+            {/* role="alert": импорт молча не применяется, и без объявления озвучка прочитала бы
+                только то, что поле осталось заполненным. Подложка и цвет — те же, что у
+                заблокированного Престижа: --red на собственной красной подложке даёт 3.80:1,
+                поэтому текст светлее. */}
+            {errorMsg && (
+              <div
+                role="alert"
+                style={{
+                  marginTop: '6px',
+                  padding: '8px 10px',
+                  backgroundColor: 'var(--tint-red)',
+                  border: '1px solid var(--red)',
+                  borderRadius: '4px',
+                  fontSize: '0.8rem',
+                  color: '#fca5a5',
+                }}
+              >
+                {errorMsg}
+              </div>
+            )}
+          </div>
+
+          {/* Полный сброс */}
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
+            <button
+              onClick={handleReset}
+              className="pixel-btn"
+              style={{
+                width: '100%',
+                backgroundColor: 'var(--tint-red)',
+                borderColor: 'var(--red)',
+                // Светлее --red намеренно: на собственной красной подложке --red даёт 3.43:1
+                // и подпись тонет в заливке.
+                color: '#fca5a5',
+              }}
+            >
+              Сбросить весь прогресс
             </button>
           </div>
-          {errorMsg && <div style={{ color: 'var(--red)', fontSize: '0.8rem' }}>{errorMsg}</div>}
-        </div>
-
-        {/* Полный сброс */}
-        <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
-          <button
-            onClick={handleReset}
-            className="pixel-btn"
-            style={{
-              width: '100%',
-              backgroundColor: 'var(--tint-red)',
-              borderColor: 'var(--red)',
-              // Светлее --red намеренно: на собственной красной подложке --red даёт 3.43:1
-              // и подпись тонет в заливке.
-              color: '#fca5a5',
-            }}
-          >
-            Сбросить весь прогресс
-          </button>
         </div>
       </div>
     </div>

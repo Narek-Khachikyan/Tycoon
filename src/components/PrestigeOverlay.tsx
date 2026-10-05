@@ -49,6 +49,9 @@ export const PrestigeOverlay: React.FC = () => {
     setExiting(false);
     setWithMotion(motion);
     // Счётчик пишет прямо в DOM-ноду, как счётчик Токенов: ре-рендер на каждый кадр не нужен.
+    // Письмо идёт в textContent, поэтому класс pixel-font обязан стоять на самой этой ноде —
+    // на обёртке он остался бы в Nunito, и число меняло бы начертание в момент старта
+    // тиканья, то есть ровно тогда, когда игрок на него смотрит.
     let raf = 0;
     if (motion && payload.computeGain > 0) {
       const t0 = performance.now() + TICK_DELAY_MS;
@@ -102,15 +105,28 @@ export const PrestigeOverlay: React.FC = () => {
           />
         ))}
       <div className="prestige-card pixel-card" style={{ textAlign: 'center', padding: '28px 36px' }}>
-        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', letterSpacing: '4px' }}>
+        <div
+          style={{
+            fontSize: '0.85rem',
+            color: 'var(--text-muted)',
+            letterSpacing: '4px',
+            // Отступ первой строки равен межбуквенному: последняя буква разрядки тоже занимает
+            // 4 px, и без компенсации центрированная надпись висела на 4 px левее середины.
+            textIndent: '4px',
+          }}
+        >
           ПРЕСТИЖ
         </div>
-        <div className="pixel-font" style={{ fontSize: '1.6rem', color: 'var(--accent-color)' }}>
-          Поколение {shown.generation + 1}: {gen.name}
+        {/* Строка названия Поколения — в Nunito: слово «Поколение» кириллическое, а в
+            Pixelify Sans её нет (ADR-0003), и в пиксельном начертании она молча уходила в
+            фолбэк — слово обычным шрифтом рядом с пиксельным номером на одной строке.
+            Пиксельным остаётся только число, ради которого этот приём и существует. */}
+        <div style={{ fontSize: '1.6rem', color: 'var(--accent-color)' }}>
+          Поколение <Num>{shown.generation + 1}</Num>: {gen.name}
         </div>
         <div style={{ fontSize: '1rem', color: 'var(--text-main)' }}>
-          +<span ref={gainRef}>
-            <Num>{withMotion ? 0 : shown.computeGain}</Num>
+          +<span ref={gainRef} className="pixel-font">
+            {withMotion ? 0 : shown.computeGain}
           </span>{' '}
           Compute навсегда
         </div>
