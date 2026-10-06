@@ -129,7 +129,11 @@ export const SHADOW_ACHIEVEMENTS: ShadowAchievement[] = [
     // 100 000 Compute, либо куда больший Compute в Поколениях до него.
     id: 'shadow_click_worth_1e24', name: 'Клик дороже разговора',
     desc: 'Один Клик приносит не меньше 1e24 Токенов',
-    check: (s) => clickValue(s) >= 1e24,
+    check: (s) => {
+      if (s.activeChallenge === 'no-click') return false;
+      if (s.totalTokens < 1e20 && s.compute < 100_000 && s.generation < LAST_GENERATION) return false;
+      return clickValue(s) >= 1e24;
+    },
   },
   {
     // Две планки ниже — про пик состава, а GameState помнит только текущее число Агентов:

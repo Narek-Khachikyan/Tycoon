@@ -13,6 +13,8 @@ import {
   TAP_MIN,
   THREE_COL_MIN,
   TOAST_CLEARANCE,
+  TOAST_MARGIN,
+  toastStackWidth,
 } from './layout';
 
 // Раскладку не проверяет ничто, кроме этих чисел, поэтому тест ловит ровно тот класс дефекта,
@@ -83,5 +85,40 @@ describe('layout', () => {
     // одноколоночная, но шапка ещё может быть широкой. Равенство означало бы, что два разных
     // вопроса получили один ответ.
     expect(NARROW_MAX).toBeLessThan(THREE_COL_MIN);
+  });
+
+  // Стек тостов уже лечился от замороженного числа в нижнем отступе — ширина болела тем же:
+  // число, посчитанное для одного конкретного окна, на 320 px уводило правый край карточки
+  // за экран на 46 px. Ширина обязана приезжать из расчёта колонок и влезать в окно везде.
+  it('fits the toast stack inside the window at 320, 360 and 390', () => {
+    for (const vw of [320, 360, 390]) {
+      const w = toastStackWidth(vw);
+      expect(w).toBeGreaterThan(0);
+      // Левое поле плюс стек плюс правое поле — внутри окна: горизонтальной прокрутки нет.
+      expect(TOAST_MARGIN * 2 + w).toBeLessThanOrEqual(vw);
+    }
+    // Замер из задачи: на 320 px стек занимает окно за вычетом полей.
+    expect(toastStackWidth(320)).toBe(320 - TOAST_MARGIN * 2);
+  });
+
+  it('derives the toast stack width from the column math on every window', () => {
+    for (let vw = 320; vw <= 2560; vw += 7) {
+      const w = toastStackWidth(vw);
+      expect(w).toBeGreaterThanOrEqual(0);
+      expect(TOAST_MARGIN * 2 + w).toBeLessThanOrEqual(vw);
+      // В трёхколоночном режиме стек живёт над колонкой Клика и не шире неё.
+      if (vw >= THREE_COL_MIN) expect(w).toBeLessThanOrEqual(clickColWidth(vw));
+    }
+  });
+
+  it('never shrinks the toast stack as the window of the same layout grows', () => {
+    // Разрыв на самом пороге законен: ниже него колонка Клика — всё окно, выше —
+    // треть, — поэтому монотонность проверяется внутри каждого режима, а не через порог.
+    for (let vw = 320; vw < THREE_COL_MIN - 7; vw += 7) {
+      expect(toastStackWidth(vw + 7)).toBeGreaterThanOrEqual(toastStackWidth(vw));
+    }
+    for (let vw = THREE_COL_MIN; vw < 2560; vw += 7) {
+      expect(toastStackWidth(vw + 7)).toBeGreaterThanOrEqual(toastStackWidth(vw));
+    }
   });
 });

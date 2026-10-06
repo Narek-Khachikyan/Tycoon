@@ -133,7 +133,7 @@ export const overheatStunMult = (state: GameState, now: number): number => {
   if (left > OVERHEAT_STUN_SEC * 1000) return 1;
   // Линейное затухание: к концу окна штраф доходит до нуля ровно в момент, когда он снимается.
   const t = 1 - left / (OVERHEAT_STUN_SEC * 1000);
-  return 1 - HEAT_PENALTY * (1 - t);
+  return 1 - HEAT_PENALTY * t;
 };
 
 export function clampTemp(temp: number): number {

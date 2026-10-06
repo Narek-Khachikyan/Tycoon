@@ -51,7 +51,7 @@ import {
 import { formatCount, formatNumber } from './format';
 import { GENERATIONS } from '../data/generations';
 import { LAB_IDS, type LabId } from '../data/labs';
-import { HEAT_COOL_SEC, heatRate, OVERHEAT_STUN_SEC, TEMP_MAX, TEMP_START, TEMP_YIELD_MAX } from './thermal';
+import { HEAT_COOL_SEC, HEAT_PENALTY, heatRate, OVERHEAT_STUN_SEC, overheatStunMult, TEMP_MAX, TEMP_START, TEMP_YIELD_MAX } from './thermal';
 import { claimMilestones, MILESTONES, nextMilestone } from './milestones';
 import { GEN_SCALE } from './catalog';
 
@@ -2111,6 +2111,39 @@ describe('assist click branch', () => {
   });
 });
 
+describe('upgrades of other generations', () => {
+  it('rejects a far-generation upgrade without touching tokens', () => {
+    // Апгрейд дальнего Поколения разблокирован по кошельку, но принадлежит чужому
+    // Поколению: покупка обязана вернуть тот же объект, а не списать Токены за
+    // Апгрейд, который не читает ни одно правило текущего Поколения.
+    const farId = clickUpgradeId(CATALOG.length - 1, 0);
+    const cost = UPGRADE_BY_ID[farId].cost;
+    const s: GameState = { ...cold(newGame(T0)), tokens: cost * 2, runTokens: cost * 4 };
+    expect(isUpgradeUnlocked(s, UPGRADE_BY_ID[farId])).toBe(true);
+    const next = buyUpgrade(s, farId);
+    expect(next).toBe(s);
+    expect(next.tokens).toBe(s.tokens);
+  });
+  it('buys the same upgrade normally in every generation', () => {
+    // Тот же вид Апгрейда своего Поколения покупается как раньше во всех Поколениях.
+    for (const g of CATALOG) {
+      const id = clickUpgradeId(g.index, 0);
+      const cost = UPGRADE_BY_ID[id].cost;
+      const s: GameState = {
+        ...cold(newGame(T0)),
+        generation: g.index,
+        maxGeneration: g.index,
+        tokens: cost * 2,
+        runTokens: cost * 4,
+      };
+      const bought = buyUpgrade(s, id);
+      expect(bought).not.toBe(s);
+      expect(bought.upgrades).toContain(id);
+      expect(bought.tokens).toBeCloseTo(cost);
+    }
+  });
+});
+
 describe('dataset', () => {
   const withAchievements = (s: GameState, n: number): GameState => ({
     ...s,
@@ -2534,6 +2567,28 @@ describe('temperature', () => {
     const healed = over(justBoiled, OVERHEAT_STUN_SEC + 1, 0);
     expect(totalIncome(healed) / rate).toBeCloseTo(1, 6);
     expect(healed.temp).toBe(0);
+  });
+
+  it('stuns hardest right after the overheat and fades to zero without a jump', () => {
+    // Форма штрафа оглушения: максимум сразу после сброса, ноль к концу окна, без
+    // скачка в момент снятия. Проверяются оба конца окна, а не только «меньше единицы».
+    const boiled: GameState = { ...cold(newGame(T0)), overheatedAt: T0 };
+    const windowMs = OVERHEAT_STUN_SEC * 1000;
+    expect(overheatStunMult(boiled, T0)).toBeCloseTo(1 - HEAT_PENALTY, 6);
+    expect(overheatStunMult(boiled, T0 + windowMs - 1)).toBeCloseTo(1, 2);
+    // Непрерывность на границе: штраф уже сошёл, поэтому снятие ничего не прыгает.
+    expect(Math.abs(overheatStunMult(boiled, T0 + windowMs - 1) - overheatStunMult(boiled, T0 + windowMs + 1))).toBeLessThan(0.01);
+    // Монотонное затухание внутри окна: игрок теряет Доход за перегрев, а не за остывание.
+    const mid = overheatStunMult(boiled, T0 + windowMs / 2);
+    expect(mid).toBeGreaterThan(1 - HEAT_PENALTY);
+    expect(mid).toBeLessThan(1);
+    expect(overheatStunMult(boiled, T0 + windowMs / 4)).toBeLessThan(mid);
+    // Суммарная потеря за окно — треугольник P·W/2: чинится форма, а не баланс.
+    // Замер серединами отрезков: для линейной формы это точно, без смещения левых сумм.
+    const steps = 350;
+    let loss = 0;
+    for (let i = 0; i < steps; i++) loss += 1 - overheatStunMult(boiled, T0 + ((i + 0.5) * windowMs) / steps);
+    expect((loss * windowMs) / steps).toBeCloseTo((HEAT_PENALTY * windowMs) / 2, 0);
   });
 
   it('takes a share of the wallet on a hallucination, and never goes negative', () => {

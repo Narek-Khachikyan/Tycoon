@@ -42,8 +42,11 @@ export const ThermalSparks: React.FC = () => {
   useEffect(() => {
     allowed.current = motionAllowed();
     const mq = reduceMotionMedia();
-    mq?.addEventListener('change', () => { allowed.current = motionAllowed(); });
-    return () => mq?.removeEventListener('change', () => {});
+    // Именованный обработчик, а не две стрелки: removeEventListener с чужой функцией
+    // молча ничего не снимает, и каждое перемонтирование оставляло живой слушатель.
+    const onChange = () => { allowed.current = motionAllowed(); };
+    mq?.addEventListener('change', onChange);
+    return () => mq?.removeEventListener('change', onChange);
   }, []);
 
   if (!allowed.current && heat < TIER_AT[1]) return null;

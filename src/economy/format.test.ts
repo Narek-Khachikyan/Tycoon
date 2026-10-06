@@ -141,4 +141,44 @@ describe('format: цена никогда не меньше списания', (
     expect(price(-10.5)).toBe('-11');
     expect(tokenWord(-10.5)).toBe('Токенов');
   });
+
+  it('слово следует за напечатанным в обеих нотациях и обоих режимах', () => {
+    // Сайты без notation читали слово по short-записи при числе в sci: «2.71e19 Токенов»
+    // вместо «Токена». Цена Клика и остаток до Compute при этом считаются как цены —
+    // слово обязано следовать за округлённой вверх печатью, а не за сырым числом.
+    const nums = [2.71e19, 4.71e25, 3.008e47, 2.1999e19, 1e21, 1.5, 10.5, 1.9999999999999998];
+    let diverged = 0;
+    for (const mode of ['number', 'price'] as const) {
+      for (const notation of ['short', 'sci'] as const) {
+        for (const n of nums) {
+          // Целая часть головы печати, без экспоненты и суффикса: форма смотрит на неё.
+          const head = formatNumber(n, notation, mode).split(/[e ]/)[0].replace(',', '.');
+          const whole = Math.floor(Number(head));
+          const last = whole % 10;
+          const tens = whole % 100;
+          const expected =
+            last === 1 && tens !== 11
+              ? 'Токен'
+              : last >= 2 && last <= 4 && (tens < 12 || tens > 14)
+                ? 'Токена'
+                : 'Токенов';
+          expect(formatCount(n, 'Токен', 'Токена', 'Токенов', notation, mode)).toBe(expected);
+        }
+      }
+      // Набор обязан содержать числа, где окончание различается между нотациями, —
+      // иначе проверка прошла бы и без прогона второй нотации.
+      for (const n of nums) {
+        if (
+          formatCount(n, 'Токен', 'Токена', 'Токенов', 'short', mode) !==
+          formatCount(n, 'Токен', 'Токена', 'Токенов', 'sci', mode)
+        ) {
+          diverged += 1;
+        }
+      }
+    }
+    expect(diverged).toBeGreaterThan(0);
+    // Якоря: одно и то же число читается по-разному, но правильно в каждой нотации.
+    expect(formatCount(2.71e19, 'Токен', 'Токена', 'Токенов', 'short', 'price')).toBe('Токенов');
+    expect(formatCount(2.71e19, 'Токен', 'Токена', 'Токенов', 'sci', 'price')).toBe('Токена');
+  });
 });

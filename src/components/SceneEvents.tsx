@@ -111,7 +111,7 @@ export const SceneGlitchBand: React.FC = () => {
       </span>
       <span style={{ color: 'var(--text-muted)' }}>
         унесли <Num>{formatNumber(stolen, notation)}</Num>{' '}
-        {formatCount(Math.round(stolen), 'Токен', 'Токена', 'Токенов')}
+        {formatCount(stolen, 'Токен', 'Токена', 'Токенов', notation)}
       </span>
     </div>
   );
@@ -171,6 +171,7 @@ const glitchReply = (clicks: number, hovered: boolean, motion: boolean): number 
 export const SceneGlitchSwarm: React.FC = () => {
   const state = useGameStore((s) => s.state);
   const hitGlitch = useGameStore((s) => s.hitGlitch);
+  const notation = state.settings.notation;
   const motion = useMotionAllowed();
   const [plateRef, plate] = usePlateSize();
   const [hovered, setHovered] = useState<number | null>(null);
@@ -220,8 +221,8 @@ export const SceneGlitchSwarm: React.FC = () => {
               onMouseLeave={() => setHovered((cur) => (cur === g.id ? null : cur))}
               onFocus={() => setHovered(g.id)}
               onBlur={() => setHovered((cur) => (cur === g.id ? null : cur))}
-              aria-label={`Глюк: осталось ${left} ${formatCount(left, 'удар', 'удара', 'ударов')}`}
-              title={`Осталось ${left} ${formatCount(left, 'удар', 'удара', 'ударов')} — кликни, чтобы лопнул`}
+              aria-label={`Глюк: осталось ${left} ${formatCount(left, 'удар', 'удара', 'ударов', notation)}`}
+              title={`Осталось ${left} ${formatCount(left, 'удар', 'удара', 'ударов', notation)} — кликни, чтобы лопнул`}
               style={{
                 display: 'flex',
                 flexDirection: 'column',

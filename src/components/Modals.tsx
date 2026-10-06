@@ -596,8 +596,8 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
     [
       'До +1 Compute осталось',
       <>
-        <Num key="toNext">{formatNumber(toNextUnit, notation)}</Num>{' '}
-        {formatCount(Math.round(toNextUnit), 'Токен', 'Токена', 'Токенов')}
+        <Num key="toNext">{formatNumber(toNextUnit, notation, 'price')}</Num>{' '}
+        {formatCount(toNextUnit, 'Токен', 'Токена', 'Токенов', notation, 'price')}
       </>,
     ],
     ['Событий выпало', <Num key="eventsSeen">{formatNumber(state.eventsSeen, notation)}</Num>],
@@ -722,36 +722,76 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   const [copyStatus, setCopyStatus] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [confirmReset, setConfirmReset] = useState(false);
+  // Подтверждение импорта — то же переходное состояние, что и подтверждение сброса:
+  // переживать закрытие оно не обязано, иначе следующее открытие встретило бы игрока
+  // armed-кнопкой «точно заменить» вместо обычного импорта.
+  const [confirmImport, setConfirmImport] = useState(false);
+  // id таймера сброса «Скопировано»: окно при закрытии не размонтируется (возвращает
+  // null, а состояние живёт), поэтому висящий таймер дотянулся бы до следующей сессии
+  // и погасил статус свежей копии. Реф + гашение в cleanup ниже и перед перевзведением.
+  const copyTimer = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!isOpen) setConfirmReset(false);
+    if (!isOpen) {
+      setConfirmReset(false);
+      setConfirmImport(false);
+      setErrorMsg('');
+      // Подтверждение копирования — переходное: переживать закрытие оно не обязано.
+      setCopyStatus(false);
+    }
+    // Cleanup бежит и на смену isOpen, и на размонтирование: в обоих случаях сбросу
+    // чужой сессии срабатывать не на чем — он уже погашен здесь.
+    return () => {
+      if (copyTimer.current !== null) {
+        clearTimeout(copyTimer.current);
+        copyTimer.current = null;
+      }
+    };
   }, [isOpen]);
 
   if (!isOpen) return null;
 
   const handleExport = () => {
     const code = exportSave(state);
-    navigator.clipboard.writeText(code).then(() => {
-      setCopyStatus(true);
-      setTimeout(() => setCopyStatus(false), 2000);
-    });
+    navigator.clipboard.writeText(code).then(
+      () => {
+        // Повторная копия перевзводит таймер: иначе первый же таймер погасил бы статус
+        // свежей копии раньше её двух секунд.
+        if (copyTimer.current !== null) clearTimeout(copyTimer.current);
+        setErrorMsg('');
+        setCopyStatus(true);
+        copyTimer.current = setTimeout(() => {
+          copyTimer.current = null;
+          setCopyStatus(false);
+        }, 2000);
+      },
+      // Отказ буфера (запрет доступа, документ не в фокусе) виден игроку тем же
+      // предупреждением, что и битый код импорта: молчание читалось бы как сломанная кнопка.
+      () => {
+        setErrorMsg('Не удалось скопировать: браузер запретил доступ к буферу обмена.');
+      },
+    );
   };
 
   const handleImport = () => {
     setErrorMsg('');
     const trimmed = importCode.trim();
     if (!trimmed) return;
-    if (state.totalTokens > 0 || state.prestiges > 0) {
-      if (!window.confirm('Импортировать сохранение? Текущий Забег и весь прогресс будут полностью заменены.')) {
-        return;
-      }
+    // Подтверждение рисуется внутри игры, как у сброса: системный диалог блокирующий,
+    // оформлен системой, на английской системе говорит по-английски, а во встроенных
+    // просмотрах вообще не показывается.
+    if ((state.totalTokens > 0 || state.prestiges > 0) && !confirmImport) {
+      setConfirmImport(true);
+      return;
     }
     const ok = importSaveData(trimmed);
     if (ok) {
       setImportCode('');
+      setConfirmImport(false);
       requestClose();
     } else {
-      setErrorMsg('Неверный код сохранения!');
+      // Отказ виден и не трогает забег: importSaveData возвращает false, не меняя состояние.
+      setErrorMsg('Неверный код сохранения: в нём нет знакомого прогресса. Текущий Забег не тронут.');
     }
   };
 
@@ -889,7 +929,12 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
               <input
                 type="text"
                 value={importCode}
-                onChange={(e) => setImportCode(e.target.value)}
+                onChange={(e) => {
+                  setImportCode(e.target.value);
+                  // Протухшая жалоба на прошлый код не должна встречать следующий:
+                  // показ ошибки принадлежит текущей попытке, а не полю.
+                  if (errorMsg) setErrorMsg('');
+                }}
                 style={{
                   flex: 1,
                   minWidth: 0,
@@ -905,6 +950,35 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
                 Импорт
               </button>
             </div>
+            {/* Второе нажатие подтверждает замену забега — тем же двухшаговым
+                подтверждением, что и сброс выше, а не системным диалогом. */}
+            {confirmImport && (
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '6px' }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Текущий Забег и весь прогресс будут полностью заменены.
+                </span>
+                <button
+                  onClick={handleImport}
+                  className="pixel-btn"
+                  style={{
+                    backgroundColor: 'var(--red-solid)',
+                    borderColor: 'var(--red)',
+                    color: 'var(--text-main)',
+                    padding: '8px 12px',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  Точно заменить?
+                </button>
+                <button
+                  onClick={() => setConfirmImport(false)}
+                  className="pixel-btn"
+                  style={{ padding: '8px 12px' }}
+                >
+                  Отмена
+                </button>
+              </div>
+            )}
           </label>
           {errorMsg && (
             <div

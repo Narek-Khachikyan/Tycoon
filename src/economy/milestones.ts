@@ -94,7 +94,7 @@ export const MILESTONES: Milestone[] = [
   {
     id: 'ms_roster',
     title: 'Возьми по Агенту каждой Модели',
-    hint: '«Полный зоопарк»: восемь карточек, восемь галочек',
+    hint: '«Полный зоопарк»: по карточке каждой Модели ростера',
     units: 6_000,
     check: (s) => CATALOG[s.generation].models.every((m) => (s.agents[m.id] ?? 0) > 0),
   },
@@ -137,6 +137,17 @@ export function claimableMilestones(s: GameState): Milestone[] {
  */
 export function milestoneReward(s: GameState, m: Milestone): number {
   return m.units * CATALOG[s.generation].scale;
+}
+
+/**
+ * Подсказка к вехе с учётом текущего состояния игры (например, размера ростера поколения).
+ */
+export function milestoneHint(s: GameState, m: Milestone): string {
+  if (m.id === 'ms_roster') {
+    const count = CATALOG[s.generation].models.length;
+    return `«Полный зоопарк»: ${count} карточек, ${count} галочек`;
+  }
+  return m.hint;
 }
 
 /**

@@ -416,9 +416,11 @@ export function labIncomeShare(state: GameState, lab: LabId): number {
   return total === 0 ? 0 : labIncome(state, lab, now) / total;
 }
 
-export function clickValue(state: GameState, income = totalIncome(state), now: number = state.lastTick): number {
+export function clickValue(state: GameState, income?: number, now: number = state.lastTick): number {
   // Испытание «Забег без Кликов»: Клик стоит ноль и в подписи магазина, а не только в выплате, —
   // иначе витрина обещала бы Токены, которых переход не даст.
+  // Проверка стоит первой и до подсчёта income: иначе даже нулевой Клик считал бы полный
+  // Доход через дефолтный аргумент на каждом тике теневого Достижения.
   if (state.activeChallenge === 'no-click') return 0;
   const gen = state.generation;
   // Клик стартует с масштаба Поколения, а не с 1: в Поколении 0 это 1, а дальше ×1000, и
@@ -434,7 +436,11 @@ export function clickValue(state: GameState, income = totalIncome(state), now: n
   for (const e of perkEffects(state.perks)) if (e.kind === 'clickMult') flat *= e.mult;
   // Датасет множит только flat-часть: pct-часть уже содержит его через income.
   flat *= datasetMult(state);
-  return clickMultiplierFor(state, now) * (flat * globalMult(state) + income * pct + clickCatchUp(state, now));
+  // Доход нужен только pct-части: без Апгрейдов «+1% дохода за клик» полный проход по Моделям
+  // на каждом тике и на каждой проверке тени — пустая трата, и тик позднего Поколения платил бы
+  // её двадцать раз в секунду. Ленивый подсчёт: та же сумма, но только когда она умножается.
+  const rate = pct > 0 ? (income ?? totalIncome(state)) : 0;
+  return clickMultiplierFor(state, now) * (flat * globalMult(state) + rate * pct + clickCatchUp(state, now));
 }
 
 /**
@@ -514,7 +520,11 @@ export function sellAgents(state: GameState, modelId: string, n: number): GameSt
 
 export function buyUpgrade(state: GameState, id: string): GameState {
   const u = UPGRADE_BY_ID[id];
-  if (!u || hasUpgrade(state, id) || u.cost > state.tokens || !isUpgradeUnlocked(state, u)) return state;
+  if (!u) return state;
+  // Апгрейд чужого Поколения не продаётся: список содержит все Поколения сразу, а читают
+  // Апгрейды только правила текущего — купленный чужой лежал бы мёртвым грузом за полную цену.
+  if (!UPGRADES_BY_GEN[state.generation].some((x) => x.id === id)) return state;
+  if (hasUpgrade(state, id) || u.cost > state.tokens || !isUpgradeUnlocked(state, u)) return state;
   return { ...state, tokens: state.tokens - u.cost, upgrades: [...state.upgrades, id] };
 }
 
@@ -559,8 +569,15 @@ function buyGenPerk(state: GameState, id: string): GameState {
  * Отдельного `now` здесь нет намеренно: тик — единственное место, где интервал известен целиком,
  * а все читатели временных множителей смотрят тот же `lastTick`.
  */
+export function isValidInterval(dt: unknown): dt is number {
+  return typeof dt === 'number' && Number.isFinite(dt) && dt > 0;
+}
+
 export function advance(state: GameState, dt: number, rnd: () => number = Math.random): GameState {
-  if (dt <= 0) return state;
+  // Один guard на не-числа: NaN проходит проверку неположительности (NaN <= 0 ложно) и дальше
+  // травит Токены/часы/счётчики в NaN, а сейв пишет null. Тик с NaN — no-op с тем же объектом.
+  if (!isValidInterval(dt)) return state;
+  if (!Number.isFinite(state.lastTick)) return state;
   const now = state.lastTick + dt * 1000;
   const rate = incomeRate(state, now);
   const glitch = glitchDrainMult(state);
@@ -618,7 +635,8 @@ function applyHallucination(state: GameState): GameState {
  * ещё и 4% кошелька за событие, которое тут же началось с нуля.
  */
 export function advanceThermal(state: GameState, dt: number, rnd: () => number, now: number): GameState {
-  if (dt <= 0) return state;
+  if (!Number.isFinite(dt) || dt <= 0) return state;
+  if (!Number.isFinite(now)) return state;
   const temp = clampTemp(state.temp);
   // Нижняя граница обязательна: без неё перегрев уходил бы в минус, и отрицательный
   // перегрев резал бы Доход сильнее полного — то есть охлаждение платило бы игроку.
@@ -656,6 +674,29 @@ export function offlineRateMult(state: GameState): number {
 
 /** Начисляет Оффлайн-доход за время с `lastTick` до `now`, с лимитом. */
 export function applyOffline(state: GameState, now: number): { state: GameState; seconds: number; earned: number } {
+  // Не-числа и откат часов Токенов не создают: отметка из будущего притягивается к now без
+  // выплаты, а не-число — no-op с тем же объектом, иначе NaN уходил в сейв как null.
+  if (!Number.isFinite(now) || !Number.isFinite(state.lastTick)) return { state, seconds: 0, earned: 0 };
+  if (now < state.lastTick) {
+    const s = collectCrystals(state, now).state;
+    // Будущие окна тоже притягиваются назад, иначе событие/кристалл жили бы впереди часов:
+    // отметка уже притянута через lastTick, а расписание чинит загрузка (migrate) тем же now.
+    return {
+      state: {
+        ...s,
+        lastTick: now,
+        startedAt: Math.min(s.startedAt, now),
+        runStartedAt: Math.min(s.runStartedAt, now),
+        crystalPlantedAt: Math.min(s.crystalPlantedAt, now),
+        pledgeUntil: Math.min(s.pledgeUntil, now),
+        nextEventAt: Math.min(s.nextEventAt, now),
+        nextGlitchAt: Math.min(s.nextGlitchAt, now),
+        overheatedAt: Math.min(s.overheatedAt, now),
+      },
+      seconds: 0,
+      earned: 0,
+    };
+  }
   const raw = Math.max(0, (now - state.lastTick) / 1000);
   const seconds = Math.min(raw, offlineCapHours(state) * 3600);
   // Именно offlineIncome, а не totalIncome: временные множители события и Глюков живут минуты,
@@ -745,7 +786,8 @@ function rollRed(state: GameState, now: number, rnd: () => number): boolean {
  * проверяться тестами, не завися от случайности, а вызывающий (стор) его не передаёт вовсе.
  */
 export function advanceTime(state: GameState, dt: number, rnd: () => number = Math.random): GameState {
-  if (dt <= 0) return state;
+  if (!isValidInterval(dt)) return state;
+  if (!Number.isFinite(state.lastTick)) return state;
   const now = state.lastTick + dt * 1000;
   const moved = dt < OFFLINE_THRESHOLD_SEC ? advance(state, dt, rnd) : applyOffline(state, now).state;
   const scheduled = advanceEvents(moved, now, rnd);
@@ -832,9 +874,15 @@ export function claimMilestoneRewards(state: GameState): { state: GameState; tot
   return { state: claimed, total, claimed: list };
 }
 
-export function prestige(state: GameState, now: number): GameState {
+export function prestige(state: GameState, now: number = state.lastTick): GameState {
   // На финальном Поколении перехода дальше нет: обнулять забег без нового Поколения нельзя.
   if (!canPrestige(state) || isContentFinale(state)) return state;
+  // Один источник часов: тик считает dt по игровым часам (lastTick + dt), поэтому Престиж
+  // обязан ставить lastTick/runStartedAt из тех же часов, а не из Date.now() — иначе
+  // неотработанное время между последним тиком и стенными часами сдвигало Лобби, окно Глюка
+  // и созревание кристалла мимо их циклов. Дефолт — игровые часы; явный now нужен только
+  // тестам, которые двигают часы вручную.
+  const clock = Number.isFinite(now) ? now : state.lastTick;
   const next = Math.min(state.generation + 1, LAST_GENERATION);
   // Испытание закрывается Престижем: активное дописывается в закрытые без дублей, иначе повторный
   // забег с тем же Испытанием платил бы награду дважды. Переписка при этом не трогается —
@@ -866,7 +914,7 @@ export function prestige(state: GameState, now: number): GameState {
     eventCaughtAt: 0,
     nextEventAt: 0,
     combo: 0,
-    runStartedAt: now,
-    lastTick: now,
+    runStartedAt: clock,
+    lastTick: clock,
   };
 }

@@ -1729,6 +1729,14 @@ body {
   background-image: linear-gradient(var(--tint-press), var(--tint-press));
 }
 
+[data-motion='reduced'] .thermal-dial__fill {
+  transition: none;
+}
+
+[data-motion='reduced'] .thermal-dial__handle {
+  transition: none;
+}
+
 [data-motion='reduced'] .floater {
   animation: float-fade 0.9s ease-out forwards;
 }

@@ -39,7 +39,11 @@ export const CRYSTAL_UPGRADE_BY_ID: Record<string, CrystalUpgrade> = Object.from
 export function crystalCycleMs(state: GameState): number {
   let cycle = CRYSTAL_CYCLE_MS;
   for (const id of state.crystalUpgrades) {
-    const u = CRYSTAL_UPGRADE_BY_ID[id];
+    // Проверка — hasOwn, а не truthiness: CRYSTAL_UPGRADE_BY_ID['toString'] — это функция
+    // с прототипа, а её cycleMs — undefined, и Math.min с ним ронял цикл в NaN: кристалл
+    // «дозревал» каждый тик. Белый список в save.ts таких id уже не пропускает, но цикл
+    // обязан оставаться числом при любом содержимом списка.
+    const u = Object.hasOwn(CRYSTAL_UPGRADE_BY_ID, id) ? CRYSTAL_UPGRADE_BY_ID[id] : undefined;
     if (u) cycle = Math.min(cycle, u.cycleMs);
   }
   return cycle;
@@ -74,7 +78,7 @@ export function collectCrystals(state: GameState, now: number): { state: GameSta
 }
 
 export function buyCrystalUpgrade(state: GameState, id: string): GameState {
-  const u = CRYSTAL_UPGRADE_BY_ID[id];
+  const u = Object.hasOwn(CRYSTAL_UPGRADE_BY_ID, id) ? CRYSTAL_UPGRADE_BY_ID[id] : undefined;
   if (!u || state.crystalUpgrades.includes(id) || u.cost > state.crystals) return state;
   return { ...state, crystals: state.crystals - u.cost, crystalUpgrades: [...state.crystalUpgrades, id] };
 }

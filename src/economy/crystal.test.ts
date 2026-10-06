@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CATALOG } from './catalog';
 import { buyAgents, offlineIncome, shatterCrystal } from './engine';
-import { crystalIncomeMult } from './crystal';
+import { collectCrystals, CRYSTAL_CYCLE_MS, crystalCycleMs, crystalIncomeMult } from './crystal';
 import { newGame, type GameState } from './state';
 
 const T0 = 1_000_000;
@@ -49,5 +49,18 @@ describe('shatterCrystal', () => {
     expect(after).not.toBe(s);
     expect(after.crystals).toBe(0);
     expect(after.tokens).toBe(0);
+  });
+});
+
+describe('foreign crystal ids', () => {
+  it('keeps the cycle numeric when the upgrade list holds a prototype key', () => {
+    // 'toString' с прототипа — truthy-функция без cycleMs: Math.min с undefined ронял цикл
+    // в NaN, и кристалл «дозревал» каждый тик. Белый список в save.ts таких id уже режет,
+    // но цикл обязан оставаться числом при любом содержимом списка.
+    const s: GameState = { ...newGame(T0), crystalUpgrades: ['toString', '__proto__', 'constructor'] };
+    expect(crystalCycleMs(s)).toBe(CRYSTAL_CYCLE_MS);
+    const planted = { ...s, crystalPlantedAt: T0 };
+    // Цикл не прошёл — сбора нет: NaN-цикл собирал бы здесь бесплатный кристалл.
+    expect(collectCrystals(planted, T0 + 1000).grown).toBe(0);
   });
 });

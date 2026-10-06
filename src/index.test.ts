@@ -126,3 +126,69 @@ describe('index.css', () => {
     });
   });
 });
+
+// Источники ниже читаются как текст намеренно: в node-окружении vitest компоненты
+// не смонтировать (нет jsdom и Testing Library, а конфиг запускает только
+// src/**/*.test.ts), поэтому проводку очистки — тот же обработчик в снятии,
+// гашение таймера при закрытии — проверяем структурно, а не поведением.
+// Это тот же приём, что и проверки css выше: ловится класс поломки, а не строка.
+const sparks = readFileSync(new URL('./components/ThermalSparks.tsx', import.meta.url).pathname, 'utf8');
+const modals = readFileSync(new URL('./components/Modals.tsx', import.meta.url).pathname, 'utf8');
+
+/**
+ * Таймеры и слушатели убираются за собой (issue #70).
+ *
+ * Два дефекта одного класса: слушатель медиазапроса снимался другой стрелкой
+ * (removeEventListener с чужой функцией молча ничего не снимает — при каждом
+ * перемонтировании оставался живой слушатель), а таймер сброса статуса копирования
+ * не гасился при закрытии окна Настроек (окно не размонтируется, состояние живёт —
+ * закрытие с переоткрытием в течение 2 с гасило статус свежей копии).
+ */
+describe('timers and listeners clean up after themselves', () => {
+  it('removes the media listener with the same handler it added', () => {
+    // Требуется именно идентификатор, а не «что-то передано»: две стрелки выглядят
+    // как пара, но для removeEventListener это разные функции.
+    const handlerOf = (verb: 'add' | 'remove'): string[] =>
+      [
+        ...sparks.matchAll(
+          new RegExp(`${verb}EventListener\\('change',\\s*([A-Za-z_$][\\w$]*)\\s*\\)`, 'g'),
+        ),
+      ].map((m) => m[1]);
+    const adds = handlerOf('add');
+    const removes = handlerOf('remove');
+    expect(adds.length, `addEventListener('change', <имя>) обязан быть один: ${JSON.stringify(adds)}`).toBe(1);
+    expect(removes.length, `removeEventListener('change', <имя>) обязан быть один: ${JSON.stringify(removes)}`).toBe(1);
+    expect(removes[0], 'снимается другой обработчик — слушатель не снимется вовсе').toBe(adds[0]);
+    expect(sparks.includes(`const ${adds[0]} =`), `обработчик ${adds[0]} обязан быть именованным`).toBe(true);
+  });
+
+  it('leaves no live media listener across remounts', () => {
+    // Один add на монтирование плюс снятие в возврате эффекта: контракт эффектов React
+    // (cleanup перед перезапуском и при размонтировании, в StrictMode монтирование
+    // вообще двойное) превращает это в ноль живых слушателей после любого числа
+    // перемонтирований. Проверка выше уже доказала «тем же обработчиком», здесь —
+    // «в возврате эффекта и ровно одна подписка».
+    const adds = (sparks.match(/addEventListener\('change'/g) ?? []).length;
+    expect(adds, 'подписка на смену настройки обязана быть одна на монтирование').toBe(1);
+    expect(
+      sparks,
+      'снятие обязано жить в возврате эффекта, иначе перемонтирование его не зовёт',
+    ).toMatch(/return \(\) => mq\?\.removeEventListener\('change',\s*[A-Za-z_$][\w$]*\)/);
+  });
+
+  it('clears the copy-status timer when Settings closes', () => {
+    // id таймера обязан лежать в рефе: без него закрытию гасить нечего.
+    expect(
+      modals,
+      'таймер сброса «Скопировано» не отслеживается: id setTimeout обязан лежать в рефе',
+    ).toMatch(/copyTimer\.current\s*=\s*(?:window\.)?setTimeout/);
+    // Два гашения: cleanup эффекта (закрытие окна и размонтирование) и перевзведение
+    // при повторной копии (иначе старый таймер гасит статус свежей копии).
+    const clears = (modals.match(/clearTimeout\(copyTimer\.current\)/g) ?? []).length;
+    expect(clears, `нужно два гашения (cleanup + перевзведение), найдено ${clears}`).toBeGreaterThanOrEqual(2);
+    expect(
+      modals,
+      'таймер обязан гаситься в cleanup эффекта, иначе закрытие его не зовёт',
+    ).toMatch(/return \(\) => \{[\s\S]*?clearTimeout\(copyTimer\.current\)/);
+  });
+});
