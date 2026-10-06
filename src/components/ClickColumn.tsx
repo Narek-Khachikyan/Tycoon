@@ -290,8 +290,8 @@ className="pixel-btn pixel-btn-accent pulse-glow click-btn"
               видит буквально на первой кнопке первой минуты. Величина может быть дробной
               («1,44 B»), и там множественное верно, поэтому одна форма на «1» сломала бы
               вторую половину диапазона. */}
-          +<Num>{formatNumber(cVal, notation)}</Num>{' '}
-          {formatCount(Math.floor(cVal), 'Токен', 'Токена', 'Токенов')} за клик
+          +<Num>{formatNumber(cVal, notation, 'price')}</Num>{' '}
+          {formatCount(cVal, 'Токен', 'Токена', 'Токенов', notation, 'price')} за клик
         </span>
       </button>
 

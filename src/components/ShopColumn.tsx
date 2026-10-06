@@ -640,7 +640,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       <div style={{ fontSize: '1.2rem' }}>
                         <Num>{owned}</Num>
                       </div>
-                      <div>{formatCount(owned, 'Агент', 'Агента', 'Агентов')}</div>
+                      <div>{formatCount(owned, 'Агент', 'Агента', 'Агентов', notation)}</div>
                     </div>
                   </div>
 
@@ -1289,8 +1289,8 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                             'Куплено'
                           ) : (
                             <>
-                              Купить (<Num>{formatNumber(u.cost, notation)}</Num>{' '}
-                              {formatCount(u.cost, 'кристалл', 'кристалла', 'кристаллов')})
+                              Купить (<Num>{formatNumber(u.cost, notation, 'price')}</Num>{' '}
+                              {formatCount(u.cost, 'кристалл', 'кристалла', 'кристаллов', notation, 'price')})
                             </>
                           )}
                         </button>

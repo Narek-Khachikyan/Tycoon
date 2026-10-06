@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { motionAllowed, useGameStore, type ToastMessage } from '../store/useGameStore';
+import { TOAST_MARGIN, toastStackWidth } from '../layout';
 import { Icon } from './Icon';
 import { Num } from './Num';
 
@@ -120,7 +121,14 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void 
         alignItems: 'center',
         gap: '10px',
         cursor: 'pointer',
-        maxWidth: '320px',
+        // Карточка не шире стека: сам стек уже ограничен расчётом колонок
+        // (см. `toastStackWidth`), а здесь предел — доля, а не пиксели, иначе на
+        // 320 px замороженное число снова увело бы правый край за экран.
+        maxWidth: '100%',
+        // Длинная строка обязана переноситься внутри карточки: горизонтальной
+        // прокрутки в игре нет, и обрезанный текст было бы не доскроллить.
+        overflowWrap: 'break-word',
+        minWidth: 0,
       }}
     >
       <Icon name="trophy" size={22} />
@@ -159,12 +167,14 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void 
  * стопка закрывала две трети шкалы Температуры. Магическое число не может быть правильным на
  * всех раскладках — их четыре, и колонка растёт вместе с полосой Вех.
  *
- * Полоса, в которой стопка имеет право жить, — от верха счётчика Токенов до верха шкалы
- * Температуры. Измерена: счётчик занимает 93 px (число, подпись «Токенов», Доход и подсказка),
- * и на десктопе полоса равна 234 px. Карточка с трёхстрочным описанием — 117 px, счётчик
- * очереди — 32, зазоры — 8: две карточки в полосу не влезают, а одна влезает с запасом.
- * Поэтому количество видимых считается из полосы, а не задаётся: полоса меняется вместе с
- * раскладкой, длиной описания и появлением полосы Вех.
+ * Полоса, в которой стопка имеет право жить, — от низа счётчика Токенов до верха шкалы
+ * Температуры. Верх полосы — именно низ счётчика, а не его верх: стопка, начинавшаяся ровно
+ * на счётчике, перекрывала число Токенов и Доход целиком, а комментарий при этом объяснял
+ * размещение заботой о магазине — то есть перекрытие задумано не было. Счётчик занимает
+ * 93 px (число, подпись «Токенов», Доход и подсказка), карточка с трёхстрочным описанием —
+ * 117 px, счётчик очереди — 32, зазоры — 8: две карточки в полосу не влезают, а одна
+ * влезает с запасом. Поэтому количество видимых считается из полосы, а не задаётся: полоса
+ * меняется вместе с раскладкой, длиной описания и появлением полосы Вех.
  *
  * Измеряется по событиям раскладки — `ResizeObserver` и изменение окна, — а не по таймеру:
  * собственный таймер здесь означал бы шестое место, где что-то перерисовывается двадцать раз
@@ -172,19 +182,23 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void 
  */
 const CARD_BUDGET = 128;
 
-function useStackBand(): { top: number; slots: number } {
-  const measure = React.useCallback((): { top: number; slots: number } | null => {
+function useStackBand(): { top: number; slots: number; width: number } {
+  const measure = React.useCallback((): { top: number; slots: number; width: number } | null => {
     const counter = document.querySelector<HTMLElement>('.click-counter');
     // Шкала — нижняя граница полосы. Если её нет (например, вкладка без колонки Клика),
     // нижней границей становится сама кнопка: накрывать её тоже нельзя.
     const floor = document.querySelector<HTMLElement>('[role="slider"]') ?? document.querySelector<HTMLElement>('.click-btn');
     if (!counter) return null;
-    const top = Math.round(counter.getBoundingClientRect().top);
+    // Низ счётчика, а не верх: стопка живёт ПОД числом Токенов и Доходом, а не поверх них.
+    const rect = counter.getBoundingClientRect();
+    const top = Math.round(rect.bottom + TOAST_GAP);
     const floorTop = floor ? Math.round(floor.getBoundingClientRect().top) : window.innerHeight - 80;
-    return { top, slots: clamp(Math.floor((floorTop - top - TOAST_GAP) / CARD_BUDGET), 1, VISIBLE_TOASTS) };
+    // Ширина — из расчёта колонок, а не замороженным числом: расчёт уже держит её в окне.
+    const width = Math.round(toastStackWidth(window.innerWidth));
+    return { top, slots: clamp(Math.floor((floorTop - top - TOAST_GAP) / CARD_BUDGET), 1, VISIBLE_TOASTS), width };
   }, []);
 
-  const [band, setBand] = useState<{ top: number; slots: number } | null>(null);
+  const [band, setBand] = useState<{ top: number; slots: number; width: number } | null>(null);
 
   useEffect(() => {
     const update = () => setBand(measure());
@@ -204,8 +218,9 @@ function useStackBand(): { top: number; slots: number } {
   }, [measure]);
 
   // До первого измерения показывается одна карточка: это самый осторожный выбор, и он же
-  // переживает раскладку, где измерять нечего.
-  return band ?? { top: 0, slots: 1 };
+  // переживает раскладку, где измерять нечего. Ширина до измерения — тоже из расчёта
+  // колонок: первый кадр уже обязан помещаться в окно.
+  return band ?? { top: 0, slots: 1, width: Math.round(toastStackWidth(typeof window === 'undefined' ? 0 : window.innerWidth)) };
 }
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
@@ -253,7 +268,7 @@ export const Toasts: React.FC = () => {
 
   return (
     <>
-      {/* Стопка начинается у счётчика Токенов и идёт вниз. Правый нижний угол закрывал карточки
+      {/* Стопка начинается под счётчиком Токенов и идёт вниз. Правый нижний угол закрывал карточки
           магазина — то самое место, ради которого игрок смотрит на тост.
 
           `top` и количество карточек приходят из измерения (см. `useStackBand`), а не из CSS:
@@ -265,10 +280,13 @@ export const Toasts: React.FC = () => {
         className="toast-stack"
         style={{
           position: 'fixed',
-          left: '20px',
+          left: `${TOAST_MARGIN}px`,
           // Ширина по левой колонке, а не во всю окно: тост, растянувшийся под магазин,
-          // снова закрыл бы карточки, ради которых игрок его и читает.
-          width: '346px',
+          // снова закрыл бы карточки, ради которых игрок его и читает. Число — из расчёта
+          // колонок (см. `toastStackWidth`), а страховка держит стек в окне, даже если окно
+          // успели сузить между измерением и кадром.
+          width: `${band.width}px`,
+          maxWidth: `calc(100vw - ${TOAST_MARGIN * 2}px)`,
           top: band.top || undefined,
           // `bottom` обязан быть снят: вместе с `top` оба бы растянули стопку на весь экран,
           // и стопка накрыла бы всё, включая шкалу.

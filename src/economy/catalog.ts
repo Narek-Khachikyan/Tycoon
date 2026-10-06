@@ -172,13 +172,20 @@ export function buildCatalog(seeds: GenerationSeed[], snap: AASnapshot): Generat
     const scale = genScale(index);
     const merged = g.models.map((seed) => ({ seed, ...mergeSeed(seed, snap) }));
     merged.sort((a, b) => a.iq - b.iq || a.price - b.price);
-    const medPrice = median(merged.map((x) => x.price));
+    // Медиана только по положительным ценам: нулевые fallback (цена неизвестна) не должны
+    // обнулять её — иначе в Поколениях 1, 2, 4 медиана 0 и softMod вырождается в 1.0/1.3,
+    // а забеги до Престижа тянутся на 25–33% дольше. Ноль — это «цена неизвестна», а не
+    // «бесплатно», поэтому его модификатор нейтрален (1.0): иначе отсутствие данных
+    // награждалось бы скидкой 30%. Положительная цена — гладко 0.7–1.3 вокруг медианы,
+    // ±30% и монотонность по Рангу держатся (порядок чинит цикл ниже).
+    const positivePrices = merged.map((x) => x.price).filter((p) => p > 0);
+    const medPrice = positivePrices.length > 0 ? median(positivePrices) : 1;
     // Пройденный путь в ступенях, а не в долях: см. докблок над `LADDER_SPAN`. Единичный
     // ростер из одной Модели даёт нулевые ступени, и флагман такой Модели стоит базовой цены
     // с базовым Доходом — ровно правильный ответ.
     const steps = Math.max(1, merged.length - 1);
     const models: Model[] = merged.map((x, rank) => {
-      const costMod = softMod(x.price, medPrice, 0.5);
+      const costMod = x.price > 0 ? softMod(x.price, medPrice, 0.5) : 1;
       const span = (rank * LADDER_SPAN) / steps;
       return {
         id: x.seed.id,

@@ -833,7 +833,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
           <span style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
             <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
               {activeLabs.length}{' '}
-              {formatCount(activeLabs.length, 'Лаборатория', 'Лаборатории', 'Лабораторий')} в офисе
+              {formatCount(activeLabs.length, 'Лаборатория', 'Лаборатории', 'Лабораторий', notation)} в офисе
             </span>
             {/* Кнопка коллекции реплик: счётчик — длина quipsSeen, окно — локальное. */}
             <button

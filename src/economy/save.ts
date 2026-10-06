@@ -10,35 +10,58 @@ import { UPGRADE_BY_ID } from './upgrades';
 
 export const SAVE_KEY = 'ai-tycoon-save'; // Имя ключа — наследие AI Tycoon: переименование сотрёт живые прохождения, поэтому ключ не меняется вместе с названием игры.
 
+/**
+ * Ключ карантина битого сохранения: исходные байты нечитаемого сейва переезжают сюда,
+ * а основной ключ освобождается под новую игру. Первый же тик иначе затёр бы их свежим
+ * состоянием, и восстановить забег было бы нечем.
+ */
+export const CORRUPT_SAVE_KEY = `${SAVE_KEY}:corrupt`;
+
+/** Своё ли поле объекта, а не ключ прототипа: `in` пропускает toString/constructor/__proto__. */
+const hasOwn = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
+
+/** Plain-объект из разбора: массивы, строки и числа сохранением не являются. */
+const isPlainRecord = (v: unknown): v is Record<string, unknown> =>
+  !!v && typeof v === 'object' && !Array.isArray(v);
+
+/** Блок настроек из сохранения: строка или массив из битого файла не должны расползтись
+ *  индексами по новому блоку через spread. */
+const rawSettings = (raw: Record<string, unknown>): Record<string, unknown> =>
+  isPlainRecord(raw.settings) ? raw.settings : {};
+
 type Migration = (raw: Record<string, unknown>) => Record<string, unknown>;
 
 /** migrations[v] переводит сохранение из версии v в v+1. */
-const MIGRATIONS: Record<number, Migration> = {
-  // Запись нужна, чтобы bump SAVE_VERSION не остался без миграции; новое поле получает
-  // здесь значение по умолчанию, как и каждое следующее, добавленное в settings.
-  1: (raw) => ({
-    ...raw,
-    version: 2,
-    settings: { ...((raw.settings as object) ?? {}), reducedMotion: false },
-  }),
+export const MIGRATIONS: Record<number, Migration> = {
+  // Запись нужна, чтобы bump SAVE_VERSION не остался без миграции; отсутствующее поле получает
+  // здесь значение по умолчанию, а присутствующее — сохраняется как есть: миграция дополняет,
+  // а не перезаписывает, иначе импорт с испорченной версией затёр бы живые значения.
+  1: (raw) => {
+    const settings = rawSettings(raw);
+    return {
+      ...raw,
+      version: 2,
+      settings: { ...settings, reducedMotion: settings.reducedMotion ?? false },
+    };
+  },
   // Кристаллы, события, Глюки и откуп появились в v3. У живого сохранения их нет, поэтому каждое
   // поле получает здесь то же значение, что и newGame (кроме стадии Восстания — она выводится из
   // Поколения): миграция обязана оставить игроку игру, а не половину игры.
   2: (raw) => ({
     ...raw,
     version: 3,
-    crystals: 0,
-    crystalPlantedAt: 0,
-    crystalUpgrades: [],
-    eventsSeen: 0,
-    nextEventAt: 0,
-    event: null,
-    glitchSeq: 0,
-    glitches: [],
-    uprising: uprisingStage(num(raw.generation, 0)),
-    pledgeUntil: 0,
-    pledgeBought: 0,
-    covenant: false,
+    crystals: raw.crystals ?? 0,
+    crystalPlantedAt: raw.crystalPlantedAt ?? 0,
+    crystalUpgrades: raw.crystalUpgrades ?? [],
+    eventsSeen: raw.eventsSeen ?? 0,
+    nextEventAt: raw.nextEventAt ?? 0,
+    event: raw.event ?? null,
+    glitchSeq: raw.glitchSeq ?? 0,
+    glitches: raw.glitches ?? [],
+    uprising: raw.uprising ?? uprisingStage(num(raw.generation, 0)),
+    pledgeUntil: raw.pledgeUntil ?? 0,
+    pledgeBought: raw.pledgeBought ?? 0,
+    covenant: raw.covenant ?? false,
   }),
   // Отметка «окно поймано», котёл возврата за Клик и окно расписания Глюков переехали в GameState:
   // все три решают, заплатит ли клик, а вне состояния обнулялись перезагрузкой. Чистые добавления —
@@ -47,16 +70,16 @@ const MIGRATIONS: Record<number, Migration> = {
   3: (raw) => ({
     ...raw,
     version: 4,
-    eventCaughtAt: 0,
-    catchUpPaid: 0,
-    nextGlitchAt: 0,
+    eventCaughtAt: raw.eventCaughtAt ?? 0,
+    catchUpPaid: raw.catchUpPaid ?? 0,
+    nextGlitchAt: raw.nextGlitchAt ?? 0,
   }),
   // Переписка появилась в v5: у живого сохранения её не было, а пустой список означает
   // «ничего не слышал» — то же, чем состояние было до реплик. Чистое добавление.
   4: (raw) => ({
     ...raw,
     version: 5,
-    quipsSeen: [],
+    quipsSeen: raw.quipsSeen ?? [],
   }),
   // Испытания Забега появились в v6: у живого сохранения их не было, а null и пустой список
   // означают «обычный забег без закрытых» — то же, чем состояние было до Испытаний.
@@ -64,26 +87,29 @@ const MIGRATIONS: Record<number, Migration> = {
   5: (raw) => ({
     ...raw,
     version: 6,
-    activeChallenge: null,
-    challengesDone: [],
+    activeChallenge: raw.activeChallenge ?? null,
+    challengesDone: raw.challengesDone ?? [],
   }),
   // Громкость появилась в v7. У живого сохранения её нет, а DEFAULT_VOLUME означает ровно то, чем
   // было состояние до ползунка: звук ненулевой, но не на всю шкалу. Чистое добавление — остальные
   // настройки (мут, нотация, reducedMotion) миграция обязана сохранить, поэтому settings
   // разворачивается, а не заменяется.
-  6: (raw) => ({
-    ...raw,
-    version: 7,
-    settings: { ...((raw.settings as object) ?? {}), volume: DEFAULT_VOLUME },
-  }),
+  6: (raw) => {
+    const settings = rawSettings(raw);
+    return {
+      ...raw,
+      version: 7,
+      settings: { ...settings, volume: settings.volume ?? DEFAULT_VOLUME },
+    };
+  },
   // Температура, перегрев, отметка перегрева и вехи появились в v8.
   7: (raw) => ({
     ...raw,
     version: 8,
-    temp: TEMP_START,
-    heat: 0,
-    overheatedAt: 0,
-    milestones: [],
+    temp: raw.temp ?? TEMP_START,
+    heat: raw.heat ?? 0,
+    overheatedAt: raw.overheatedAt ?? 0,
+    milestones: raw.milestones ?? [],
   }),
 };
 
@@ -128,13 +154,15 @@ const strList = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string =>
 /**
  * Белый список id против известной таблицы.
  * Идентификаторы из будущих версий, опечатки и мусор отбрасываются,
- * дубликаты схлопываются, порядок сохраняется.
+ * дубликаты схлопываются, порядок сохраняется. Проверка — hasOwn, а не `in`:
+ * `in` идёт по цепочке прототипов, и constructor/toString/__proto__ проходили
+ * белый список, а обращение к ним как к таблице возвращало не запись, а мусор.
  */
 const idList = <T>(v: unknown, dict: Record<string, T>): string[] => {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const id of strList(v)) {
-    if (id in dict && !seen.has(id)) {
+    if (hasOwn(dict, id) && !seen.has(id)) {
       seen.add(id);
       out.push(id);
     }
@@ -154,7 +182,7 @@ const activeEvent = (v: unknown): ActiveEvent | null => {
   const startedAt = stamp(o.startedAt);
   if (startedAt === 0) return null;
   const red = !!o.red;
-  const modelId = typeof o.modelId === 'string' && o.modelId in MODEL_BY_ID ? o.modelId : undefined;
+  const modelId = typeof o.modelId === 'string' && hasOwn(MODEL_BY_ID, o.modelId) ? o.modelId : undefined;
   return { kind: kind as EventKind, startedAt, red, ...(modelId ? { modelId } : {}) };
 };
 
@@ -198,7 +226,7 @@ export function migrate(raw: unknown, now: number): GameState {
   const agents: Record<string, number> = {};
   if (data.agents && typeof data.agents === 'object') {
     for (const [k, val] of Object.entries(data.agents as Record<string, unknown>)) {
-      if (k in MODEL_BY_ID) {
+      if (hasOwn(MODEL_BY_ID, k)) {
         agents[k] = count(val);
       }
     }
@@ -206,6 +234,15 @@ export function migrate(raw: unknown, now: number): GameState {
 
   const settings = (data.settings as Record<string, unknown>) ?? {};
   const glitched = sanitizeGlitches(data.glitches);
+  // Часы не уезжают в будущее: отметка из будущего (перевод часов, чужой сейв) притягивается
+  // к now, иначе окна/события/кристалл жили бы впереди времени, а через сутки разница
+  // выплачивалась бы оффлайном. Откат часов назад Токенов не создаёт — это чинит applyOffline.
+  const clampFuture = (v: number): number => (v > now ? now : v);
+  const rawEvent = activeEvent(data.event);
+  const event =
+    rawEvent && rawEvent.startedAt > now ? { ...rawEvent, startedAt: now } : rawEvent;
+  const rawCaught = stamp(data.eventCaughtAt);
+  const eventCaughtAt = clampFuture(rawCaught);
 
   return {
     version: SAVE_VERSION,
@@ -226,15 +263,15 @@ export function migrate(raw: unknown, now: number): GameState {
     // Кристаллы целые и неотрицательные: запас — это счётчик, а не Доли, дробный остаток в нём
     // означал бы, что игрок заплатил частью кристалла, чего сделать нельзя.
     crystals: count(data.crystals),
-    crystalPlantedAt: stamp(data.crystalPlantedAt),
+    crystalPlantedAt: clampFuture(stamp(data.crystalPlantedAt)),
     // Дубликат ускорителя укоротил бы цикл дважды (16ч → 12ч без второй покупки), поэтому
     // список дедуплицируется, а неизвестный id отбрасывается, как и у Перков.
     crystalUpgrades: idList(data.crystalUpgrades, CRYSTAL_UPGRADE_BY_ID),
     eventsSeen: count(data.eventsSeen),
-    eventCaughtAt: stamp(data.eventCaughtAt),
+    eventCaughtAt,
     catchUpPaid: Math.max(0, num(data.catchUpPaid, 0)),
-    nextEventAt: stamp(data.nextEventAt),
-    event: activeEvent(data.event),
+    nextEventAt: num(data.lastTick, now) > now ? clampFuture(stamp(data.nextEventAt)) : stamp(data.nextEventAt),
+    event,
     combo: 0,
     glitchSeq: Math.max(count(data.glitchSeq), glitched.topId),
     nextGlitchAt: stamp(data.nextGlitchAt),
@@ -258,13 +295,13 @@ export function migrate(raw: unknown, now: number): GameState {
     // шкала обязана остаться в своём диапазоне — иначе множитель Дохода стал бы произвольным.
     temp: clampTemp(num(data.temp, TEMP_START)),
     heat: share(data.heat),
-    overheatedAt: stamp(data.overheatedAt),
+    overheatedAt: clampFuture(stamp(data.overheatedAt)),
     // Вехи фильтруются по таблице: неизвестный id из битого сейва не должен занимать
     // номер, который потом получит настоящая веха, и не должен показываться в интерфейсе.
     milestones: idList(data.milestones, MILESTONE_BY_ID),
-    lastTick: num(data.lastTick, now),
-    startedAt: num(data.startedAt, now),
-    runStartedAt: num(data.runStartedAt, now),
+    lastTick: clampFuture(num(data.lastTick, now)),
+    startedAt: clampFuture(num(data.startedAt, now)),
+    runStartedAt: clampFuture(num(data.runStartedAt, now)),
     settings: {
       notation: settings.notation === 'sci' ? 'sci' : 'short',
       muted: !!settings.muted,
@@ -288,12 +325,57 @@ export function importSave(str: string, now: number): GameState | null {
     const bin = atob(str.trim());
     const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
     const parsed = JSON.parse(new TextDecoder().decode(bytes));
+    if (!isImportableRecord(parsed)) return null;
     // Отклоняем файл с нецелыми индексами Поколений, а не чиним его молча.
     if (!hasValidGeneration(parsed)) return null;
     return migrate(parsed, now);
   } catch {
     return null;
   }
+}
+
+/**
+ * Поля, по которым импорт опознаёт сохранение игры. Код без единого узнаваемого поля
+ * прогресса — пустой объект, пустой массив, произвольный JSON — не сохранение, и импорт
+ * обязан отвергнуть его, а не тихо заменить им живой забег.
+ */
+const PROGRESS_FIELDS = [
+  'tokens',
+  'runTokens',
+  'totalTokens',
+  'clicks',
+  'runClicks',
+  'agents',
+  'generation',
+  'maxGeneration',
+  'upgrades',
+  'perks',
+  'compute',
+  'computeSpent',
+  'prestiges',
+  'achievements',
+  'crystals',
+  'crystalUpgrades',
+  'milestones',
+  'quipsSeen',
+  'challengesDone',
+  'activeChallenge',
+  'eventsSeen',
+  'glitches',
+] as const;
+
+/**
+ * Годится ли разбор под импорт: plain-объект с целым номером версии и хотя бы одним полем
+ * прогресса. Испорченный номер версии ('oops', дробь, ноль) — отказ, а не «старая версия»:
+ * чтение его как v1 гнало файл через всю цепочку миграций, и та затирала живые значения
+ * дефолтами. Будущая числовая версия проходит: migrate дополняет неизвестное, а лишнее
+ * отбрасывает разбор.
+ */
+function isImportableRecord(raw: unknown): raw is Record<string, unknown> {
+  if (!isPlainRecord(raw)) return false;
+  const v = raw.version;
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < 1) return false;
+  return PROGRESS_FIELDS.some((k) => hasOwn(raw, k));
 }
 
 /**
@@ -315,12 +397,60 @@ function hasValidGeneration(raw: unknown): boolean {
 }
 
 export function loadSave(now: number): GameState | null {
+  const stored = readStoredSave();
+  if (stored.status === 'empty') return null;
+  if (stored.status === 'corrupt') {
+    // Карантин и здесь, а не только в сторе: иначе первый же тик затёр бы битые байты.
+    quarantineStoredSave(stored.text);
+    return null;
+  }
   try {
-    const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return null;
-    return migrate(JSON.parse(raw), now);
+    return migrate(stored.value, now);
   } catch {
     return null;
+  }
+}
+
+/**
+ * Что лежит в хранилище: пусто (тихий старт), читаемое сохранение или мусор.
+ * Мусор — это и непарсящийся JSON, и парсящийся, но не похожий на сохранение:
+ * перезаписывать что угодно из этого свежей игрой значило бы стереть, не прочитав.
+ */
+export type StoredSave =
+  | { status: 'empty' }
+  | { status: 'ok'; text: string; value: unknown }
+  | { status: 'corrupt'; text: string };
+
+export function readStoredSave(): StoredSave {
+  let raw: string | null = null;
+  try {
+    if (typeof localStorage === 'undefined') return { status: 'empty' };
+    raw = localStorage.getItem(SAVE_KEY);
+  } catch {
+    // Хранилище недоступно (приватный режим, SecurityError) — тихий старт, как при пустом.
+    return { status: 'empty' };
+  }
+  if (!raw) return { status: 'empty' };
+  try {
+    const value = JSON.parse(raw);
+    if (!isPlainRecord(value)) throw new Error('not a save');
+    return { status: 'ok', text: raw, value };
+  } catch {
+    return { status: 'corrupt', text: raw };
+  }
+}
+
+/**
+ * Увозит битые байты под отдельный ключ и освобождает основной под новую игру.
+ * Копия — исходные байты один в один для ручного восстановления.
+ */
+export function quarantineStoredSave(text: string): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(CORRUPT_SAVE_KEY, text);
+    localStorage.removeItem(SAVE_KEY);
+  } catch {
+    // ignore
   }
 }
 

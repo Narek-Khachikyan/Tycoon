@@ -27,7 +27,7 @@ import {
   revokeCost,
 } from '../economy/glitches';
 import { PERKS } from '../economy/perks';
-import { exportSave, SAVE_KEY, serialize } from '../economy/save';
+import { exportSave, CORRUPT_SAVE_KEY, SAVE_KEY, serialize } from '../economy/save';
 import { newGame, type GameState } from '../economy/state';
 import {
   playAchievementSound,
@@ -790,6 +790,61 @@ describe('event window', () => {
     expect(store().toasts).toEqual([]);
   });
 
+  it('stays silent on a single long tick and announces the fresh window on the next active one', () => {
+    freshStore();
+    // Окно назрело, но его ещё нет: длинный тик создаст его в самом конце интервала.
+    useGameStore.setState({
+      state: { ...state(), nextEventAt: state().lastTick - 1000, event: null },
+      toasts: [],
+    });
+    // Один тик через ветку простоя: окно, покрытое им целиком, игрок не видел.
+    tick(3600);
+    const titles = store().toasts.map((t) => t.title);
+    expect(titles).not.toContain('Событие');
+    expect(titles).not.toContain('Событие ушло');
+    // Окно при этом создалось и ждёт объявления, а отметка «уже говорили» не сдвинута.
+    expect(state().event).not.toBeNull();
+    expect(store().eventWindowAt).not.toBe(state().event?.startedAt);
+    // Следующий активный тик объявляет ещё живое окно обычным порядком.
+    tick();
+    expect(store().toasts.map((t) => t.title)).toContain('Событие');
+  });
+
+  it('covers a whole live window in one long tick without a farewell, then says it on the next active tick', () => {
+    freshStore();
+    const started = state().lastTick;
+    // «Грант» живёт 15 с, а следующее окно далеко: длинный тик накроет окно целиком
+    // и не создаст нового.
+    useGameStore.setState({
+      state: { ...liveEvent('grant', started), nextEventAt: started + HOUR },
+      toasts: [],
+    });
+    tick();
+    expect(store().toasts.map((t) => t.title)).toContain('Событие');
+    useGameStore.setState({ toasts: [] });
+    tick(60);
+    const titles = store().toasts.map((t) => t.title);
+    expect(titles).not.toContain('Событие');
+    expect(titles).not.toContain('Событие ушло');
+    // Прощание не потеряно, а отложено до присутствия игрока: окно было увидено,
+    // и следующий активный тик о нём сообщает.
+    tick();
+    expect(store().toasts.map((t) => t.title)).toContain('Событие ушло');
+  });
+
+  it('folds several milestones claimed in one tick into a single toast', () => {
+    freshStore();
+    store().clickPrompt(100, 100);
+    hire(first.id, 10);
+    // Четвёртая веха подряд требует жара: без него забралась бы только первая,
+    // и пачки, которую надо сворачивать, не получилось бы.
+    useGameStore.setState({ state: { ...state(), temp: 0.8 }, toasts: [] });
+    tick();
+    const milestoneToasts = store().toasts.filter((t) => t.title.startsWith('Вех'));
+    expect(milestoneToasts).toHaveLength(1);
+    expect(milestoneToasts[0].title).toBe('Вехи выполнены: 4');
+  });
+
   it('keeps the alert a perk instead of a base feature', () => {
     reachedGeneration(2);
     useGameStore.setState({ state: liveEvent(), toasts: [] });
@@ -1325,5 +1380,71 @@ describe('the save', () => {
     expect(() => w.store.getState().buyAgents(first.id)).not.toThrow();
     // Состояние продолжает жить, даже когда запись не проходит: игра не обязана уметь сохраняться.
     expect(w.store.getState().state.agents[first.id]).toBe(1);
+  });
+});
+
+/**
+ * Битое сохранение при загрузке.
+ *
+ * Перезагрузка модуля — тем же приёмом, что и выше: загрузка читается один раз при создании
+ * магазина, поэтому подмена хранилища обязана случиться до импорта. Хранилище здесь словарь
+ * в памяти теста: настоящий сейв игрока тест не трогает и стереть не может.
+ */
+describe('corrupt save on load', () => {
+  const truncated = '{"version":8,"tokens":12345,"agents":{"m:gpt-4';
+
+  const reloadWithCell = async (initial: Record<string, string>) => {
+    const cell = new Map<string, string>(Object.entries(initial));
+    const listeners = new Map<string, (() => void)[]>();
+    const add = (type: string, fn: () => void) => {
+      const list = listeners.get(type) ?? [];
+      list.push(fn);
+      listeners.set(type, list);
+    };
+    const listen = { addEventListener: add, removeEventListener: () => {} };
+    vi.stubGlobal('window', { innerWidth: 800, innerHeight: 600, ...listen });
+    vi.stubGlobal('document', { visibilityState: 'visible', ...listen });
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => cell.get(k) ?? null,
+      setItem: (k: string, v: string) => void cell.set(k, v),
+      removeItem: (k: string) => void cell.delete(k),
+    });
+    vi.resetModules();
+    const mod = await import('./useGameStore');
+    const snapshot = mod.useGameStore.getState();
+    vi.unstubAllGlobals();
+    return { store: mod.useGameStore, snapshot, cell };
+  };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('quarantines truncated bytes, starts fresh and says so instead of starting quietly', async () => {
+    const { snapshot, cell } = await reloadWithCell({ [SAVE_KEY]: truncated });
+    // Исходные байты целы под отдельным ключом, а основной ключ свежей игрой не затёрт:
+    // загрузка ничего не пишет, она только увозит мусор в карантин.
+    expect(cell.get(CORRUPT_SAVE_KEY)).toBe(truncated);
+    expect(cell.get(SAVE_KEY)).toBeUndefined();
+    // Новая игра, а не обломки старой.
+    expect(snapshot.state.totalTokens).toBe(0);
+    // Понятное сообщение вместо тихого старта с нуля.
+    expect(snapshot.toasts.map((t) => t.title)).toContain('Сохранение повреждено');
+  });
+
+  it('starts quietly when the storage is empty', async () => {
+    const { snapshot, cell } = await reloadWithCell({});
+    expect(snapshot.toasts).toEqual([]);
+    expect(cell.get(CORRUPT_SAVE_KEY)).toBeUndefined();
+  });
+
+  it('does not quarantine a readable save', async () => {
+    const now = Date.now();
+    const { snapshot, cell } = await reloadWithCell({
+      [SAVE_KEY]: serialize({ ...newGame(now), totalTokens: 5 }),
+    });
+    expect(cell.get(CORRUPT_SAVE_KEY)).toBeUndefined();
+    expect(snapshot.toasts).toEqual([]);
+    expect(snapshot.state.totalTokens).toBe(5);
   });
 });

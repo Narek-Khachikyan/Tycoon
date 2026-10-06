@@ -38,11 +38,11 @@ import {
   uprisingStage,
 } from '../economy/glitches';
 import { pickNews } from '../economy/news';
-import { clampTemp, TEMP_MAX } from '../economy/thermal';
+import { clampTemp, HALLUC_HEAT, heatRate, TEMP_MAX } from '../economy/thermal';
 import { perkEffects } from '../economy/perks';
 import { pickQuip, recordQuip } from '../economy/quips';
 import { availableUpgrades } from '../economy/upgrades';
-import { importSave, migrate, SAVE_KEY, serialize } from '../economy/save';
+import { importSave, migrate, quarantineStoredSave, readStoredSave, SAVE_KEY, serialize } from '../economy/save';
 import { newGame, type GameState, type Notation } from '../economy/state';
 import {
   playAchievementSound,
@@ -289,17 +289,32 @@ interface GameStore {
   refreshNews: () => void;
 }
 
-function loadInitialState(): { state: GameState; offline: OfflineReport | null } {
+function loadInitialState(): { state: GameState; offline: OfflineReport | null; notice: ToastMessage | null } {
   const now = Date.now();
   let raw: unknown = null;
+  let corrupt = false;
   if (typeof window !== 'undefined') {
-    try {
-      const saved = localStorage.getItem(SAVE_KEY);
-      if (saved) raw = JSON.parse(saved);
-    } catch {
-      // ignore
+    const stored = readStoredSave();
+    if (stored.status === 'ok') {
+      raw = stored.value;
+    } else if (stored.status === 'corrupt') {
+      // Битые байты — в карантин под отдельный ключ, иначе первый же тик затёр бы их свежей
+      // игрой. Пустое хранилище сюда не попадает: там тихий старт без сообщения.
+      quarantineStoredSave(stored.text);
+      corrupt = true;
     }
   }
+
+  // Тост вместо тихого старта с нуля: игрок обязан узнать, что забег потерян чтением,
+  // а не его действиями, и что старые данные не стёрты.
+  const notice: ToastMessage | null = corrupt
+    ? {
+        id: `corrupt-${++toastCounter}`,
+        title: 'Сохранение повреждено',
+        name: 'Старый Забег',
+        desc: 'Прошлое сохранение не прочиталось, поэтому начат новый Забег. Старые данные не стёрты и лежат отдельно.',
+      }
+    : null;
 
   const base = migrate(raw, now);
   // Оффлайн-начисление, если игра была закрыта дольше порога простоя
@@ -314,10 +329,11 @@ function loadInitialState(): { state: GameState; offline: OfflineReport | null }
       // Отчёт показывается и из-за одного кристалла: доход за простой бывает нулевым (например,
       // когда все Агенты проданы), а игрок всё равно что-то получил.
       offline: earned > 0 || crystals > 0 ? { seconds, earned, crystals } : null,
+      notice,
     };
   }
 
-  return { state: base, offline: null };
+  return { state: base, offline: null, notice };
 }
 
 let floaterCounter = 0;
@@ -400,11 +416,39 @@ let savedAt = 0;
  * `savePending` снимается только после успеха: заблокированное хранилище (приватный режим,
  * SecurityError) не должно молча превращать игру в игру без сохранения — попытка повторится на
  * следующем тике.
+ *
+ * Guard монотонности: отстающая вкладка не переписывает новую. Запись пропускается, если в
+ * хранилище уже лежит более свежий lastTick — иначе вторая вкладка откатила бы сейв и
+ * повторно выплатила бы оффлайн за уже оплаченный интервал. Равенство пишет: покупка не
+ * двигает часы, но обязана попасть в сейв сразу.
+ *
+ * Не-числа не пишутся вовсе: JSON.stringify(NaN) даёт null, а миграция читает null как 0 —
+ * кошелёк обнулился бы одним тиком. Тик с NaN уже no-op в движке, это вторая стена.
  */
-function writeSave(): void {
+function writeSave(force = false): void {
   if (typeof window === 'undefined') return;
   try {
-    localStorage.setItem(SAVE_KEY, serialize(useGameStore.getState().state));
+    const cur = useGameStore.getState().state;
+    if (
+      !Number.isFinite(cur.lastTick) ||
+      !Number.isFinite(cur.tokens) ||
+      !Number.isFinite(cur.runTokens) ||
+      !Number.isFinite(cur.totalTokens)
+    )
+      return;
+    if (!force) {
+      try {
+        const raw = localStorage.getItem(SAVE_KEY);
+        if (raw) {
+          const savedTick = (JSON.parse(raw) as { lastTick?: unknown }).lastTick;
+          if (typeof savedTick === 'number' && Number.isFinite(savedTick) && savedTick > cur.lastTick)
+            return;
+        }
+      } catch {
+        // Нечитаемый сейв guard не держит: его увозит карантин, а не молчаливый пропуск.
+      }
+    }
+    localStorage.setItem(SAVE_KEY, serialize(cur));
     savePending = false;
     savedAt = Date.now();
   } catch {
@@ -419,9 +463,9 @@ function writeSave(): void {
  * воле игрока, обязано лежать в сейве до того, как он успеет закрыть вкладку. Действий такого
  * рода за минуту десятки, а не двадцать в секунду, поэтому дроссель на них не распространяется.
  */
-const saveNow = (): void => {
+const saveNow = (force = false): void => {
   savePending = true;
-  writeSave();
+  writeSave(force);
 };
 
 /**
@@ -556,24 +600,38 @@ export const useGameStore = create<GameStore>((set, get) => {
    * Звук и слова Температуры: охлаждение после перегрева и провал от Галлюцинации.
    *
    * Оба события читаются по МЕСТУ в истории состояния, а не по флагу: перегрев виден по
-   * `overheatedAt`, который сдвигается один раз за сброс, а Галлюцинация — по тому, что
-   * кошелёк и перегрев выросли, а счётчик выплат не изменился. Флагов в GameState для них
-   * нет намеренно: оба выводимы из уже существующих полей, и третье поле означало бы третью
-   * вещь, которую надо не забыть сбросить.
+   * `overheatedAt`, который сдвигается один раз за сброс, а Галлюцинация — по скачку перегрева
+   * выше обычного нагрева за этот тик. Флагов в GameState для них нет намеренно: оба выводимы
+   * из уже существующих полей, и третье поле означало бы третью вещь, которую надо не забыть
+   * сбросить.
+   *
+   * Без полного прохода по Моделям: прежняя проверка `tokens <= before + totalIncome*dt`
+   * пересчитывала весь Доход каждый тик перегрева, и тик позднего Поколения платил за порог
+   * как за второй тик. Скачок Галлюцинации (HALLUC_HEAT) на порядок больше обычного нагрева
+   * за тик, поэтому порог — обычный нагрев за dt плюс половина скачка; строгое падение
+   * кошелька при подросшем перегреве — тоже Галлюцинация (обычный тик Токены только растит),
+   * что ловит и прижатый к единице перегрев, где скачок срезан потолком.
    *
    * Охлаждение проверяется ДО галлюцинации по той же причине, что и в движке: перегрев
    * сбрасывает перегрев в ноль, и событие, случившееся в ту же секунду, не должно
    * перебивать его сообщением о другом.
    */
-  const announceThermal = (before: GameState, after: GameState): void => {
+  const announceThermal = (before: GameState, after: GameState, dt: number): void => {
     if (after.overheatedAt !== before.overheatedAt && after.overheatedAt > 0) {
       playCoolingSound(after.settings.muted);
       pushToast('Перегрев', 'Модели перегрелись', 'Жар сброшен в холод. Доход падает, пока офис остывает.');
       return;
     }
-    // Галлюцинация: перегрев подрос, а кошелёк — нет. При жаре сбрасывается и кошелёк, и
-    // перегрев разом, и этот случай уже разобран выше.
-    if (after.heat > before.heat && after.tokens <= before.tokens + totalIncome(after) * 0.05) {
+    // Строгое падение кошелька при подросшем перегреве — только Галлюцинация: обычный тик
+    // Токены не отнимает, а перегрев их не трогает вовсе (он уже разобран выше).
+    if (after.heat > before.heat && after.tokens < before.tokens) {
+      playHallucinationSound(after.settings.muted);
+      return;
+    }
+    // Скачок выше обычного нагрева за dt: обычный нагрев не больше heatRate(TEMP_MAX)*dt,
+    // а Галлюцинация добавляет сверху HALLUC_HEAT — порог между ними с запасом.
+    const maxNormal = heatRate(TEMP_MAX) * Math.max(0, dt);
+    if (after.heat - before.heat > maxNormal + HALLUC_HEAT / 2) {
       playHallucinationSound(after.settings.muted);
     }
   };
@@ -613,12 +671,25 @@ export const useGameStore = create<GameStore>((set, get) => {
    * Оба сообщения нужны игроку, а не магазину: без объявления он не узнает, что окно открылось,
    * а без сообщения о просрочке исчезновение события выглядит как баг. Возвращается срез, который
    * вызывающий кладёт в стор одним set вместе с состоянием.
+   *
+   * На длинном тике (простой через applyOffline) — только молчаливая синхронизация, без единого
+   * тоста. Окно События короче такого тика, поэтому тик, покрывший окно целиком, объявлял бы его
+   * в одном тике и хоронил в следующем — игрок, которого не было на месте, получал бы пары
+   * уведомлений о событиях, которых не видел, а за долгий простой их набирались пачки. Свежее
+   * окно при этом не теряется: оно начинается в `now` и потому живо и на следующем активном
+   * тике, где и объявляется обычным порядком.
    */
-  const watchEventWindow = (state: GameState): { eventWindowAt: number; eventCaught: boolean } => {
+  const watchEventWindow = (
+    state: GameState,
+    silent: boolean,
+  ): { eventWindowAt: number; eventCaught: boolean } => {
     const { eventWindowAt } = get();
     // Зеркало для кнопки, а не забор: оно читается из состояния на каждом тике, поэтому перезагрузка
     // и импорт не оставляют на экране «Поймать» для окна, которое уже поймано.
     const eventCaught = caughtWindow(state);
+    // Невиденное окно не уведомляется: отметка «уже говорили» не двигается, и следующий активный
+    // тик либо объявит ещё живое окно, либо молча пропустит уже истёкшее.
+    if (silent) return { eventWindowAt, eventCaught };
     const event = state.event;
     if (!event) return { eventWindowAt, eventCaught };
     const now = state.lastTick;
@@ -656,7 +727,7 @@ export const useGameStore = create<GameStore>((set, get) => {
     activeTab: 'click',
     buyAmount: 1,
     sellMode: false,
-    toasts: [],
+    toasts: initial.notice ? [initial.notice] : [],
     floaters: [],
     chatHistory: [
       {
@@ -675,14 +746,19 @@ export const useGameStore = create<GameStore>((set, get) => {
 
     tick: (dt: number) => {
       const { state } = get();
-      if (dt <= 0) return;
+      // Один guard на не-числа: NaN проходит неположительность и дальше травит сейв null.
+      // Тик с NaN — no-op, как и переход движка.
+      if (!Number.isFinite(dt) || dt <= 0) return;
       // advanceTime сам различает активный тик и простой (фон/сон) по OFFLINE_THRESHOLD_SEC,
       // поэтому лимит оффлайн-дохода нельзя обойти просто долгим dt. Случайность приходит
       // аргументом из стора: движок проверяется тестами с детерминированным rnd, а игра —
       // обычной случайностью.
+      // Длинный тик идёт той же веткой простоя, что и advanceTime (то же сравнение с тем же
+      // порогом): весь его интервал игрок не видел, и окна событий в нём не уведомляются.
+      const longTick = dt >= OFFLINE_THRESHOLD_SEC;
       const ticked = advanceTime(state, dt, Math.random);
       const advanced = awardEarned(ticked);
-      announceThermal(state, advanced);
+      announceThermal(state, advanced, dt);
       // Вехи забираются после Достижений и до сериализации: награда обязана попасть в тот же
       // тик, что и Доход, иначе игрок увидит «0 / 10» при полном кошельке на следующем кадре.
       const { state: withMilestones, claimed } = claimMilestoneRewards(advanced);
@@ -706,7 +782,7 @@ export const useGameStore = create<GameStore>((set, get) => {
         // их видно на экране.
         pushToast('Паразит в офисе', 'Паразит', 'Он сел на твой Доход. Кликай по нему, пока не лопнет.');
       }
-      const eventWindow = watchEventWindow(withMilestones);
+      const eventWindow = watchEventWindow(withMilestones, longTick);
       set({ state: withMilestones, ...eventWindow });
       // Голос идёт после set, чтобы читать уже новое состояние, и до записи в localStorage:
       // звук не должен ждать завершения сериализации.
@@ -1049,7 +1125,10 @@ export const useGameStore = create<GameStore>((set, get) => {
       // GameState, чтение через каст, как quipsSeenOf выше. Нужно оверлею, чтобы назвать награду
       // завершённого испытания в подтверждении Престижа.
       const activeChallenge = (state as GameState & { activeChallenge?: 'no-synergy' | 'no-click' | null }).activeChallenge ?? null;
-      const next = awardEarned(enginePrestige(state, Date.now()));
+      // Один источник часов: Престиж ставит часы из игровых (lastTick), а не из Date.now() —
+      // иначе неотработанное время между последним тиком и стеной сдвигало Лобби, окно Глюка
+      // и кристалл мимо их циклов. Дефолт движка — те же часы, вызов без аргумента.
+      const next = awardEarned(enginePrestige(state, state.lastTick));
       set({ state: next, news: pickNews(next) });
       // Ставится после awardEarned намеренно: если тот же тик выполнил Достижение, тряска
       // перебивает его отклик. Тост Достижения всё равно живёт и озвучен — теряется только веер искр.
@@ -1182,7 +1261,9 @@ toggleMute: () => {
         lastQuip: null,
         lastBoughtModelId: null,
       });
-      saveNow();
+      // Импорт — явная воля игрока заменить забег: пишет принудительно, мимо guard
+      // монотонности отстающей вкладки, иначе импорт старого кода не пережил бы reload.
+      saveNow(true);
       return true;
     },
 
