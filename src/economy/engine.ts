@@ -569,10 +569,14 @@ function buyGenPerk(state: GameState, id: string): GameState {
  * Отдельного `now` здесь нет намеренно: тик — единственное место, где интервал известен целиком,
  * а все читатели временных множителей смотрят тот же `lastTick`.
  */
+export function isValidInterval(dt: unknown): dt is number {
+  return typeof dt === 'number' && Number.isFinite(dt) && dt > 0;
+}
+
 export function advance(state: GameState, dt: number, rnd: () => number = Math.random): GameState {
   // Один guard на не-числа: NaN проходит проверку неположительности (NaN <= 0 ложно) и дальше
   // травит Токены/часы/счётчики в NaN, а сейв пишет null. Тик с NaN — no-op с тем же объектом.
-  if (!Number.isFinite(dt) || dt <= 0) return state;
+  if (!isValidInterval(dt)) return state;
   if (!Number.isFinite(state.lastTick)) return state;
   const now = state.lastTick + dt * 1000;
   const rate = incomeRate(state, now);
@@ -677,7 +681,21 @@ export function applyOffline(state: GameState, now: number): { state: GameState;
     const s = collectCrystals(state, now).state;
     // Будущие окна тоже притягиваются назад, иначе событие/кристалл жили бы впереди часов:
     // отметка уже притянута через lastTick, а расписание чинит загрузка (migrate) тем же now.
-    return { state: { ...s, lastTick: now }, seconds: 0, earned: 0 };
+    return {
+      state: {
+        ...s,
+        lastTick: now,
+        startedAt: Math.min(s.startedAt, now),
+        runStartedAt: Math.min(s.runStartedAt, now),
+        crystalPlantedAt: Math.min(s.crystalPlantedAt, now),
+        pledgeUntil: Math.min(s.pledgeUntil, now),
+        nextEventAt: Math.min(s.nextEventAt, now),
+        nextGlitchAt: Math.min(s.nextGlitchAt, now),
+        overheatedAt: Math.min(s.overheatedAt, now),
+      },
+      seconds: 0,
+      earned: 0,
+    };
   }
   const raw = Math.max(0, (now - state.lastTick) / 1000);
   const seconds = Math.min(raw, offlineCapHours(state) * 3600);
@@ -768,7 +786,7 @@ function rollRed(state: GameState, now: number, rnd: () => number): boolean {
  * проверяться тестами, не завися от случайности, а вызывающий (стор) его не передаёт вовсе.
  */
 export function advanceTime(state: GameState, dt: number, rnd: () => number = Math.random): GameState {
-  if (!Number.isFinite(dt) || dt <= 0) return state;
+  if (!isValidInterval(dt)) return state;
   if (!Number.isFinite(state.lastTick)) return state;
   const now = state.lastTick + dt * 1000;
   const moved = dt < OFFLINE_THRESHOLD_SEC ? advance(state, dt, rnd) : applyOffline(state, now).state;

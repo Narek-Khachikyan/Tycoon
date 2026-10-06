@@ -1,6 +1,6 @@
 import React from 'react';
 import { useGameStore } from '../store/useGameStore';
-import { MILESTONES, nextMilestone } from '../economy/milestones';
+import { MILESTONES, nextMilestone, milestoneHint, milestoneReward } from '../economy/milestones';
 import { formatNumber } from '../economy/format';
 import { Num } from './Num';
 
@@ -57,11 +57,11 @@ export const MilestoneStrip: React.FC = () => {
           {state.milestones.length} / {MILESTONES.length}
         </span>
       </div>
-      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{current.hint}</div>
+      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{milestoneHint(state, current)}</div>
       {/* Награда видна сразу, а не по факту: игрок должен видеть, ради чего тянуть.
           Число и слово разбираются на части — «+2.50 K» не является числом (ADR-0003). */}
       <div style={{ fontSize: '0.75rem', color: 'var(--gold)' }}>
-        Награда: +<Num>{formatNumber(current.units, notation)}</Num> Токенов
+        Награда: +<Num>{formatNumber(milestoneReward(state, current), notation)}</Num> Токенов
       </div>
     </div>
   );

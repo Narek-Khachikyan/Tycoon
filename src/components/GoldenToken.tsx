@@ -111,23 +111,22 @@ export const GoldenToken: React.FC = () => {
   // другое и обязана спросить оба: по одному виду неизвестно, обычное это событие или красное.
   const spec = activeSpec(state);
   const event = state.event;
+
+  const armed = Boolean(event && !caught && crashArmedAt === event.startedAt);
+  const punchNonce = event ? `${event.startedAt}:${caught}:${armed}` : '';
+  const [punchedAt, setPunchedAt] = useState(-1);
+  useEffect(() => {
+    if (caught || armed) setPunchedAt(useGameStore.getState().state.lastTick);
+  }, [punchNonce, caught, armed]);
+
   if (!spec || !event) return null;
 
   const notation = state.settings.notation;
-  // По игровым часам, а не по Date.now(): тик движется по lastTick, и системное время
-  // отставало бы от окна ровно настолько, на сколько игрок его и так видит.
   const leftMs = Math.max(0, event.startedAt + spec.durationMs - state.lastTick);
   const windowAge = Math.max(0, state.lastTick - event.startedAt);
 
-  // Единственный вид, в котором ловля отнимает Токены, — красный разовый «Крах»: остальные
-  // либо платят, либо не делают ничего. Подпись об уроне и имя кнопки читаются по этому флагу,
-  // а сам процент берётся из той же таблицы, что и остальные числа события.
   const costsTokens = event.red && spec.kind === 'grant';
   const costPct = costsTokens ? Math.round(spec.share * 100) : 0;
-
-  // Сверка ровно та же, что в `catchEvent`: взвод — это момент старта окна, и пойманное окно уже
-  // ничего не спрашивает, поэтому подпись «Списать» на пойманном не показывается.
-  const armed = !caught && crashArmedAt === event.startedAt;
 
   const catchLabel = caught
     ? 'Поймано'
@@ -136,18 +135,6 @@ export const GoldenToken: React.FC = () => {
         ? `Списать −${formatNumber(costPct, notation)}%`
         : `Поймать ${spec.name}`
       : 'Поймать';
-
-  // Толчок и разлёт привязаны к состоянию, а не к своему таймеру: момент поимки — это смена
-  // подписи и disabled, то есть те же поля, что читает всё остальное в карточке. Отдельный
-  // таймер означал бы второй цикл в компоненте и второй источник «когда нажали».
-  const punchNonce = `${event.startedAt}:${caught}:${armed}`;
-  const [punchedAt, setPunchedAt] = useState(-1);
-  useEffect(() => {
-    if (caught || armed) setPunchedAt(useGameStore.getState().state.lastTick);
-    // lastTick в зависимостях не нужен и вреден: он меняется двадцать раз в секунду, и отклик
-    // перезапускался бы на каждом тике, пока окно взведено или поймано. Отклик привязан к смене
-    // подписи, то есть к nonce, а часы берутся из стора в момент этой смены.
-  }, [punchNonce, caught, armed]);
 
   // Фаза пульса — возраст окна, поэтому он не нулевой уже на первом кадре и не «прыгает» при
   // перезагрузке страницы посреди окна. Период сокращается с перегревом: на горячем офисе

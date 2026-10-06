@@ -328,6 +328,7 @@ export function importSave(str: string, now: number): GameState | null {
     if (!isImportableRecord(parsed)) return null;
     // Отклоняем файл с нецелыми индексами Поколений, а не чиним его молча.
     if (!hasValidGeneration(parsed)) return null;
+    if (!hasValidCounters(parsed)) return null;
     return migrate(parsed, now);
   } catch {
     return null;
@@ -382,6 +383,23 @@ function isImportableRecord(raw: unknown): raw is Record<string, unknown> {
  * Проверяет, что generation и maxGeneration — целые неотрицательные числа,
  * если они вообще присутствуют в сохранении.
  */
+
+/**
+ * Проверяет, что числовые счётчики прогресса не испорчены (не null, не NaN, неотрицательные).
+ */
+function hasValidCounters(raw: unknown): boolean {
+  if (!raw || typeof raw !== 'object') return false;
+  const o = raw as Record<string, unknown>;
+  const counters = ['tokens', 'runTokens', 'totalTokens', 'clicks', 'runClicks', 'compute', 'computeSpent'] as const;
+  for (const c of counters) {
+    if (c in o) {
+      const v = o[c];
+      if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) return false;
+    }
+  }
+  return true;
+}
+
 function hasValidGeneration(raw: unknown): boolean {
   if (!raw || typeof raw !== 'object') return false;
   const o = raw as Record<string, unknown>;

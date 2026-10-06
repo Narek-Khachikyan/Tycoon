@@ -49,7 +49,11 @@ export const ACHIEVEMENTS: Achievement[] = [
 /** Префикс id теней: по нему тень опознаётся даже в записи, где нет её табличной строки. */
 const SHADOW_ID_PREFIX = 'sh_';
 
-const SHADOW_IDS = new Set(SHADOW_ACHIEVEMENTS.map((a) => a.id));
+let _shadowIds: Set<string> | null = null;
+function getShadowIds(): Set<string> {
+  if (!_shadowIds) _shadowIds = new Set(SHADOW_ACHIEVEMENTS.map((a) => a.id));
+  return _shadowIds;
+}
 
 /**
  * Число заработанных НЕтеневых Достижений — база Датасета и числитель «N / 21».
@@ -60,8 +64,9 @@ const SHADOW_IDS = new Set(SHADOW_ACHIEVEMENTS.map((a) => a.id));
  * раздувала Датасет.
  */
 export function nonShadowCount(s: GameState): number {
+  const shadowIds = getShadowIds();
   return ACHIEVEMENTS.filter(
-    (a) => !a.id.startsWith(SHADOW_ID_PREFIX) && !SHADOW_IDS.has(a.id) && s.achievements.includes(a.id),
+    (a) => !a.id.startsWith(SHADOW_ID_PREFIX) && !shadowIds.has(a.id) && s.achievements.includes(a.id),
   ).length;
 }
 

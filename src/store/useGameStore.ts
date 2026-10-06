@@ -12,6 +12,7 @@ import {
   clickValue,
   earnTokens,
   isContentFinale,
+  isValidInterval,
   OFFLINE_THRESHOLD_SEC,
   prestige as enginePrestige,
   prestigeGain,
@@ -748,7 +749,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       const { state } = get();
       // Один guard на не-числа: NaN проходит неположительность и дальше травит сейв null.
       // Тик с NaN — no-op, как и переход движка.
-      if (!Number.isFinite(dt) || dt <= 0) return;
+      if (!isValidInterval(dt)) return;
       // advanceTime сам различает активный тик и простой (фон/сон) по OFFLINE_THRESHOLD_SEC,
       // поэтому лимит оффлайн-дохода нельзя обойти просто долгим dt. Случайность приходит
       // аргументом из стора: движок проверяется тестами с детерминированным rnd, а игра —

@@ -407,4 +407,21 @@ describe('детерминированность', () => {
       Math.random = dice;
     }
   });
+
+  it('проверка достижения цены Клика не тянет полный расчёт Дохода, пока цель недостижима', () => {
+    const s: GameState = {
+      ...newGame(T0),
+      upgrades: [clickUpgradeId(0, 3)],
+    };
+    const shadow = SHADOW_ACHIEVEMENTS.find((a) => a.id === 'shadow_click_worth_1e24')!;
+    const throwingState = new Proxy(s, {
+      get(target, prop) {
+        if (prop === 'agents') {
+          throw new Error('Full income calculation was triggered!');
+        }
+        return (target as any)[prop];
+      },
+    });
+    expect(shadow.check(throwingState)).toBe(false);
+  });
 });

@@ -9,6 +9,7 @@ import { QuipBubble } from './QuipBubble';
 import { OnboardingCoach } from './OnboardingCoach';
 import { ThermalDial } from './ThermalDial';
 import { MilestoneStrip } from './MilestoneStrip';
+import { useMotionAllowed } from './EventSprites';
 
 /** За сколько миллисекунд счётчик съедает 63% расстояния до цели: каждый кадр отнимает
  *  долю dt / APPROACH_MS остатка, поэтому число тормозит, а не разгоняется, и скорость
@@ -33,6 +34,7 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const cVal = clickValue(state, income);
   const notation = state.settings.notation;
   const reducedMotion = state.settings.reducedMotion;
+  const motion = useMotionAllowed();
 
   // Сила Клика: честный расчёт из существующего состояния (число Агентов и Доход).
   // Без новых полей GameState, без таймеров — обновляется на существующем 50-мс тике.
@@ -251,7 +253,7 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
           находка попадала в ту же область взгляда, что и главное действие игры. Карточка
           монтируется и размонтируется вместе с окном, поэтому её появление и есть
           объявление. */}
-      <GoldenToken />
+      {state.event && <GoldenToken />}
 
       {/* Веха и шкала Температуры */}
       <div style={{ width: '100%', marginTop: '2px' }}>
@@ -319,8 +321,7 @@ className="pixel-btn pixel-btn-accent pulse-glow click-btn"
               width: `${progress * 100}%`,
               height: '100%',
               backgroundColor: 'var(--accent-color)',
-              // Переход ширины — не движение: при reducedMotion остаётся, тряски и сдвига тут нет.
-              transition: 'width 0.2s ease-out',
+              transition: motion ? 'width 0.2s ease-out' : undefined,
             }}
           />
         </div>

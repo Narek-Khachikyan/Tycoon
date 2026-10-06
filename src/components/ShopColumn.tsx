@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motionAllowed, useGameStore, type BuyAmount } from '../store/useGameStore';
+import { useMotionAllowed } from './EventSprites';
 import { CATALOG } from '../economy/catalog';
 import { LABS, type LabId } from '../data/labs';
 import {
@@ -270,6 +271,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
 
   const gen = CATALOG[state.generation];
   const notation = state.settings.notation;
+  const motion = useMotionAllowed();
   const d = discountMult(state);
   const upgrades = availableUpgrades(state);
   const unspentCompute = state.compute - state.computeSpent;
@@ -829,11 +831,15 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         </div>
                         <div>
                           <div style={{ color: 'var(--text-muted)' }}>Скорость:</div>
-                          <div style={{ color: 'var(--accent-color)', fontWeight: 700 }}>{m.speed} t/s</div>
+                          <div style={{ color: 'var(--accent-color)', fontWeight: 700 }}>
+                            {m.speed > 0 ? `${m.speed} t/s` : 'нет данных'}
+                          </div>
                         </div>
                         <div>
                           <div style={{ color: 'var(--text-muted)' }}>Цена API:</div>
-                          <div style={{ color: 'var(--green)', fontWeight: 700 }}>${m.price}/1M</div>
+                          <div style={{ color: 'var(--green)', fontWeight: 700 }}>
+                            {m.price > 0 ? `$${m.price}/1M` : 'нет данных'}
+                          </div>
                         </div>
                       </div>
                   )}
@@ -1215,9 +1221,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       width: `${crystalProgress * 100}%`,
                       height: '100%',
                       backgroundColor: 'var(--accent-color)',
-                      // Переход ширины — не движение: при выключенном он остаётся, потому что
-                      // ни сдвига, ни тряски тут нет.
-                      transition: 'width 0.2s linear',
+                      transition: motion ? 'width 0.2s linear' : undefined,
                     }}
                   />
                 </div>
