@@ -3,6 +3,7 @@ import { motionAllowed, useGameStore, type ToastMessage } from '../store/useGame
 import { TOAST_MARGIN, toastStackWidth } from '../layout';
 import { Icon } from './Icon';
 import { Num } from './Num';
+import { useT } from '../i18n/useT';
 
 const TOAST_MS = 4000;
 
@@ -86,6 +87,7 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void 
   onRemove,
 }) => {
   const [leaving, setLeaving] = useState(false);
+  const t = useT();
 
   // Выходной кадр ставится только при разрешённом движении: без анимации тост обязан уйти
   // сразу, иначе animationend не наступит и карточка останется на экране навсегда.
@@ -133,11 +135,11 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void 
     >
       <Icon name="trophy" size={22} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: '0.85rem', color: 'var(--gold)' }}>{toast.title}</div>
+        <div style={{ fontSize: '0.85rem', color: 'var(--gold)' }}>{t(toast.title)}</div>
         <div style={{ fontSize: '0.8rem', color: 'var(--text-main)', fontWeight: 600 }}>
-          {toast.name}
+          {t(toast.name)}
         </div>
-        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{toast.desc}</div>
+        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{t(toast.desc)}</div>
       </div>
       {/* Видимая кнопка закрытия: автозакрытие и клик по карточке остаются, но ждать четыре
           секунды, чтобы убрать тост, игрок не обязан. stopPropagation обязателен — иначе нажатие
@@ -149,8 +151,8 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void 
           dismiss();
         }}
         className="pixel-btn"
-        aria-label="Закрыть уведомление"
-        title="Закрыть"
+        aria-label={t("Закрыть уведомление")}
+        title={t("Закрыть")}
         style={{ padding: '2px 6px', fontSize: '0.8rem', flexShrink: 0 }}
       >
         ✕
@@ -227,6 +229,7 @@ const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.m
 
 export const Toasts: React.FC = () => {
   const toasts = useGameStore((s) => s.toasts);
+  const t = useT();
   const removeToast = useGameStore((s) => s.removeToast);
   const burst = useGameStore((s) => s.burst);
   const stackRef = useRef<HTMLDivElement>(null);
@@ -317,7 +320,7 @@ export const Toasts: React.FC = () => {
               cursor: 'pointer',
             }}
           >
-            ещё <Num>{queued}</Num>
+            {t('ещё')} <Num>{queued}</Num>
           </button>
         )}
       </div>

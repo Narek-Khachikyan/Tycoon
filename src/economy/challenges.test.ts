@@ -96,8 +96,9 @@ describe('no-click enforcement', () => {
   it('gives autoclicks no income while still counting them', () => {
     const hired = buyAgents(rich(challenged('no-click')), first.id, 10);
     const withBot: GameState = { ...hired, perks: ['autoclick'] };
-    const plain = advance({ ...hired, perks: [] }, 1);
-    const auto = advance(withBot, 1);
+    const deterministic = () => 1;
+    const plain = advance({ ...hired, perks: [] }, 1, deterministic);
+    const auto = advance(withBot, 1, deterministic);
     // Автоклик в Испытании не доплачивает: Токенов ровно столько же, сколько без него.
     expect(auto.tokens).toBe(plain.tokens);
     expect(auto.runClicks).toBe(1);

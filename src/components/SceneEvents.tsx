@@ -16,6 +16,7 @@ import {
   useMotionAllowed,
 } from './EventSprites';
 import { Num } from './Num';
+import { useT } from '../i18n/useT';
 
 /**
  * Событийный слой Сцены: Глюки, которые на ней живут, и пролёт Дрона.
@@ -78,6 +79,8 @@ const usePlateSize = (): [React.RefObject<HTMLDivElement | null>, { w: number; h
  */
 export const SceneGlitchBand: React.FC = () => {
   const state = useGameStore((s) => s.state);
+  const t = useT();
+  const lang = state.settings.lang;
   if (state.glitches.length === 0) return null;
 
   const notation = state.settings.notation;
@@ -107,11 +110,11 @@ export const SceneGlitchBand: React.FC = () => {
     >
       <GlitchSprite size={16} heat={heat} />
       <span style={{ color: 'var(--text-main)', fontWeight: 600 }}>
-        Глюки: −<Num>{formatNumber(Math.round((1 - drain) * 100), notation)}</Num>% к доходу
+        {t('Глюки: −{pct}% к доходу', { pct: formatNumber(lang, Math.round((1 - drain) * 100), notation) })}
       </span>
       <span style={{ color: 'var(--text-muted)' }}>
-        унесли <Num>{formatNumber(stolen, notation)}</Num>{' '}
-        {formatCount(stolen, 'Токен', 'Токена', 'Токенов', notation)}
+        {t('унесли')} <Num>{formatNumber(lang, stolen, notation)}</Num>{' '}
+        {formatCount(lang, stolen, 'Токен', 'Токена', 'Токенов', notation)}
       </span>
     </div>
   );
@@ -170,6 +173,8 @@ const glitchReply = (clicks: number, hovered: boolean, motion: boolean): number 
 /** Паразиты на Сцене: каждый показывает, сколько кликов осталось, и лопается от третьего. */
 export const SceneGlitchSwarm: React.FC = () => {
   const state = useGameStore((s) => s.state);
+  const t = useT();
+  const lang = state.settings.lang;
   const hitGlitch = useGameStore((s) => s.hitGlitch);
   const notation = state.settings.notation;
   const motion = useMotionAllowed();
@@ -209,6 +214,7 @@ export const SceneGlitchSwarm: React.FC = () => {
       >
         {glitches.map((g, i) => {
           const left = GLITCH_CLICKS - g.clicks;
+          const hitWord = formatCount(lang, left, 'удар', 'удара', 'ударов', notation);
           const cracks = glitchCracks(g.clicks, GLITCH_CLICKS);
           const jitter = motion ? glitchJitter(state.lastTick, i * 1.7 + 1) : { x: 0, y: 0 };
           const over = hovered === g.id;
@@ -221,8 +227,8 @@ export const SceneGlitchSwarm: React.FC = () => {
               onMouseLeave={() => setHovered((cur) => (cur === g.id ? null : cur))}
               onFocus={() => setHovered(g.id)}
               onBlur={() => setHovered((cur) => (cur === g.id ? null : cur))}
-              aria-label={`Глюк: осталось ${left} ${formatCount(left, 'удар', 'удара', 'ударов', notation)}`}
-              title={`Осталось ${left} ${formatCount(left, 'удар', 'удара', 'ударов', notation)} — кликни, чтобы лопнул`}
+              aria-label={t('Глюк: осталось {left} {hitWord}', { left, hitWord })}
+              title={t('Осталось {left} {hitWord} — кликни, чтобы лопнул', { left, hitWord })}
               style={{
                 display: 'flex',
                 flexDirection: 'column',

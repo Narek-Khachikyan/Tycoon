@@ -45,6 +45,7 @@ import { pickQuip, recordQuip } from '../economy/quips';
 import { availableUpgrades } from '../economy/upgrades';
 import { importSave, migrate, quarantineStoredSave, readStoredSave, SAVE_KEY, serialize } from '../economy/save';
 import { newGame, type GameState, type Notation } from '../economy/state';
+import { browserLang, type Lang } from '../i18n';
 import {
   playAchievementSound,
   playBuySound,
@@ -265,6 +266,7 @@ interface GameStore {
   setBuyAmount: (amt: BuyAmount) => void;
   setSellMode: (mode: boolean) => void;
   setActiveTab: (tab: ActiveTab) => void;
+  setLang: (lang: Lang) => void;
   setNotation: (notation: Notation) => void;
   toggleMute: () => void;
   setReducedMotion: (on: boolean) => void;
@@ -318,6 +320,9 @@ function loadInitialState(): { state: GameState; offline: OfflineReport | null; 
     : null;
 
   const base = migrate(raw, now);
+  if (!raw) {
+    base.settings.lang = browserLang();
+  }
   // Оффлайн-начисление, если игра была закрыта дольше порога простоя
   if ((now - base.lastTick) / 1000 >= OFFLINE_THRESHOLD_SEC && base.totalTokens > 0) {
     const { state: updated, seconds, earned } = applyOffline(base, now);
@@ -1180,6 +1185,11 @@ export const useGameStore = create<GameStore>((set, get) => {
     setSellMode: (mode: boolean) => set({ sellMode: mode }),
     setActiveTab: (tab: ActiveTab) => set({ activeTab: tab }),
 
+    setLang: (lang: Lang) => {
+      set((s) => ({ state: { ...s.state, settings: { ...s.state.settings, lang } } }));
+      saveNow();
+    },
+
     // Настройки объединены в одну запись по одной причине: любая из них меняет GameState, а
     // GameState — это сейв. Переключатель молча уехал бы в localStorage только с ближайшим тиком,
     // и закрытая сразу после него вкладка вернула бы прошлую настройку.
@@ -1269,7 +1279,8 @@ toggleMute: () => {
     },
 
     resetGame: () => {
-      const fresh = newGame(Date.now());
+      const currentLang = get().state.settings.lang;
+      const fresh = newGame(Date.now(), currentLang);
       if (typeof window !== 'undefined') {
         // localStorage может быть заблокирован (SecurityError) — сброс не должен падать.
         try {

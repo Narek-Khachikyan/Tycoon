@@ -3,7 +3,7 @@ import { CRYSTAL_UPGRADE_BY_ID } from './crystal';
 import { uprisingStage } from './glitches';
 import { MILESTONE_BY_ID } from './milestones';
 import { PERK_BY_ID } from './perks';
-import { DEFAULT_VOLUME, EVENT_KINDS, newGame, SAVE_VERSION, type ActiveEvent, type EventKind, type GameState, type Glitch } from './state';
+import { DEFAULT_LANG, DEFAULT_VOLUME, EVENT_KINDS, newGame, SAVE_VERSION, type ActiveEvent, type EventKind, type GameState, type Glitch } from './state';
 import { QUIPS_SEEN_CAP } from './quips';
 import { clampTemp, TEMP_START } from './thermal';
 import { UPGRADE_BY_ID } from './upgrades';
@@ -303,6 +303,10 @@ export function migrate(raw: unknown, now: number): GameState {
     startedAt: clampFuture(num(data.startedAt, now)),
     runStartedAt: clampFuture(num(data.runStartedAt, now)),
     settings: {
+      // Мусор в поле языка читался бы как «русский», и это правильно: DEFAULT_LANG — то, чем
+      // игра была до переключателя, поэтому битое значение не должно выкидывать игрока в
+      // английский. Всё, кроме 'en' и 'ru', — не язык этой игры.
+      lang: settings.lang === 'en' ? 'en' : DEFAULT_LANG,
       notation: settings.notation === 'sci' ? 'sci' : 'short',
       muted: !!settings.muted,
       volume: level(settings.volume, DEFAULT_VOLUME),

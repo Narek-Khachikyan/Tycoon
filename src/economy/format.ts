@@ -1,3 +1,5 @@
+import { EN_FORMS, TIME_UNITS } from '../i18n/plurals';
+import type { Lang } from '../i18n/types';
 import type { Notation } from './state';
 
 const SUFFIXES = [
@@ -140,19 +142,52 @@ function presentBelowThousand(a: number, mode: PrintMode = 'number') {
   return { text: a < 10 ? a.toFixed(1) : String(whole), whole };
 }
 
-export function formatNumber(n: number, notation: Notation = 'short', mode: PrintMode = 'number'): string {
+export function formatNumber(
+  lang: Lang,
+  n: number,
+  notation?: Notation,
+  mode?: PrintMode,
+): string;
+export function formatNumber(
+  n: number,
+  notation?: Notation,
+  mode?: PrintMode,
+  lang?: Lang,
+): string;
+export function formatNumber(
+  arg1: Lang | number,
+  arg2?: number | Notation,
+  arg3: Notation | PrintMode = 'short',
+  arg4: PrintMode | Lang = 'number',
+): string {
+  let lang: Lang = 'ru';
+  let n: number;
+  let notation: Notation = 'short';
+  let mode: PrintMode = 'number';
+
+  if (typeof arg1 === 'string' && (arg1 === 'ru' || arg1 === 'en')) {
+    lang = arg1;
+    n = typeof arg2 === 'number' ? arg2 : 0;
+    if (typeof arg3 === 'string' && (arg3 === 'short' || arg3 === 'sci')) notation = arg3;
+    if (typeof arg4 === 'string' && (arg4 === 'number' || arg4 === 'price')) mode = arg4;
+  } else {
+    n = typeof arg1 === 'number' ? arg1 : 0;
+    if (typeof arg2 === 'string' && (arg2 === 'short' || arg2 === 'sci')) notation = arg2;
+    if (typeof arg3 === 'string' && (arg3 === 'number' || arg3 === 'price')) mode = arg3;
+    if (typeof arg4 === 'string' && (arg4 === 'ru' || arg4 === 'en')) lang = arg4;
+  }
+
   if (!Number.isFinite(n)) return '∞';
   const sign = n < 0 ? '-' : '';
   const a = Math.abs(n);
+  const dot = lang === 'ru' && notation !== 'sci' ? ',' : '.';
   if (a < 1000) {
     const { text } = presentBelowThousand(a, mode);
-    // Разделитель выбирает запись, а не функция: короткая печатает по-русски, научная — с
-    // точкой. Раньше этот выход стоял до ветвления по нотации, и запятая просачивалась в sci.
-    return notation === 'sci' ? sign + text : sign + text.replace('.', ',');
+    return sign + text.replace('.', dot);
   }
   const p = present(a, notation, mode);
   if (p.overflow || notation === 'sci') return `${sign}${p.mantissa.toFixed(p.decimals)}e${p.exp}`;
-  return `${sign}${p.mantissa.toFixed(p.decimals).replace('.', ',')} ${p.suffix}`;
+  return `${sign}${p.mantissa.toFixed(p.decimals).replace('.', dot)} ${p.suffix}`;
 }
 
 /**
@@ -177,13 +212,65 @@ export function formatNumber(n: number, notation: Notation = 'short', mode: Prin
  * без него цена «2» получила бы форму от настоящей 1,5.
  */
 export function formatCount(
+  lang: Lang,
   n: number,
   one: string,
   few: string,
   many: string,
-  notation: Notation = 'short',
-  mode: PrintMode = 'number',
+  notation?: Notation,
+  mode?: PrintMode,
+): string;
+export function formatCount(
+  n: number,
+  one: string,
+  few: string,
+  many: string,
+  notation?: Notation,
+  mode?: PrintMode,
+  lang?: Lang,
+): string;
+export function formatCount(
+  arg1: Lang | number,
+  arg2: number | string,
+  arg3: string,
+  arg4: string,
+  arg5: string | Notation = 'short',
+  arg6: Notation | PrintMode = 'number',
+  arg7: PrintMode | Lang = 'ru',
 ): string {
+  let lang: Lang = 'ru';
+  let n: number;
+  let one: string;
+  let few: string;
+  let many: string;
+  let notation: Notation = 'short';
+  let mode: PrintMode = 'number';
+
+  if (typeof arg1 === 'string' && (arg1 === 'ru' || arg1 === 'en')) {
+    lang = arg1;
+    n = typeof arg2 === 'number' ? arg2 : 0;
+    one = arg3;
+    few = arg4;
+    many = typeof arg5 === 'string' ? arg5 : '';
+    if (typeof arg6 === 'string' && (arg6 === 'short' || arg6 === 'sci')) notation = arg6;
+    if (typeof arg7 === 'string' && (arg7 === 'number' || arg7 === 'price')) mode = arg7;
+  } else {
+    n = typeof arg1 === 'number' ? arg1 : 0;
+    one = typeof arg2 === 'string' ? arg2 : '';
+    few = arg3;
+    many = arg4;
+    if (typeof arg5 === 'string' && (arg5 === 'short' || arg5 === 'sci')) notation = arg5;
+    if (typeof arg6 === 'string' && (arg6 === 'number' || arg6 === 'price')) mode = arg6;
+    if (typeof arg7 === 'string' && (arg7 === 'ru' || arg7 === 'en')) lang = arg7;
+  }
+
+  // Английский склоняет только на «один против всего остального», и 1,5 у него честно
+  // читается как «1.5 Tokens»: форма выбирается по точному числу, а не по той записи,
+  // которой расплатился бы русский declensionOf.
+  if (lang === 'en') {
+    const forms = EN_FORMS[one] ?? [one, many];
+    return Math.abs(n) === 1 ? forms[0] : forms[1];
+  }
   // Math.abs: в JS остаток от отрицательного числа отрицателен, и -1 ушёл бы в `many`.
   const { unit, tens } = declensionOf(Math.abs(n), notation, mode);
   if (unit === 1 && tens !== 11) return one;
@@ -211,16 +298,28 @@ function declensionOf(abs: number, notation: Notation, mode: PrintMode) {
   // к той нотации, которую выбрал игрок, поэтому игрок читает именно её: «2,71e19» — это
   // две целых (Агента), а «27,10 Qi» — двадцать семь (Агентов). Склейка «271» давала третье
   // число, которого на экране нет: по прогону 96 расхождений между нотациями, например
-  // «27,10 Qi»/«Агентов» против «2.71e19»/«Агент» на одном и том числе числе.
+  // «27,10 Qi»/«Агентов» против «2.71e19»/«Агент» на одном и том же числе.
   const shown = Math.floor(Number(p.mantissa.toFixed(p.decimals)));
   return { unit: shown % 10, tens: shown % 100 };
 }
 
-export function formatDuration(seconds: number): string {
+export function formatDuration(lang: Lang, seconds: number): string;
+export function formatDuration(seconds: number, lang?: Lang): string;
+export function formatDuration(arg1: Lang | number, arg2?: number | Lang): string {
+  let lang: Lang = 'ru';
+  let seconds: number;
+  if (typeof arg1 === 'string' && (arg1 === 'ru' || arg1 === 'en')) {
+    lang = arg1;
+    seconds = typeof arg2 === 'number' ? arg2 : 0;
+  } else {
+    seconds = typeof arg1 === 'number' ? arg1 : 0;
+    if (typeof arg2 === 'string' && (arg2 === 'ru' || arg2 === 'en')) lang = arg2;
+  }
+  const u = TIME_UNITS[lang] ?? TIME_UNITS.ru;
   const s = Math.floor(seconds);
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
-  if (h > 0) return `${h} ч ${m} мин`;
-  if (m > 0) return `${m} мин ${s % 60} с`;
-  return `${s} с`;
+  if (h > 0) return [`${h}${u.h}`, `${m}${u.m}`].join(u.sep);
+  if (m > 0) return [`${m}${u.m}`, `${s % 60}${u.s}`].join(u.sep);
+  return `${s}${u.s}`;
 }

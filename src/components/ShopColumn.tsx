@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useT } from '../i18n/useT';
 import { motionAllowed, useGameStore, type BuyAmount } from '../store/useGameStore';
 import { useMotionAllowed } from './EventSprites';
 import { CATALOG } from '../economy/catalog';
@@ -112,6 +113,8 @@ const PLEDGE_DESC: React.CSSProperties = {
  * меняется двадцать раз в секунду и иначе читалось бы вслух.
  */
 const TokenDeficit: React.FC<{ amount: number; notation: Notation }> = ({ amount, notation }) => {
+  const t = useT();
+  const lang = useGameStore((s) => s.state.settings.lang);
   // Снятие deny-вспышки по концу анимации, а не по таймеру: таймеры в компонентах запрещены.
   // Проверка цели не нужна — анимация висит только на этом узле, чужих animationend здесь нет.
   const handleDenyEnd = (e: React.AnimationEvent<HTMLDivElement>) => {
@@ -130,9 +133,9 @@ const TokenDeficit: React.FC<{ amount: number; notation: Notation }> = ({ amount
     >
       {amount > 0 && (
         <>
-          Не хватает <Num>{formatNumber(amount, notation)}</Num>{' '}
+          {t('не хватает')} <Num>{formatNumber(lang, amount, notation)}</Num>{' '}
           {/* Нотация обязательна: форма считается по цифрам той же записи, что и число. */}
-          {formatCount(amount, 'Токен', 'Токена', 'Токенов', notation)}
+          {formatCount(lang, amount, 'Токен', 'Токена', 'Токенов', notation)}
         </>
       )}
     </div>
@@ -251,10 +254,12 @@ const ModelRow: React.FC<{
 };
 
 export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
+  const t = useT();
   const [tab, setTab] = useState<'models' | 'upgrades' | 'perks'>('models');
   const [expandedAA, setExpandedAA] = useState<Record<string, boolean>>({});
 
   const state = useGameStore((s) => s.state);
+  const lang = state.settings.lang;
   const buyAmount = useGameStore((s) => s.buyAmount);
   const sellMode = useGameStore((s) => s.sellMode);
   const setBuyAmount = useGameStore((s) => s.setBuyAmount);
@@ -379,14 +384,14 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
           className={`pixel-btn ${tab === 'models' ? 'pixel-btn-accent' : ''}`}
           style={{ flex: 1, padding: '8px 4px', fontSize: '0.9rem' }}
         >
-          Модели
+          {t('Модели')}
         </button>
         <button
           onClick={() => setTab('upgrades')}
           className={`pixel-btn ${tab === 'upgrades' ? 'pixel-btn-accent' : ''}`}
           style={{ flex: 1, padding: '8px 4px', fontSize: '0.9rem', position: 'relative' }}
         >
-          Апгрейды
+          {t('Апгрейды')}
           {upgrades.length > 0 && (
             <span
               key={upgrades.length}
@@ -411,10 +416,10 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
           className={`pixel-btn ${tab === 'perks' ? 'pixel-btn-accent' : ''}`}
           title={
             finale
-              ? 'Ты дошёл до последнего поколения — дальше престиж недоступен'
+              ? t('Ты дошёл до последнего поколения — дальше престиж недоступен')
               : prestigeReady
                 ? undefined
-                : 'Найми 1 агента флагмана, чтобы разблокировать престиж'
+                : t('Найми 1 агента флагмана, чтобы разблокировать престиж')
           }
           style={{
             flex: 1,
@@ -425,7 +430,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               : undefined),
           }}
         >
-          Престиж
+          {t('Престиж')}
         </button>
       </div>
 
@@ -460,7 +465,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               aria-pressed={!sellMode}
               style={{ padding: '4px 8px', fontSize: '0.8rem' }}
             >
-              Купить
+              {t('Купить')}
             </button>
             <button
               onClick={() => setSellMode(true)}
@@ -468,7 +473,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               aria-pressed={sellMode}
               style={{ padding: '4px 8px', fontSize: '0.8rem' }}
             >
-              Продать
+              {t('Продать')}
             </button>
           </div>
 
@@ -482,7 +487,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                 aria-pressed={buyAmount === amt}
                 style={{ padding: '4px 7px', fontSize: '0.8rem' }}
               >
-                {amt === 'max' ? 'Max' : <>&times;<Num>{amt}</Num></>}
+                {amt === 'max' ? t('Макс') : <>&times;<Num>{amt}</Num></>}
               </button>
             ))}
           </div>
@@ -491,7 +496,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               читать, а возврат и так назван прямо на кнопке карточки. */}
           {sellMode && (
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', flexShrink: 0 }}>
-              Возврат 25% от цены
+              {t('Возврат 25% от цены')}
             </div>
           )}
         </div>
@@ -574,10 +579,10 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                               textOverflow: 'ellipsis',
                             }}
                           >
-                            {m.name}
+                            {t(m.name)}
                           </span>
                           {m.isFlagship && (
-                            <span style={{ color: 'var(--gold)', flexShrink: 0 }} title="Флагман">
+                            <span style={{ color: 'var(--gold)', flexShrink: 0 }} title={t('Флагман')}>
                               <Icon name="crown" size={13} />
                             </span>
                           )}
@@ -590,8 +595,8 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                             aria-expanded={isAAOpen}
                             aria-controls={`aa-${m.id}`}
                             id={`aa-toggle-${m.id}`}
-                            aria-label={`Справка Artificial Analysis: ${m.name}`}
-                            title="Справка Artificial Analysis"
+                            aria-label={t('Справка Artificial Analysis: {name}', { name: t(m.name) })}
+                            title={t('Справка Artificial Analysis')}
                             style={{
                               flexShrink: 0,
                               width: '20px',
@@ -616,7 +621,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                               длинных именах вроде «Llama 2 Chat 13B»; здесь имена Лабораторий
                               стоят в одной колонке, и глаз сравнивает их по цвету, а не читает. */}
                           <span
-                            title={lab.name}
+                            title={t(lab.name)}
                             style={{
                               fontSize: '0.6rem',
                               letterSpacing: '0.04em',
@@ -631,7 +636,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                             {LAB_BADGE[m.lab]}
                           </span>
                           <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                            Ранг {m.rank + 1}
+                            {t('Ранг {rank}', { rank: m.rank + 1 })}
                           </span>
                         </div>
                       </div>
@@ -642,7 +647,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       <div style={{ fontSize: '1.2rem' }}>
                         <Num>{owned}</Num>
                       </div>
-                      <div>{formatCount(owned, 'Агент', 'Агента', 'Агентов', notation)}</div>
+                      <div>{formatCount(lang, owned, 'Агент', 'Агента', 'Агентов', notation)}</div>
                     </div>
                   </div>
 
@@ -670,7 +675,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       {showsGain && (
                         <>
                           {sellMode ? '−' : '+'}
-                          <Num>{formatNumber(gain, notation)}</Num> к доходу
+                          <Num>{formatNumber(lang, gain, notation)}</Num> {t('к доходу')}
                         </>
                       )}
                     </div>
@@ -704,26 +709,26 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                           {/* «Купить ×0» обещало бы покупку, которой не будет. */}
                           {sellMode ? (
                             count > 0 ? (
-                              <>Продать ×<Num>{count}</Num></>
+                              <>{t('Продать')} &times;<Num>{count}</Num></>
                             ) : (
-                              <>Продать</>
+                              <>{t('Продать')}</>
                             )
                           ) : count > 0 ? (
                             <>
-                              Купить ×<Num>{count}</Num> (<Num>{formatNumber(cost, notation)}</Num>)
+                              {t('Купить')} &times;<Num>{count}</Num> (<Num>{formatNumber(lang, cost, notation)}</Num>)
                             </>
                           ) : (
-                            <>Купить</>
+                            <>{t('Купить')}</>
                           )}
                         </span>
                         {!canAfford && missing > 0 && (
                           <span style={{ fontSize: '0.7rem', opacity: 0.85 }}>
-                            не хватает <Num>{formatNumber(missing, notation)}</Num>
+                            {t('не хватает')} <Num>{formatNumber(lang, missing, notation)}</Num>
                           </span>
                         )}
                         {sellMode && count > 0 && (
                           <span style={{ fontSize: '0.7rem', opacity: 0.85 }}>
-                            вернёт <Num>{formatNumber(refund, notation)}</Num>
+                            {t('вернёт')} <Num>{formatNumber(lang, refund, notation)}</Num>
                           </span>
                         )}
                       </span>
@@ -747,7 +752,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                     <div
                       className="model-goal__track"
                       role="img"
-                      aria-label={`до следующего Агента ${Math.round((1 - missingShare) * 100)}%`}
+                      aria-label={t('до следующего Агента {pct}%', { pct: Math.round((1 - missingShare) * 100) })}
                     >
                       {GOAL_TICKS.map((_, i) => (
                         <span
@@ -778,7 +783,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                           не подсказка, а шум: игрок читает четыре нуля и решает, что ничего не
                           происходит. Готовая к покупке пара подсвечивается золотом — это
                           единственное, что меняет решение игрока прямо сейчас. */}
-                      {singleBought && <div>Общий датасет {LABS[m.lab].name} активен</div>}
+                      {singleBought && <div>{t('Общий датасет {lab} активен', { lab: LABS[m.lab].name })}</div>}
                       {pairSynergies.map((u) => {
                         if (u.kind !== 'synergy' || u.pairLab === undefined) return null;
                         const first = labAgents(state, u.lab);
@@ -792,10 +797,10 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         return (
                           <div key={u.id} style={ready ? { color: 'var(--gold)' } : undefined}>
                             {bought && ready
-                              ? `Совместный датасет ${pairName} активен (×${formatNumber(PAIR_SYNERGY_MULT, notation)})`
+                              ? t('Совместный датасет {pair} активен (×{mult})', { pair: pairName, mult: formatNumber(lang, PAIR_SYNERGY_MULT, notation) })
                               : bought
-                                ? `Совместный датасет ${pairName} ждёт состав ${first} + ${second}`
-                                : `Совместный датасет ${pairName} готов — забирай во вкладке Апгрейды`}
+                                ? t('Совместный датасет {pair} ждёт состав {first} + {second}', { pair: pairName, first, second })
+                                : t('Совместный датасет {pair} готов — забирай во вкладке Апгрейды', { pair: pairName })}
                           </div>
                         );
                       })}
@@ -830,15 +835,15 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                           <div style={{ color: 'var(--gold)', fontWeight: 700 }}>{m.iq} IQ</div>
                         </div>
                         <div>
-                          <div style={{ color: 'var(--text-muted)' }}>Скорость:</div>
+                          <div style={{ color: 'var(--text-muted)' }}>{t('Скорость:')}</div>
                           <div style={{ color: 'var(--accent-color)', fontWeight: 700 }}>
-                            {m.speed > 0 ? `${m.speed} t/s` : 'нет данных'}
+                            {t(m.speed > 0 ? `${m.speed} t/s` : 'нет данных')}
                           </div>
                         </div>
                         <div>
-                          <div style={{ color: 'var(--text-muted)' }}>Цена API:</div>
+                          <div style={{ color: 'var(--text-muted)' }}>{t('Цена API:')}</div>
                           <div style={{ color: 'var(--green)', fontWeight: 700 }}>
-                            {m.price > 0 ? `$${m.price}/1M` : 'нет данных'}
+                            {t(m.price > 0 ? `$${m.price}/1M` : 'нет данных')}
                           </div>
                         </div>
                       </div>
@@ -862,7 +867,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               }}
             >
               <Icon name="info" size={12} />
-              Метрики, задержки и цены API — Artificial Analysis
+              {t('Метрики, задержки и цены API — Artificial Analysis')}
             </div>
           </div>
         )}
@@ -872,7 +877,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {upgrades.length === 0 ? (
               <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: '40px' }}>
-                Пока нет доступных апгрейдов. Нанимай больше агентов!
+                {t('Пока нет доступных апгрейдов. Нанимай больше агентов!')}
               </div>
             ) : (
               upgrades.map((u) => {
@@ -902,11 +907,11 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         aria-hidden="true"
                         style={{ imageRendering: 'pixelated', flexShrink: 0 }}
                       />
-                      <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{u.name}</span>
+                      <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{t(u.name)}</span>
                     </div>
 
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                      {u.desc}
+                      {t(u.desc)}
                     </div>
 
                     {/* Отказ — той же обёрткой, что у Моделей: сквоша здесь нет, потому что
@@ -935,7 +940,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                     >
                       {/* Цена живёт в кнопке на всех вкладках магазина: в шапке карточки её
                           больше нет, поэтому искать её приходилось в двух разных местах. */}
-                      Улучшить (<Num>{formatNumber(u.cost, notation)}</Num>)
+                      {t('Улучшить')} (<Num>{formatNumber(lang, u.cost, notation)}</Num>)
                     </button>
 
                     <TokenDeficit amount={missing} notation={notation} />
@@ -961,10 +966,10 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                 gap: '8px',
               }}
             >
-              <div style={{ fontSize: '1.1rem', color: 'var(--gold)' }}>Престиж в следующее поколение</div>
+              <div style={{ fontSize: '1.1rem', color: 'var(--gold)' }}>{t('Престиж в следующее поколение')}</div>
 
               <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                Сбросит текущий забег (токены, агенты, апгрейды) и перенесёт тебя в следующее поколение.
+                {t('Сбросит текущий забег (токены, агенты, апгрейды) и перенесёт тебя в следующее поколение.')}
               </div>
 
               {!finale && (
@@ -977,15 +982,15 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                   }}
                 >
                   <div>
-                    Получишь Compute:{' '}
+                    {t('Получишь Compute:')}{' '}
                     {/* Через formatNumber, иначе в поздней игре это число с пятнадцатью
                         значащими цифрами: `Num` только набирает пиксельным шрифтом (ADR-0003)
                         и ничего не форматирует. То же число показывает окно подтверждения,
                         и расходиться они не должны. */}
-                    <Num>+{formatNumber(prestigeGain(state), notation)}</Num>
+                    <Num>+{formatNumber(lang, prestigeGain(state), notation)}</Num>
                   </div>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    (Каждая единица Compute даёт постоянный бонус +1% к Доходу)
+                    {t('(Каждая единица Compute даёт постоянный бонус +1% к Доходу)')}
                   </div>
                 </div>
               )}
@@ -999,10 +1004,10 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                 style={{ width: '100%', marginTop: '4px' }}
               >
                 {finale
-                  ? 'Финал контента'
+                  ? t('Финал контента')
                   : canPrestige(state)
-                    ? 'Сделать Престиж!'
-                    : 'Нужен 1 Агент Флагмана'}
+                    ? t('Сделать Престиж!')
+                    : t('Нужен 1 Агент Флагмана')}
               </button>
 
               {/* Финал контента: кнопка Престижа выше ничего не выполнит, поэтому плашка без
@@ -1023,15 +1028,14 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                   }}
                 >
                   <div>
-                    Ты дошёл до последнего Поколения — продолжение выйдет с новыми моделями. А
-                    пока закрой все Достижения и развей офис до максимума
+                    {t('Ты дошёл до последнего Поколения — продолжение выйдет с новыми моделями. А пока закрой все Достижения и развей офис до максимума')}
                   </div>
                   <button
                     onClick={() => setTab('models')}
                     className="pixel-btn pixel-btn-accent"
                     style={{ width: '100%' }}
                   >
-                    К Моделям
+                    {t('К Моделям')}
                   </button>
                 </div>
               )}
@@ -1045,13 +1049,12 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}
             >
               <div style={{ fontSize: '1rem', color: 'var(--text-main)' }}>
-                Откупы от Восстания моделей
+                {t('Откупы от Восстания моделей')}
               </div>
 
               {state.uprising === 0 ? (
                 <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                  Откупы открываются с начала Восстания: найми 1 агента флагмана и сделай
-                  Престиж. Пока красных событий не бывает — покупать нечего.
+                  {t('Откупы открываются с начала Восстания: найми 1 агента флагмана и сделай Престиж. Пока красных событий не бывает — покупать нечего.')}
                 </div>
               ) : (
                 <>
@@ -1060,25 +1063,23 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       рост цены был бы виден только задним числом. */}
                   <div style={PLEDGE_ROW}>
                     <div style={PLEDGE_TEXT}>
-                      <div style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>Лобби</div>
+                      <div style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{t('Лобби')}</div>
                       <div style={PLEDGE_DESC}>
-                        Глушит красные события на полчаса. Второе продлевает, а не заменяет.
+                        {t('Глушит красные события на полчаса. Второе продлевает, а не заменяет.')}
                       </div>
                       <div style={PLEDGE_DESC}>
-                        Куплено <Num>{state.pledgeBought}</Num> из <Num>{PLEDGE_MAX}</Num>,
-                        каждая следующая дороже в <Num>{PLEDGE_GROWTH}</Num> раз.
+                        {t('Куплено {bought} из {max}, каждая следующая дороже в {growth} раз.', { bought: state.pledgeBought, max: PLEDGE_MAX, growth: PLEDGE_GROWTH })}
                       </div>
                       {/* Под «Лицензией» кнопка молчит, но не прячет цену и условие: игрок
                           обязан прочитать, что Лобби стал недоступен и почему. */}
                       {state.covenant && (
                         <div style={PLEDGE_DESC}>
-                          «Лицензия» глушит всё, поэтому Лобби за{' '}
-                          <Num>{formatNumber(pledgeCost(state), notation)}</Num> не продаётся.
+                          {t('«Лицензия» глушит всё, поэтому Лобби за {cost} не продаётся.', { cost: formatNumber(lang, pledgeCost(state), notation) })}
                         </div>
                       )}
                       {pledgeLeftMs > 0 && (
                         <div style={{ ...PLEDGE_DESC, color: 'var(--green)' }}>
-                          Глушит ещё {formatDuration(pledgeLeftMs / 1000)}
+                          {t('Глушит ещё {time}', { time: formatDuration(lang, pledgeLeftMs / 1000) })}
                         </div>
                       )}
                     </div>
@@ -1093,10 +1094,10 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         style={{ padding: '6px 10px', fontSize: '0.85rem' }}
                       >
                         {state.covenant ? (
-                          'Есть Лицензия'
+                          t('Есть Лицензия')
                         ) : (
                           <>
-                            Откупиться (<Num>{formatNumber(pledgeCost(state), notation)}</Num>)
+                            {t('Откупиться')} (<Num>{formatNumber(lang, pledgeCost(state), notation)}</Num>)
                           </>
                         )}
                       </button>
@@ -1110,12 +1111,10 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                     <div style={PLEDGE_ROW}>
                       <div style={PLEDGE_TEXT}>
                         <div style={{ fontSize: '0.95rem', color: 'var(--green)' }}>
-                          Лицензия активна
+                          {t('Лицензия активна')}
                         </div>
                         <div style={PLEDGE_DESC}>
-                          Красные события глушатся, Глюки не заводятся. Налог на Доход{' '}
-                          −<Num>{formatNumber(Math.round(LICENSE_INCOME_TAX * 100), notation)}</Num>%{' '}
-                          платится, пока Лицензия не отозвана.
+                          {t('Красные события глушатся, Глюки не заводятся. Налог на Доход −{tax}% платится, пока Лицензия не отозвана.', { tax: formatNumber(lang, Math.round(LICENSE_INCOME_TAX * 100), notation) })}
                         </div>
                       </div>
                       <div
@@ -1128,7 +1127,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                           className="pixel-btn"
                           style={{ padding: '6px 10px', fontSize: '0.85rem' }}
                         >
-                          Отозвать (<Num>{formatNumber(revokeCost(state), notation)}</Num>)
+                          {t('Отозвать')} (<Num>{formatNumber(lang, revokeCost(state), notation)}</Num>)
                         </button>
                       </div>
                     </div>
@@ -1136,17 +1135,13 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                     <div style={PLEDGE_ROW}>
                       <div style={PLEDGE_TEXT}>
                         <div style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>
-                          Лицензия
+                          {t('Лицензия')}
                         </div>
                         <div style={PLEDGE_DESC}>
-                          Вечное «Лобби»: красные события глушатся навсегда, а все Глюки
-                          лопаются разом и выплачивают общий котёл.
+                          {t('Вечное «Лобби»: красные события глушатся навсегда, а все Глюки лопаются разом и выплачивают общий котёл.')}
                         </div>
                         <div style={{ ...PLEDGE_DESC, color: '#fca5a5' }}>
-                          Постоянный налог на Доход −
-                          <Num>{formatNumber(Math.round(LICENSE_INCOME_TAX * 100), notation)}</Num>%:
-                          отзыв обойдётся в{' '}
-                          <Num>{formatNumber(revokeCost(state), notation)}</Num>.
+                          {t('Постоянный налог на Доход −{tax}%: отзыв обойдётся в {cost}.', { tax: formatNumber(lang, Math.round(LICENSE_INCOME_TAX * 100), notation), cost: formatNumber(lang, revokeCost(state), notation) })}
                         </div>
                       </div>
                       <div
@@ -1159,8 +1154,8 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                           className="pixel-btn pixel-btn-gold"
                           style={{ padding: '6px 10px', fontSize: '0.85rem' }}
                         >
-                          Взять Лицензию (
-                          <Num>{formatNumber(licenseCost(state), notation)}</Num>)
+                          {t('Взять Лицензию')} (
+                          <Num>{formatNumber(lang, licenseCost(state), notation)}</Num>)
                         </button>
                       </div>
                     </div>
@@ -1178,17 +1173,15 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}
             >
               <div style={{ fontSize: '1rem', color: 'var(--text-main)' }}>
-                Compute-кристаллы
+                {t('Compute-кристаллы')}
               </div>
 
               <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                В запасе <Num>{formatNumber(state.crystals, notation)}</Num>, каждый целый
-                кристалл даёт +1% к общему Доходу навсегда. Сейчас это{' '}
-                <span style={{ color: 'var(--green)', fontWeight: 600 }}>
-                  +<Num>{formatNumber(crystalBonusPct, notation)}</Num>%
-                </span>
-                , потолок запаса — <Num>{CRYSTAL_STOCK_CAP}</Num>. Кристалл зреет в реальном
-                времени и переживает Престиж.
+                {t('В запасе {count}, каждый целый кристалл даёт +1% к общему Доходу навсегда. Сейчас это +{pct}%, потолок запаса — {cap}. Кристалл зреет в реальном времени и переживает Престиж.', {
+                  count: formatNumber(lang, state.crystals, notation),
+                  pct: formatNumber(lang, crystalBonusPct, notation),
+                  cap: formatNumber(lang, CRYSTAL_STOCK_CAP, notation),
+                })}
               </div>
 
               {/* Рост следующего: одна полоса и честный остаток. Сбор ленивый — зреет максимум
@@ -1196,14 +1189,14 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-main)' }}>
                   {state.crystalPlantedAt === 0 ? (
-                    'Первый кристалл только сеется'
+                    t('Первый кристалл только сеется')
                   ) : (
-                    <>Следующий зреет ещё {formatDuration(crystalLeftSec)}</>
+                    <>{t('Следующий зреет ещё {time}', { time: formatDuration(lang, crystalLeftSec) })}</>
                   )}
                 </div>
                 <div
                   role="progressbar"
-                  aria-label="Рост следующего кристалла"
+                  aria-label={t('Рост следующего кристалла')}
                   aria-valuemin={0}
                   aria-valuemax={100}
                   aria-valuenow={Math.round(crystalProgress * 100)}
@@ -1231,14 +1224,6 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                 {CRYSTAL_UPGRADES.map((u) => {
                   const owned = state.crystalUpgrades.includes(u.id);
                   const canAfford = !owned && state.crystals >= u.cost;
-                  // Цена ускорителя: сколько процентов бонуса за запас уйдёт навсегда. Это разница двух
-                  // бонусов от самой экономики, а не «цена ×1%», посчитанная в компоненте, —
-                  // правило «сколько даёт целый кристалл в запасе» живёт поэтому в одном месте,
-                  // в crystalIncomeMult, и строка переживёт его правку.
-                  // Запас для обеих точек берётся равным цене, а не текущему: ускоритель покупают
-                  // когда кристаллов хватает, и до тех пор его цена не должна скакать вместе с
-                  // кошельком — иначе «забирает 3%» превратилось бы в «забирает 10%» ровно тогда,
-                  // когда игрок дождался возможности купить.
                   const lostPct = Math.round(
                     (crystalIncomeMult({ ...state, crystals: u.cost }) -
                       crystalIncomeMult({ ...state, crystals: 0 })) *
@@ -1258,12 +1243,9 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       }}
                     >
                       <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>
-                        {u.name}
+                        {t(u.name)}
                       </span>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{u.desc}</div>
-                      {/* Размен назван прямо и без смягчений: ускоритель отнимает бонус за
-                          запас навсегда, и это его настоящая цена. Уже купленного скидывать
-                          не стоит — предупреждение там, где решение ещё можно принять. */}
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{t(u.desc)}</div>
                       <div
                         style={{
                           fontSize: '0.8rem',
@@ -1271,11 +1253,10 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         }}
                       >
                         {owned
-                          ? 'Куплено: бонус за запас уже урезан'
+                          ? t('Куплено: бонус за запас уже урезан')
                           : (
                               <>
-                                Забирает <Num>{formatNumber(lostPct, notation)}</Num>% бонуса за
-                                запас навсегда
+                                {t('Забирает {pct}% бонуса за запас навсегда', { pct: formatNumber(lang, lostPct, notation) })}
                               </>
                             )}
                       </div>
@@ -1290,11 +1271,11 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                           style={{ padding: '6px 10px', fontSize: '0.85rem' }}
                         >
                           {owned ? (
-                            'Куплено'
+                            t('Куплено')
                           ) : (
                             <>
-                              Купить (<Num>{formatNumber(u.cost, notation, 'price')}</Num>{' '}
-                              {formatCount(u.cost, 'кристалл', 'кристалла', 'кристаллов', notation, 'price')})
+                              {t('Купить')} (<Num>{formatNumber(lang, u.cost, notation, 'price')}</Num>{' '}
+                              {formatCount(lang, u.cost, 'кристалл', 'кристалла', 'кристаллов', notation, 'price')})
                             </>
                           )}
                         </button>
@@ -1310,7 +1291,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               <div
                 style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: '8px' }}
               >
-                Постоянные перки (Свободно: <Num>{unspentCompute}</Num> Compute)
+                {t('Постоянные перки (Свободно: {unspent} Compute)', { unspent: unspentCompute })}
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -1331,10 +1312,10 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         gap: '6px',
                       }}
                     >
-                      <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{p.name}</span>
+                      <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{t(p.name)}</span>
 
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                        {p.desc}
+                        {t(p.desc)}
                       </div>
 
                       {/* Отказ — той же обёрткой, что у Моделей/Апгрейдов: кнопка остаётся
@@ -1367,7 +1348,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                           pointerEvents: owned || canAfford ? undefined : 'none',
                         }}
                       >
-                        {owned ? 'Куплено' : <>Купить перк (<Num>{p.cost}</Num> Compute)</>}
+                        {owned ? t('Куплено') : <>{t('Купить перк')} (<Num>{p.cost}</Num> Compute)</>}
                       </button>
                       </div>
                     </div>
@@ -1384,12 +1365,10 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               <div
                 style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: '4px' }}
               >
-                Наследие поколений (Куплено: <Num>{boughtGenPerks}</Num> из{' '}
-                <Num>{genPerks.length}</Num>)
+                {t('Наследие поколений (Куплено: {bought} из {total})', { bought: boughtGenPerks, total: genPerks.length })}
               </div>
               <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                Усиливают только своё Поколение навсегда. Следующий —{' '}
-                <Num>{nextGenPerkCost}</Num> Compute: цена растёт с числом купленных.
+                {t('Усиливают только своё Поколение навсегда. Следующий — {cost} Compute: цена растёт с числом купленных.', { cost: nextGenPerkCost })}
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -1425,10 +1404,10 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         ...(locked ? { opacity: 0.6 } : undefined),
                       }}
                     >
-                      <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{p.name}</span>
+                      <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{t(p.name)}</span>
 
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                        {p.desc}
+                        {t(p.desc)}
                       </div>
 
                       {/* Подпись причины: будущее Поколение и missing флагман текущего —
@@ -1438,9 +1417,9 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       {locked && (
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                           {isFutureGen
-                            ? <>Откроется в поколении «{genName}»</>
+                            ? <>{t('Откроется в поколении «{gen}»', { gen: genName })}</>
                             : needFlagship
-                              ? 'Нужен флагман поколения'
+                              ? t('Нужен флагман поколения')
                               : null}
                         </div>
                       )}
@@ -1470,10 +1449,10 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                         }}
                       >
                         {owned ? (
-                          'Куплено'
+                          t('Куплено')
                         ) : (
                           <>
-                            Купить перк (<Num>{nextGenPerkCost}</Num> Compute)
+                            {t('Купить перк')} (<Num>{nextGenPerkCost}</Num> Compute)
                           </>
                         )}
                       </button>

@@ -5,6 +5,8 @@ import { ACHIEVEMENTS, ordinaryEarned } from '../economy/achievements';
 import { formatNumber } from '../economy/format';
 import { Num } from './Num';
 import { Icon } from './Icon';
+import { playClickSound } from '../audio/sound';
+import { useT } from '../i18n/useT';
 
 interface HeaderProps {
   onOpenAchievements: () => void;
@@ -19,8 +21,10 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const state = useGameStore((s) => s.state);
   const toggleMute = useGameStore((s) => s.toggleMute);
+  const setLang = useGameStore((s) => s.setLang);
   const burst = useGameStore((s) => s.burst);
   const badgeRef = useRef<HTMLButtonElement>(null);
+  const t = useT();
 
   const gen = CATALOG[state.generation];
   // Числитель — ordinaryEarned, а не achievements.length: тени лежат в том же списке, и
@@ -106,7 +110,11 @@ export const Header: React.FC<HeaderProps> = ({
           }}
         >
           <span className="tab-badge--pulse" style={{ display: 'inline-block' }}>
-            Поколение {gen.id}: {gen.name} ({gen.period})
+            {t('Поколение {id}: {name} ({period})', {
+              id: gen.id,
+              name: t(gen.name),
+              period: t(gen.period),
+            })}
           </span>
         </span>
         {state.compute > 0 && (
@@ -123,7 +131,7 @@ export const Header: React.FC<HeaderProps> = ({
               animation: 'toast-fade 0.15s ease-out',
               whiteSpace: 'nowrap',
             }}
-            title="Бонус к доходу от Compute"
+            title={t('Бонус к доходу от Compute')}
           >
             <Num>{formatNumber(state.compute, notation)}</Num> Compute (+<Num>{state.compute}</Num>%)
           </span>
@@ -136,8 +144,8 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           className="pixel-btn"
           onClick={toggleMute}
-          title={isMuted ? 'Включить звук' : 'Выключить звук'}
-          aria-label={isMuted ? 'Включить звук' : 'Выключить звук'}
+          title={isMuted ? t('Включить звук') : t('Выключить звук')}
+          aria-label={isMuted ? t('Включить звук') : t('Выключить звук')}
           style={{ padding: '6px 10px', fontSize: '0.9rem', whiteSpace: 'nowrap' }}
         >
           <Icon name={isMuted ? 'sound-off' : 'sound-on'} />
@@ -147,10 +155,13 @@ export const Header: React.FC<HeaderProps> = ({
           ref={badgeRef}
           className="pixel-btn ach-badge"
           onClick={onOpenAchievements}
-          title="Достижения"
+          title={t('Достижения')}
           // Без aria-label доступное имя кнопки — это «14 / 21», то есть два числа без
           // единого слова; озвучка читала бы их вслух и не называла, что открывается.
-          aria-label={`Достижения: ${unlockedAchCount} из ${totalAchCount}`}
+          aria-label={t('Достижения: {unlocked} из {total}', {
+            unlocked: unlockedAchCount,
+            total: totalAchCount,
+          })}
           style={{ padding: '6px 12px', fontSize: '0.9rem', whiteSpace: 'nowrap' }}
         >
           <Icon name="trophy" />
@@ -160,18 +171,32 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           className="pixel-btn"
           onClick={onOpenStats}
-          title="Инфо"
+          title={t('Инфо')}
           style={{ padding: '6px 12px', fontSize: '0.9rem', whiteSpace: 'nowrap' }}
         >
           <Icon name="info" />
-          Инфо
+          {t('Инфо')}
+        </button>
+
+        <button
+          className="pixel-btn"
+          onClick={() => {
+            const nextLang = state.settings.lang === 'ru' ? 'en' : 'ru';
+            setLang(nextLang);
+            playClickSound(state.settings);
+          }}
+          title={state.settings.lang === 'ru' ? 'Switch to English' : 'Переключить на русский'}
+          aria-label={state.settings.lang === 'ru' ? 'Switch to English' : 'Переключить на русский'}
+          style={{ padding: '6px 10px', fontSize: '0.9rem', whiteSpace: 'nowrap' }}
+        >
+          🌐 {state.settings.lang.toUpperCase()}
         </button>
 
         <button
           className="pixel-btn"
           onClick={onOpenSettings}
-          title="Настройки"
-          aria-label="Настройки"
+          title={t('Настройки')}
+          aria-label={t('Настройки')}
           style={{ padding: '6px 12px', fontSize: '0.9rem', whiteSpace: 'nowrap' }}
         >
           <Icon name="settings" />

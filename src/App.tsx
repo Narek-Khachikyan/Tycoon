@@ -20,6 +20,7 @@ import { Icon, type IconName } from './components/Icon';
 import { CATALOG } from './economy/catalog';
 import { totalIncome } from './economy/engine';
 import { startMusic, updateMusic } from './audio/music';
+import { useT } from './i18n/useT';
 import {
   clickColWidth,
   HEADER_H,
@@ -48,6 +49,7 @@ export const App: React.FC = () => {
   const generation = useGameStore((s) => s.state.generation);
   const reducedMotion = useGameStore((s) => s.state.settings.reducedMotion);
   const burst = useGameStore((s) => s.burst);
+  const t = useT();
 
   const [isAchievementsOpen, setAchievementsOpen] = useState(false);
   const [isStatsOpen, setStatsOpen] = useState(false);
@@ -272,16 +274,16 @@ export const App: React.FC = () => {
               ['office', 'office', 'Офис'],
               ['shop', 'shop', 'Магазин'],
             ] as [ActiveTab, IconName, string][]
-          ).map(([t, icon, label]) => (
+          ).map(([tabId, icon, label]) => (
             <button
-              key={t}
-              onClick={() => setActiveTab(t)}
-              className={`pixel-btn tab-bar__btn ${activeTab === t ? 'pixel-btn-accent' : ''}`}
-              aria-label={label}
+              key={tabId}
+              onClick={() => setActiveTab(tabId)}
+              className={`pixel-btn tab-bar__btn ${activeTab === tabId ? 'pixel-btn-accent' : ''}`}
+              aria-label={t(label)}
               style={{ flex: 1 }}
             >
               <Icon name={icon} />
-              {label}
+              {t(label)}
             </button>
           ))}
         </nav>

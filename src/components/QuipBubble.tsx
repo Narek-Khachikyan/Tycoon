@@ -7,16 +7,9 @@ import { MascotSprite } from './MascotSprite';
 import { Num } from './Num';
 import { useDialogFocus } from './useDialogFocus';
 import { THREE_COL_MIN } from '../layout';
+import { useT } from '../i18n/useT';
 
 export interface QuipBubbleProps {
-  /**
-   * Место монтажа:
-   * - "office" (по умолчанию): на Сцене Офиса (абсолютное позиционирование). На десктопе
-   *   (>= THREE_COL_MIN) это единственный пузырь на экране.
-   * - "prompt": в колонке Клика над кнопкой «Отправить промпт». На десктопе скрывается,
-   *   чтобы не дублировать пузырь в Офисе. На мобильном (< THREE_COL_MIN) оживает, так как
-   *   вкладка «Офис» спрятана за нижней навигацией.
-   */
   placement?: "office" | "prompt";
 }
 
@@ -34,22 +27,14 @@ function useIsSingleCol(): boolean {
   return isSingle;
 }
 
-/**
- * Пузырь реплики говорящей Модели: портрет Маскота говорящего плюс текст.
- *
- * Слой декоративный (pointerEvents none): пузырь не должен перехватывать клики по Глюкам,
- * Золотому Токену или кнопке «Отправить промпт». На десктопе живёт на Сцене Офиса. На
- * узком экране колонка Офиса скрыта во вкладке, поэтому пузырь переезжает в ClickColumn
- * над кнопкой действия.
- */
 export const QuipBubble: React.FC<QuipBubbleProps> = ({ placement = "office" }) => {
   const lastQuip = useGameStore((s) => s.lastQuip);
   const agents = useGameStore((s) => s.state.agents);
   const isSingle = useIsSingleCol();
+  const t = useT();
 
   if (!lastQuip) return null;
 
-  // На десктопе пузырь в ClickColumn не нужен — там уже открыт полноценный Офис.
   if (placement === "prompt" && !isSingle) {
     return null;
   }
@@ -85,9 +70,9 @@ export const QuipBubble: React.FC<QuipBubbleProps> = ({ placement = "office" }) 
       {lab && lastQuip.lab && <MascotSprite lab={lastQuip.lab} size={32} />}
       <div style={{ minWidth: 0 }}>
         {lab && (
-          <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>{lab.name}</div>
+          <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>{t(lab.name)}</div>
         )}
-        <div style={{ fontSize: "0.9rem", color: "var(--text-main)" }}>{lastQuip.text}</div>
+        <div style={{ fontSize: "0.9rem", color: "var(--text-main)" }}>{t(lastQuip.text)}</div>
       </div>
     </div>
   );
@@ -98,24 +83,19 @@ interface QuipLogProps {
   onClose: () => void;
 }
 
-/**
- * «Переписка»: собранные реплики говорящих Моделей с портретами Маскотов.
- *
- * Читает quipsSeen из состояния и QUIPS из данных: порядок — каталожный, счётчик —
- * «N / всего». Пустая — тоже состояние, а не отсутствие окна: новичок должен увидеть,
- * что коллекция существует, до первой реплики. Оформление — как остальные окна
- * (скрим, pixel-card, вход toast-fade — только opacity, поэтому при reducedMotion
- * картина та же). Фокус — через useDialogFocus, как везде.
- *
- * Каркас окна лежит в Modals.tsx, и этот файл его не импортирует: общий файл компонентов
- * завести нельзя, а копия шести окон — это ровно то расхождение, из-за которого Переписка
- * выглядела шире соседних окон. Поэтому размеры, отступы и шапка здесь повторяют значения
- * Modals.tsx буквально: если каркас поменяется, это место надо поправить вместе с ним.
- */
+const QuipCount: React.FC<{ seen: number; total: number }> = ({ seen, total }) => {
+  const t = useT();
+  return (
+    <span style={{ fontSize: "0.9rem", color: "var(--text-muted)", fontWeight: 400 }}>
+      (<Num>{seen}</Num> {t('из')} <Num>{total}</Num>)
+    </span>
+  );
+};
+
 export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
   const state = useGameStore((s) => s.state);
-  // Хук обязан стоять до раннего выхода: иначе окно то открывалось бы с ловушкой, то без неё.
   const cardRef = useDialogFocus<HTMLDivElement>(isOpen, onClose);
+  const t = useT();
   if (!isOpen) return null;
 
   const seen = new Set(quipsSeenOf(state));
@@ -130,8 +110,6 @@ export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        // Тот же слой, что у окон в Modals.tsx: тосты лежат выше (100), оверлей Престижа
-        // ниже (40), а Переписка с остальными окнами не пересекается.
         zIndex: 50,
         padding: "16px",
         animation: "toast-fade 0.18s ease-out",
@@ -146,8 +124,6 @@ export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
         className="pixel-card"
         style={{
           width: "100%",
-          // 520 и 85vh — те же значения, что у пяти окон в Modals.tsx: одинаковая ширина
-          // и высота означают, что переход в Переписку не «прыгает» карточкой на экране.
           maxWidth: "520px",
           maxHeight: "85vh",
           display: "flex",
@@ -177,18 +153,16 @@ export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
               minWidth: 0,
               fontSize: "1.2rem",
               color: "var(--gold)",
-              // Капс даёт text-transform, а не текст в DOM: иначе скринридер читал бы
-              // «П Е Р Е П И С К А» по буквам, а имя окна — это то, что он произносит.
               textTransform: "uppercase",
             }}
           >
-            Переписка <QuipCount seen={seen.size} total={QUIPS.length} />
+            {t('Переписка')} <QuipCount seen={seen.size} total={QUIPS.length} />
           </h2>
           <button
             className="pixel-btn"
             onClick={onClose}
-            aria-label="Закрыть"
-            title="Закрыть"
+            aria-label={t('Закрыть')}
+            title={t('Закрыть')}
             style={{ padding: "4px 10px", flexShrink: 0 }}
           >
             <Icon name="close" />
@@ -207,7 +181,7 @@ export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
         >
           {found.length === 0 ? (
             <div style={{ fontSize: "0.9rem", color: "var(--text-muted)" }}>
-              Пока пусто — кликай, и Модели заговорят.
+              {t('Пока пусто — кликай, и Модели заговорят.')}
             </div>
           ) : (
             found.map((q) => (
@@ -225,9 +199,9 @@ export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
                 <MascotSprite lab={q.lab} size={28} />
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                    {LABS[q.lab].name}
+                    {t(LABS[q.lab].name)}
                   </div>
-                  <div style={{ fontSize: "0.9rem", color: "var(--text-main)" }}>{q.text}</div>
+                  <div style={{ fontSize: "0.9rem", color: "var(--text-main)" }}>{t(q.text)}</div>
                 </div>
               </div>
             ))
@@ -239,20 +213,9 @@ export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
           onClick={onClose}
           style={{ alignSelf: "flex-end", flexShrink: 0 }}
         >
-          Закрыть
+          {t('Закрыть')}
         </button>
       </div>
     </div>
   );
 };
-
-/**
- * Счётчик у названия Переписки: «7 из 42». Слово «из», а не слеш, — и для глаза, и для
- * произносимого вслух. Цифры пиксельным шрифтом, который по ADR-0003 выдерживает только
- * строку без кириллицы, поэтому «из» стоит рядом числом, а не внутри него.
- */
-const QuipCount: React.FC<{ seen: number; total: number }> = ({ seen, total }) => (
-  <span style={{ fontSize: "0.9rem", color: "var(--text-muted)", fontWeight: 400 }}>
-    (<Num>{seen}</Num> из <Num>{total}</Num>)
-  </span>
-);

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { motionAllowed, useGameStore } from '../store/useGameStore';
 import { CATALOG } from '../economy/catalog';
 import { formatNumber } from '../economy/format';
-import { Num } from './Num';
+import { useT } from '../i18n/useT';
 
 /** Карточка держится столько, затем кроссфейд выхода. */
 const SHOW_MS = 2600;
@@ -24,6 +24,7 @@ const MOTES = 14;
 export const PrestigeOverlay: React.FC = () => {
   const burst = useGameStore((s) => s.burst);
   const notation = useGameStore((s) => s.state.settings.notation);
+  const t = useT();
   const [shown, setShown] = useState<{ generation: number; computeGain: number } | null>(null);
   const [exiting, setExiting] = useState(false);
   const [withMotion, setWithMotion] = useState(false);
@@ -55,8 +56,8 @@ export const PrestigeOverlay: React.FC = () => {
     let raf = 0;
     if (motion && payload.computeGain > 0) {
       const t0 = performance.now() + TICK_DELAY_MS;
-      const step = (t: number) => {
-        const p = Math.min(Math.max((t - t0) / TICK_MS, 0), 1);
+      const step = (now: number) => {
+        const p = Math.min(Math.max((now - t0) / TICK_MS, 0), 1);
         const eased = 1 - Math.pow(1 - p, 3);
         if (gainRef.current) {
           gainRef.current.textContent = formatNumber(Math.round(payload.computeGain * eased), notation);
@@ -115,22 +116,25 @@ export const PrestigeOverlay: React.FC = () => {
             textIndent: '4px',
           }}
         >
-          ПРЕСТИЖ
+          {t('ПРЕСТИЖ')}
         </div>
         {/* Строка названия Поколения — в Nunito: слово «Поколение» кириллическое, а в
             Pixelify Sans её нет (ADR-0003), и в пиксельном начертании она молча уходила в
             фолбэк — слово обычным шрифтом рядом с пиксельным номером на одной строке.
             Пиксельным остаётся только число, ради которого этот приём и существует. */}
         <div style={{ fontSize: '1.6rem', color: 'var(--accent-color)' }}>
-          Поколение <Num>{shown.generation + 1}</Num>: {gen.name}
+          {t('Поколение {num}: {name}', {
+            num: shown.generation + 1,
+            name: t(gen.name),
+          })}
         </div>
         <div style={{ fontSize: '1rem', color: 'var(--text-main)' }}>
           +<span ref={gainRef} className="pixel-font">
             {withMotion ? 0 : shown.computeGain}
           </span>{' '}
-          Compute навсегда
+          Compute {t('навсегда')}
         </div>
-        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>нажми, чтобы продолжить</div>
+        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{t('нажми, чтобы продолжить')}</div>
       </div>
     </div>
   );

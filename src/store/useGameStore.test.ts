@@ -1281,6 +1281,23 @@ describe('the save', () => {
     expect(w.saved()?.settings.notation).toBe('sci');
     w.store.getState().toggleMute();
     expect(w.saved()?.settings.muted).toBe(true);
+    w.store.getState().setLang('en');
+    expect(w.saved()?.settings.lang).toBe('en');
+  });
+
+  it('preserves chosen language when resetting the game', async () => {
+    const w = await windowed();
+    w.store.getState().setLang('en');
+    expect(w.store.getState().state.settings.lang).toBe('en');
+    w.store.getState().resetGame();
+    expect(w.store.getState().state.settings.lang).toBe('en');
+  });
+
+  it('initializes language from browserLang on first game without save', async () => {
+    vi.stubGlobal('navigator', { language: 'en-US' });
+    const w = await windowed();
+    expect(w.store.getState().state.settings.lang).toBe('en');
+    vi.unstubAllGlobals();
   });
 
   it('has the imported run in the save, so a reload cannot undo the import', async () => {

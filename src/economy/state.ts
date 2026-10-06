@@ -1,3 +1,4 @@
+import type { Lang } from '../i18n/types';
 import { TEMP_START } from './thermal';
 
 export const SAVE_VERSION = 8;
@@ -14,6 +15,16 @@ export const SAVE_VERSION = 8;
 export const DEFAULT_VOLUME = 0.6;
 
 export type Notation = 'short' | 'sci';
+
+/**
+ * Язык новой игры по умолчанию.
+ *
+ * Русский, а не браузерный: язык игрока — это его выбор, а не свойство устройства, и
+ * `newGame` остаётся чистой функцией, о которой тесты не знают ничего про окружение. Язык
+ * браузера подставляет единственное место, где игрок ещё ничего не выбирал, — загрузка
+ * первой игры (см. `loadInitialState` в сторе).
+ */
+export const DEFAULT_LANG: Lang = 'ru';
 
 export type EventKind = 'hype' | 'grant' | 'clickRush' | 'surge';
 
@@ -115,6 +126,9 @@ export interface GameState {
    * перезагрузку: мьют и громкость, выбранные вчера, сегодня игрок не должен выбирать заново.
    */
   settings: {
+    /** Язык игрового текста: та же настройка, что мьют и нотация, потому что обязана
+     *  пережить перезагрузку и уехать вместе с экспортом сохранения. */
+    lang: Lang;
     notation: Notation;
     muted: boolean;
     /** Общая доля 0..1 для эффектов и музыки; 0 = тишина. Разбор сохранения зажимает её в эти
@@ -124,7 +138,7 @@ export interface GameState {
   };
 }
 
-export function newGame(now: number): GameState {
+export function newGame(now: number, lang: Lang = DEFAULT_LANG): GameState {
   return {
     version: SAVE_VERSION,
     generation: 0,
@@ -169,6 +183,6 @@ export function newGame(now: number): GameState {
     lastTick: now,
     startedAt: now,
     runStartedAt: now,
-    settings: { notation: 'short', muted: false, volume: DEFAULT_VOLUME, reducedMotion: false },
+    settings: { lang, notation: 'short', muted: false, volume: DEFAULT_VOLUME, reducedMotion: false },
   };
 }

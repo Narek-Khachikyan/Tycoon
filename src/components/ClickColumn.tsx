@@ -10,6 +10,7 @@ import { OnboardingCoach } from './OnboardingCoach';
 import { ThermalDial } from './ThermalDial';
 import { MilestoneStrip } from './MilestoneStrip';
 import { useMotionAllowed } from './EventSprites';
+import { useT } from '../i18n/useT';
 
 /** За сколько миллисекунд счётчик съедает 63% расстояния до цели: каждый кадр отнимает
  *  долю dt / APPROACH_MS остатка, поэтому число тормозит, а не разгоняется, и скорость
@@ -18,6 +19,8 @@ const APPROACH_MS = 55;
 
 export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const state = useGameStore((s) => s.state);
+  const t = useT();
+  const lang = state.settings.lang;
   const clickPrompt = useGameStore((s) => s.clickPrompt);
   const floaters = useGameStore((s) => s.floaters);
   const chatHistory = useGameStore((s) => s.chatHistory);
@@ -70,7 +73,7 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
 
     let painted = '';
     const paint = (value: number) => {
-      const text = formatNumber(value, notation);
+      const text = formatNumber(lang, value, notation);
       if (text !== painted) {
         node.textContent = text;
         painted = text;
@@ -103,7 +106,7 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
       const next = shown + (target - shown) * (1 - Math.exp(-(now - last) / APPROACH_MS));
       // Как только строка совпала, показанное значение выравнивается по цели: около
       // 1e300 прибавка тонет в мантиссе и интерполяция иначе не завершилась бы.
-      const settled = formatNumber(next, notation) === formatNumber(target, notation);
+      const settled = formatNumber(lang, next, notation) === formatNumber(lang, target, notation);
       shownRef.current = settled ? target : next;
       paint(shownRef.current);
       last = now;
@@ -229,7 +232,7 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
             fontWeight: 600,
           }}
         >
-          +<Num bump>{formatNumber(income, notation)}</Num> / сек
+          +<Num bump>{formatNumber(lang, income, notation)}</Num> {t('/ сек')}
         </div>
         {/* Подсказка при нулевом Доходе: игрок без Агентов иначе видит голый «+0/сек»
             без следующего шага. Только текст, без анимаций. */}
@@ -266,7 +269,7 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
         ref={btnRef}
         onClick={handleClick}
         onAnimationEnd={handleSquashEnd}
-        aria-label="Отправить промпт"
+        aria-label={t("Отправить промпт")}
         data-power-tier={clickPowerTier}
 className="pixel-btn pixel-btn-accent pulse-glow click-btn"
         style={{
@@ -280,7 +283,7 @@ className="pixel-btn pixel-btn-accent pulse-glow click-btn"
         } as React.CSSProperties}
       >
         <Icon name="chat" size={30} />
-        <span>Отправить промпт</span>
+        <span>{t("Отправить промпт")}</span>
         <span
           style={{
             fontSize: '0.85rem',
@@ -292,8 +295,8 @@ className="pixel-btn pixel-btn-accent pulse-glow click-btn"
               видит буквально на первой кнопке первой минуты. Величина может быть дробной
               («1,44 B»), и там множественное верно, поэтому одна форма на «1» сломала бы
               вторую половину диапазона. */}
-          +<Num>{formatNumber(cVal, notation, 'price')}</Num>{' '}
-          {formatCount(cVal, 'Токен', 'Токена', 'Токенов', notation, 'price')} за клик
+          +<Num>{formatNumber(lang, cVal, notation, 'price')}</Num>{' '}
+          {formatCount(lang, cVal, 'Токен', 'Токена', 'Токенов', notation, 'price')} {t('за клик')}
         </span>
       </button>
 
@@ -303,7 +306,7 @@ className="pixel-btn pixel-btn-accent pulse-glow click-btn"
       <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '6px' }}>
         <div
           role="progressbar"
-          aria-label="Прогресс до следующей покупки"
+          aria-label={t("Прогресс до следующей покупки")}
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={Math.round(progress * 100)}
@@ -327,12 +330,12 @@ className="pixel-btn pixel-btn-accent pulse-glow click-btn"
         </div>
         <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center' }}>
           {canHire ? (
-            <>Можно нанять Агента — загляни в магазин</>
+            <>{t('Можно нанять Агента — загляни в магазин')}</>
           ) : (
             <>
-              До следующей покупки: не хватает <Num>{formatNumber(missing, notation)}</Num>{' '}
+              {t('До следующей покупки: не хватает')} <Num>{formatNumber(lang, missing, notation)}</Num>{' '}
               {/* Нотация обязательна: форма считается по цифрам той же записи, что и число. */}
-              {formatCount(missing, 'Токен', 'Токена', 'Токенов', notation)}
+              {formatCount(lang, missing, 'Токен', 'Токена', 'Токенов', notation)}
             </>
           )}
         </div>
@@ -349,7 +352,7 @@ className="pixel-btn pixel-btn-accent pulse-glow click-btn"
           flex: 1,
         }}
       >
-        <div style={{ fontSize: '0.95rem', color: 'var(--text-muted)' }}>Диалог с моделью:</div>
+        <div style={{ fontSize: '0.95rem', color: 'var(--text-muted)' }}>{t('Диалог с моделью:')}</div>
 
         {/* Якорь на свежую реплику. Свежая пара кладётся сверху, поэтому после прихода она
             выталкивает прочитанное вниз и без якоря игрок вынужден искать её прокруткой.
@@ -391,7 +394,7 @@ className="pixel-btn pixel-btn-accent pulse-glow click-btn"
                   wordBreak: 'break-word',
                 }}
               >
-                {item.userPrompt}
+                {t(item.userPrompt)}
               </div>
 
               {/* Ответ ИИ */}
@@ -409,7 +412,7 @@ className="pixel-btn pixel-btn-accent pulse-glow click-btn"
                   wordBreak: 'break-word',
                 }}
               >
-                {item.aiResponse}
+                {t(item.aiResponse)}
               </div>
             </div>
           ))}

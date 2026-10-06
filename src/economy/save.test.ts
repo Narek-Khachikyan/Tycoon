@@ -153,7 +153,7 @@ describe('migration chain', () => {
     expect(s.challengesDone).toEqual(['no-click']);
     expect(s.temp).toBe(0.9);
     expect(s.heat).toBe(0.2);
-    expect(s.settings).toEqual({ notation: 'sci', muted: true, volume: 0.25, reducedMotion: true });
+    expect(s.settings).toEqual({ notation: 'sci', muted: true, volume: 0.25, reducedMotion: true, lang: 'ru' });
   });
 });
 

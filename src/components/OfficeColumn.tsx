@@ -5,6 +5,7 @@ import { LABS, LAB_IDS, type LabId } from '../data/labs';
 import { canPrestige, isContentFinale, labIncomeShare } from '../economy/engine';
 import { labAgents, labWork, SYNERGY_PER_AGENT, synergyUpgradeId } from '../economy/upgrades';
 import { formatCount, formatNumber } from '../economy/format';
+import { useT } from '../i18n/useT';
 import { MascotSprite } from './MascotSprite';
 import { Num } from './Num';
 import { STATION_SURFACE_ROW, WorkstationSprite } from './WorkstationSprite';
@@ -99,7 +100,7 @@ const MOTES = Array.from({ length: MOTE_MAX }, (_, i) => {
     left: `${x.toFixed(2)}%`,
     bottom: `${(y * 100).toFixed(2)}%`,
     size: 2 + (i % 3),
-    // Четные плывут влево, нечётные вправо: соседние точки не идут в одну сторону.
+    // Чётные плывут влево, нечётные вправо: соседние точки не идут в одну сторону.
     dx: `${(i % 2 ? 1 : -1) * (8 + (i % 4) * 5)}px`,
     dy: `-${18 + (i % 5) * 7}px`,
     dur: `${dur.toFixed(1)}s`,
@@ -157,6 +158,8 @@ const OfficeGlitchSwarm: React.FC = () => {
   const hitGlitch = useGameStore((s) => s.hitGlitch);
   const notation = state.settings.notation;
   const glitches = state.glitches;
+  const lang = state.settings.lang;
+  const t = useT();
 
   // Лопнувшие Глюки: кратковременный локальный отклик в точке лопания до 0.4с.
   const [popped, setPopped] = useState<PoppedGlitchItem[]>([]);
@@ -200,13 +203,14 @@ const OfficeGlitchSwarm: React.FC = () => {
       {glitches.map((g) => {
         const left = GLITCH_CLICKS - g.clicks;
         const nonce = hitNonces[g.id] ?? 0;
+        const ruHitWord = formatCount('ru', left, 'удар', 'удара', 'ударов', notation);
         return (
           <button
             key={g.id}
             className="glitch-node"
             onClick={() => handleGlitchHit(g.id, g.clicks)}
-            aria-label={`Глюк: осталось ${left} ${formatCount(left, 'удар', 'удара', 'ударов', notation)}`}
-            title={`Осталось ${left} ${formatCount(left, 'удар', 'удара', 'ударов', notation)} — кликни, чтобы лопнул`}
+            aria-label={t(`Глюк: осталось {left} ${ruHitWord}`, { left })}
+            title={t(`Осталось {left} ${ruHitWord} — кликни, чтобы лопнул`, { left })}
             style={{
               display: 'flex',
               flexDirection: 'column',
@@ -238,7 +242,7 @@ const OfficeGlitchSwarm: React.FC = () => {
               <GlitchSprite size={GLITCH_SIZE} />
             </span>
             <span style={GLITCH_CHIP}>
-              ×<Num>{formatNumber(left, notation)}</Num>
+              ×<Num>{formatNumber(lang, left, notation)}</Num>
             </span>
           </button>
         );
@@ -318,6 +322,8 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
   const state = useGameStore((s) => s.state);
   const requestPrestige = useGameStore((s) => s.requestPrestige);
   const notation = state.settings.notation;
+  const lang = state.settings.lang;
+  const t = useT();
 
   const gen = CATALOG[state.generation];
   const flagship = gen.flagship;
@@ -454,15 +460,15 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
       >
         <div>
           <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-            ЦЕЛЬ ПОКОЛЕНИЯ
+            {t('ЦЕЛЬ ПОКОЛЕНИЯ')}
           </div>
           <div style={{ fontSize: '1.25rem', color: 'var(--text-main)', marginTop: '2px' }}>
-            Флагман: <span style={{ color: 'var(--gold)' }}>{flagship.name}</span> ({LABS[flagship.lab].name})
+            {t('Флагман:')} <span style={{ color: 'var(--gold)' }}>{t(flagship.name)}</span> ({t(LABS[flagship.lab].name)})
           </div>
           <div style={{ fontSize: '0.85rem', color: flagshipOwned ? 'var(--green)' : 'var(--text-muted)', marginTop: '4px' }}>
             {flagshipOwned
-              ? 'Флагман нанят! Престиж в следующее поколение разблокирован.'
-              : 'Найми хотя бы 1 агента флагмана, чтобы открыть престиж.'}
+              ? t('Флагман нанят! Престиж в следующее поколение разблокирован.')
+              : t('Найми хотя бы 1 агента флагмана, чтобы открыть престиж.')}
           </div>
         </div>
 
@@ -472,7 +478,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
             className="pixel-btn pixel-btn-gold"
             style={{ fontSize: '1rem', padding: '10px 16px' }}
           >
-            🚀 Совершить Престиж
+            {t('🚀 Совершить Престиж')}
           </button>
         )}
 
@@ -486,9 +492,9 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
               textAlign: 'center',
             }}
           >
-            <div style={{ color: 'var(--gold)', fontSize: '1rem' }}>Финал контента MVP!</div>
+            <div style={{ color: 'var(--gold)', fontSize: '1rem' }}>{t('Финал контента MVP!')}</div>
             <div style={{ fontSize: '0.8rem', color: 'var(--gold)' }}>
-              Ты на острие ИИ! Жди новые реальные модели в будущих апдейтах.
+              {t('Ты на острие ИИ! Жди новые реальные модели в будущих апдейтах.')}
             </div>
           </div>
         )}
@@ -593,10 +599,10 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
               background: 'linear-gradient(to bottom, var(--bg-scrim) 0%, var(--bg-scrim) 55%, transparent 100%)',
             }}
           >
-            <span style={{ fontSize: '1rem', color: 'var(--text-main)' }}>ОФИС АГЕНТОВ</span>
+            <span style={{ fontSize: '1rem', color: 'var(--text-main)' }}>{t('ОФИС АГЕНТОВ')}</span>
             <span style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>
-              <Num>{formatNumber(totalAgents, notation)}</Num>{' '}
-              {formatCount(totalAgents, 'Агент', 'Агента', 'Агентов', notation)}
+              <Num>{formatNumber(lang, totalAgents, notation)}</Num>{' '}
+              {formatCount(lang, totalAgents, 'Агент', 'Агента', 'Агентов', notation)}
             </span>
           </div>
           {/* Полоса кражи Дохода появляется вместе с первым Глюком и держит обратную связь
@@ -701,7 +707,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
               <span
                 style={{ fontSize: '0.8rem', color: 'var(--text-main)', textShadow: BADGE_OUTLINE }}
               >
-                ×<Num>{formatNumber(labAgents(state, labId), notation)}</Num>
+                ×<Num>{formatNumber(lang, labAgents(state, labId), notation)}</Num>
               </span>
             </div>
           ))}
@@ -721,7 +727,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
         </div>
 
         {/* Затемнение низа Сцены: под ним читаются и Маскоты, и их счётчики — иначе на
-            светлом полу Сцены 2 они стояли бы белым по белому. Скрин лежит под Маскотами
+            светлом полу Сцены 2 они стояли бы белым по белому. Скрим лежит под Маскотами
             (zIndex 1 против 2), поэтому гасит пол, а не сами фигурки. */}
 
         <div
@@ -792,17 +798,19 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
                     textTransform: 'uppercase',
                   }}
                 >
-                  Стендбай: Сцена готова к запуску
+                  {t('Стендбай: Сцена готова к запуску')}
                 </span>
               </div>
               <div style={{ fontSize: '1.1rem', color: 'var(--text-main)', fontWeight: 600 }}>
-                Офис пока пуст
+                {t('Офис пока пуст')}
               </div>
               {/* Куда идти — по раскладке, а не всегда «вправо». `full` и есть признак
                   одноколоночного режима, где магазин не колонка справа, а вкладка внизу:
                   подсказка «справа» на телефоне указывала в пустоту. */}
               <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: '6px' }}>
-                Найми первого ИИ-агента в магазине{full ? '' : ' справа'}!
+                {full
+                  ? t('Найми первого ИИ-агента в магазине!')
+                  : t('Найми первого ИИ-агента в магазине справа!')}
               </div>
             </div>
           </div>
@@ -829,11 +837,11 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>СОСТАВ ЛАБОРАТОРИЙ</span>
+          <span style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>{t('СОСТАВ ЛАБОРАТОРИЙ')}</span>
           <span style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
             <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
               {activeLabs.length}{' '}
-              {formatCount(activeLabs.length, 'Лаборатория', 'Лаборатории', 'Лабораторий', notation)} в офисе
+              {formatCount(lang, activeLabs.length, 'Лаборатория', 'Лаборатории', 'Лабораторий')} {t('в офисе')}
             </span>
             {/* Кнопка коллекции реплик: счётчик — длина quipsSeen, окно — локальное. */}
             <button
@@ -841,14 +849,14 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
               onClick={() => setQuipLogOpen(true)}
               style={{ fontSize: '0.8rem', padding: '4px 10px' }}
             >
-              Переписка ({quipsSeenCount})
+              {t('Переписка ({quipsSeenCount})', { quipsSeenCount })}
             </button>
           </span>
         </div>
 
         {activeLabs.length === 0 ? (
           <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-            Пока никто не нанят — Сцена ждёт первого агента.
+            {t('Пока никто не нанят — Сцена ждёт первого агента.')}
           </div>
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px' }}>
@@ -876,21 +884,21 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
                       flexShrink: 0,
                     }}
                   />
-                  <span style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>{lab.name}</span>
+                  <span style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>{t(lab.name)}</span>
                   {/* Имя Маскота не повторяется: он стоит в ленте прямо над ростером, и его
                       счётчик подписан под ним. Счётчик Агентов здесь остаётся: на Сцене он
                       мелкий и читается только вплотную, а в ростере это основное число строки,
                       и без него карточка в свежем сохранении держит одно имя. */}
                   <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                    ×<Num>{formatNumber(count, notation)}</Num>{' '}
-                    {formatCount(count, 'Агент', 'Агента', 'Агентов', notation)}
+                    ×<Num>{formatNumber(lang, count, notation)}</Num>{' '}
+                    {formatCount(lang, count, 'Агент', 'Агента', 'Агентов', notation)}
                   </span>
                   {/* Название работы приходит из MODEL_TIERS, а не пишется здесь строкой.
                       Без пиксельного шрифта: среди тиров есть «1M контекст», а строка с
                       кириллицей набирается Nunito (ADR-0003). */}
                   {work !== '' && (
                     <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                      {work}
+                      {t(work)}
                     </span>
                   )}
                   {/* Доля в Доходе — величина сравнительная, и читается она только когда
@@ -904,10 +912,13 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
                   )}
                   {synergyOn && (
                     <span
-                      title={`Синергия: +${formatNumber(synergyPct, notation)}% к доходу всех моделей ${lab.name}`}
+                      title={t('Синергия: +{pct}% к доходу всех моделей {lab}', {
+                        pct: formatNumber(lang, synergyPct, notation),
+                        lab: t(lab.name),
+                      })}
                       style={{ fontSize: '0.75rem', color: 'var(--gold)' }}
                     >
-                      +<Num>{formatNumber(synergyPct, notation)}</Num>%
+                      +<Num>{formatNumber(lang, synergyPct, notation)}</Num>%
                     </span>
                   )}
                 </div>
@@ -918,7 +929,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
 
         {synergyLabs.length > 0 && (
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            Синергия: каждый агент Лаборатории добавляет доход всем её моделям (апгрейд «Общий датасет»).
+            {t('Синергия: каждый агент Лаборатории добавляет доход всем её моделям (апгрейд «Общий датасет»).')}
           </div>
         )}
       </div>

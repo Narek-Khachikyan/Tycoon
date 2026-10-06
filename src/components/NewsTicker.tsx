@@ -3,6 +3,7 @@ import { useGameStore } from '../store/useGameStore';
 import { EVENT_MIN_MS } from '../economy/events';
 import { newsPool, tickerLine } from '../economy/news';
 import { Icon } from './Icon';
+import { useT } from '../i18n/useT';
 
 // Сколько миллисекунд копия новости идёт мимо окна. Задаёт скорость ленты: за цикл дорожка
 // проезжает ровно половину своей длины, то есть половину копий, поэтому время копии — это и
@@ -67,6 +68,7 @@ let rumorSeq = 0;
 
 export const NewsTicker: React.FC = () => {
   const news = useGameStore((s) => s.news);
+  const t = useT();
   // Пул заголовков нужен ленте, а не только подбору: копии заполняются разными новостями,
   // иначе в начале игры игрок трижды подряд читал одну фразу.
   //
@@ -165,7 +167,7 @@ export const NewsTicker: React.FC = () => {
         whiteSpace: 'nowrap',
       }}
     >
-      <span style={{ color: 'var(--gold)', fontWeight: 700, flexShrink: 0 }}>НОВОСТИ:</span>
+      <span style={{ color: 'var(--gold)', fontWeight: 700, flexShrink: 0 }}>{t('НОВОСТИ:')}</span>
       {/* Слух занимает место бегущей строки, а не дописывается к ней: по движущемуся тексту
           нельзя попасть, поэтому слух, который надо успеть поймать в строке, не был бы
           лутбоксом. Кнопка, а не div с обработчиком: фокус на ней останавливает ленту
@@ -180,10 +182,10 @@ export const NewsTicker: React.FC = () => {
             setRumor(null);
           }}
           className="news-rumor"
-          aria-label={`Слух: ${rumor.text} Нажми, чтобы забрать разовую выплату`}
+          aria-label={t('Слух: {text} Нажми, чтобы забрать разовую выплату', { text: t(rumor.text) })}
         >
-          <span style={{ color: 'var(--green)', fontWeight: 700, flexShrink: 0 }}>◆ СЛУХ</span>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{rumor.text}</span>
+          <span style={{ color: 'var(--green)', fontWeight: 700, flexShrink: 0 }}>{t('◆ СЛУХ')}</span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{t(rumor.text)}</span>
         </button>
       ) : (
         <span className="news-ticker-viewport" ref={viewportRef}>
@@ -210,7 +212,7 @@ export const NewsTicker: React.FC = () => {
                 className={`news-ticker-copy${i > 0 ? ' news-ticker-copy--dup' : ''}`}
                 aria-hidden={i > 0 ? true : undefined}
               >
-                {text}
+                {t(text)}
                 <span className="news-ticker-sep" aria-hidden="true" style={{ margin: '0 14px' }}>
                   ◆
                 </span>
@@ -225,8 +227,8 @@ export const NewsTicker: React.FC = () => {
       <button
         onClick={refreshNews}
         className="news-ticker__btn"
-        aria-label="Сменить новость"
-        title="Сменить новость"
+        aria-label={t('Сменить новость')}
+        title={t('Сменить новость')}
       >
         <Icon name="next" size={14} />
       </button>
@@ -234,8 +236,8 @@ export const NewsTicker: React.FC = () => {
         onClick={() => setPaused(!paused)}
         className="news-ticker__btn"
         aria-pressed={paused}
-        aria-label={paused ? 'Продолжить ленту' : 'Остановить ленту'}
-        title={paused ? 'Продолжить ленту' : 'Остановить ленту'}
+        aria-label={paused ? t('Продолжить ленту') : t('Остановить ленту')}
+        title={paused ? t('Продолжить ленту') : t('Остановить ленту')}
       >
         <Icon name={paused ? 'play' : 'pause'} size={14} />
       </button>
