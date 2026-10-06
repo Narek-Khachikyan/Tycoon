@@ -1,58 +1,60 @@
 # Token Clicker
 
-Браузерная idle/clicker-игра в духе классических инди-кликеров: ты нанимаешь настоящие ИИ-модели, они стоят в офисе и генерируют Токены, пока вкладка закрыта. Восемь Поколений ИИ, переход между ними через Престиж, Compute и Перки остаются с тобой навсегда.
+A browser idle/clicker in the spirit of the classic indie clickers: you hire real AI models, they stand in an office and generate Tokens while the tab is closed. Eight Generations of AI, each transition made through Prestige, while Compute and Perks stay with you forever.
 
-Игра целиком работает в браузере на React без бэкенда и аккаунтов: прогресс сохраняется в `localStorage` этого браузера, и в настройках его можно выгрузить кодом и загрузить обратно.
+The whole game runs in the browser on React, with no backend and no accounts: progress is saved to that browser's `localStorage`, and the Settings modal can export it as a code and import it back.
 
-## Запуск
+> The game itself is played in Russian — that is the shipped player experience. This README is in English for visitors; wherever it points at the interface, the Russian UI label is given in «quotes» so you can find it.
+
+## Running it
 
 ```bash
 npm install
-npm run dev      # http://localhost:5173 (Vite берёт свободный порт)
-npm test         # 432 теста, vitest (16 сьютов)
-npm run build    # сборка продакшен-бандла (tsc + vite)
+npm run dev      # http://localhost:5173 (Vite takes the next free port)
+npm test         # 432 tests, vitest (16 files)
+npm run build    # production bundle (tsc + vite)
 ```
 
-## Как играть
+## How to play
 
-| Действие | Где | Что делает |
+| Action | Where | What it does |
 | --- | --- | --- |
-| **Клик** | Колонка «Промпт» | Отправить промпт, получить Токены и реплику Модели |
-| **Температура** | Под кнопкой Клика | Управлять жаром офиса: больше Доход, но риск перегрева |
-| **Агенты** | Вкладка «Модели» | Купить копии Моделей — они генерируют Доход автономно |
-| **Апгрейды** | Вкладка «Апгрейды» | Множители Дохода и Клика текущего Забега |
-| **Престиж** | Вкладка «Престиж» | Сбросить Забег ради Compute и следующего Поколения |
-| **Событие** | Поверх Сцены | Поймать Золотой Токен, пока висит окно |
-| **Глюки** | Сцена | Три клика возвращают украденные Токены |
+| **Click** | «Промпт» (Prompt) column | Send a prompt, get Tokens and a line of Model dialogue |
+| **Temperature** | Under the Click button | Drive the heat of the office: more Income, but risk of overheating |
+| **Agents** | Shop tab «Модели» (Models) | Buy copies of Models — they generate Income on their own |
+| **Upgrades** | Shop tab «Апгрейды» | Income and Click multipliers for the current Run |
+| **Prestige** | Shop tab «Престиж» | Reset the Run for Compute and the next Generation |
+| **Event** | Over the Scene | Catch the Golden Token while its window is open |
+| **Glitch** | The Scene | Three clicks return the Tokens it stole |
 
-Управление: мышь или тап. На телефоне внизу три вкладки вместо трёх колонок.
+Controls: mouse or tap. On a phone the three columns become three tabs at the bottom.
 
-## Что внутри
+## What's inside
 
-- **Говорящие Модели** — сигнатура игры: Модели отвечают репликами в характере своей Лаборатории, добавляя пары «запрос → ответ» в ленту промптов. Собранные реплики сохраняются в «Переписке» и переживают Престиж.
-- **Шкала Температуры** — механика риска и отдачи: чем выше температура, тем выше Доход (до ~3x), но быстрее копится перегрев и чаще прилетают Галлюцинации. При полном перегреве офис остывает, а доход временно падает.
-- **Процедурная музыка в браузере** — 8-битный Web Audio без внешних аудиофайлов: реактивный синтезатор с арпеджио и басом, темп которого растёт вместе с Доходом, а тон поднимается на 2 полутона с каждым Поколением.
-- **Графика и сочный фидбек** — пиксель-арт маскоты лабораторий, честный hit-stop при клике, искры жара, марево над офисом и аккуратный `reducedMotion` для доступности.
-- **Метрики из Artificial Analysis** — реальные характеристики моделей (Intelligence Index, скорость генерации и стоимость API) в справке AA.
+- **Talking Models** — the signature of the game: Models answer in the voice of their Lab, adding «request → reply» pairs to the prompt feed. Collected lines are kept in the «Переписка» (Correspondence) and survive Prestige.
+- **Temperature gauge** — the risk-and-reward mechanic: the higher the temperature, the higher the Income (up to ~3x), but heat builds faster and Hallucinations arrive more often. At full Overheat the office cools down and Income drops for a while.
+- **Procedural music in the browser** — 8-bit Web Audio with no external audio files: a reactive synth with an arpeggio and bass, whose tempo grows with Income and whose pitch rises 2 semitones with every Generation.
+- **Graphics and juicy feedback** — pixel-art Lab mascots, honest hit-stop on click, heat sparks, shimmer over the office, and a careful `reducedMotion` for accessibility.
+- **Metrics from Artificial Analysis** — real model characteristics (Intelligence Index, generation speed, API price) in the AA reference.
 
-## Скриншоты
+## Screenshots
 
-![Первый забег в Поколении 1: счётчик Токенов и кнопка «Отправить промпт» слева, под ними шкала Температуры, в центре офис, справа магазин Моделей](docs/images/first-run.png)
+![First run in Generation 1: the Token counter and the «Send prompt» button on the left, the Temperature gauge under them, the office in the middle, the Model shop on the right](docs/images/first-run.png)
 
-*Первый забег. Шкала Температуры готова к разгону, цель Поколения названа, первый Агент доступен.*
+*First run. The Temperature gauge is ready to be pushed, the Generation goal is named, the first Agent is affordable.*
 
-![Поколение 4: в офисе стоят Маскоты всех восьми Лабораторий с числом Агентов, в магазине карточки Моделей с ценой и Доходом](docs/images/late-game.png)
+![Generation 4: the mascots of all eight Labs stand in the office with their Agent counts, the shop shows Model cards with price and Income](docs/images/late-game.png)
 
-*Поздняя игра. Офис полон Агентов, счётчик Токенов растёт, Флагман открывает путь к Престижу.*
+*Late game. The office is full of Agents, the Token counter is climbing, the Flagship opens the way to Prestige.*
 
-![Поколение 5 на жаре: шкала Температуры в зоне «Почти перегрев», полоса перегрева заполнена на 85%, весь интерфейс и офис раскалены](docs/images/hot.png)
+![Generation 5 in the heat: the Temperature gauge in the «Almost overheating» zone, the Overheat bar at 85%, the whole interface and office glowing hot](docs/images/hot.png)
 
-*Жар на пределе шкалы. Доход утроен, офис раскалён, перегрев требует срочного охлаждения.*
+*The heat at the end of the gauge. Income tripled, the office is red-hot, and the Overheat needs urgent cooling.*
 
-![Вкладка «Модели» магазина: карточки Моделей с Маскотом Лаборатории, Рангом, ценой, Доходом и числом Агентов](docs/images/shop-models.png)
+![Shop tab «Модели»: Model cards with the Lab Mascot, Rank, price, Income and Agent count](docs/images/shop-models.png)
 
-*Магазин Моделей с 12-тиковыми рельсами целей и компактной справкой Artificial Analysis.*
+*The Model shop with its 12-tick goal rails and a compact Artificial Analysis reference.*
 
-## Лицензия и данные
+## Data and attribution
 
-Метрики моделей зафиксированы снимком (`src/data/aa-snapshot.json`). Ключ API Artificial Analysis никогда не попадает в клиентский бандл.
+Model metrics are pinned as a snapshot (`src/data/aa-snapshot.json`). The Artificial Analysis API key never reaches the client bundle; the attribution stays visible in the footer and in the shop.
