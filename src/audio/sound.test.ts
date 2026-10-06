@@ -282,7 +282,7 @@ describe('громкость игрока', () => {
     expect(masterVolume(SETTINGS)).toBeCloseTo(0.8);
     expect(masterNode().gain.points.at(-1)?.value).toBeCloseTo(0.5);
     const click = ctx.gains[ctx.gains.length - 1];
-    expect(click.gain.peak).toBeCloseTo(finalVolume({ muted: false, volume: 0.5 }, clickVolumeForStreak(60_000)));
+    expect(click.gain.peak).toBeCloseTo(clickVolumeForStreak(60_000));
   });
 
   it('при мьюте ни один источник не создаётся', () => {

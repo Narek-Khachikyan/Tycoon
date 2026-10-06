@@ -5,7 +5,7 @@
 import { CATALOG, LAST_GENERATION } from '../economy/catalog';
 import { HEAT_LIMIT, TEMP_MAX } from '../economy/thermal';
 import { SFX_PEAK_CEILING } from './sfx';
-import { audioBus, playVoice, type AudioBus, type SoundSettings } from './sound';
+import { audioBus, masterOutputNode, playVoice, type AudioBus, type SoundSettings } from './sound';
 
 // ==========================================
 // 1. Адаптивный луп (HEAD)
@@ -268,7 +268,6 @@ function updateMusicLoop(opts: { intensity: number; generation: number; ducking?
   intensity = clamp01(opts.intensity);
   if (Number.isFinite(opts.generation)) generation = opts.generation;
   if (!bus) return;
-  audioBus(lastSettings);
   if (opts.ducking) duckUntil = bus.ctx.currentTime + DUCK_SEC;
   setBusLevel(bus.ctx.currentTime < duckUntil ? DUCK_LEVEL : 1);
 }
@@ -544,12 +543,12 @@ function updateProceduralMusic(
   params: { generation: number; temp: number; heat: number; muted: boolean },
 ): void {
   if (!engine || engine.ctx !== ctx) {
-    stopMusic();
+    stopProceduralMusic();
     if (params.muted) return;
 
     const master = ctx.createGain();
     master.gain.value = 0;
-    master.connect(ctx.destination);
+    master.connect(masterOutputNode() ?? ctx.destination);
 
     const bass = makeTone(ctx, master, 'triangle');
     const arp = makeTone(ctx, master, 'square', 7);

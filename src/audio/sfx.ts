@@ -16,7 +16,7 @@
  * тике, в котором он вызван.
  */
 
-import { audioContext } from './sound';
+import { audioContext, masterOutputNode } from './sound';
 
 const getAudioContext = audioContext;
 
@@ -127,7 +127,8 @@ function blip(ctx: AudioContext, v: Voice): void {
   gain.gain.linearRampToValueAtTime(v.peak, t0 + v.attack);
   gain.gain.exponentialRampToValueAtTime(0.001, end);
 
-  osc.connect(gain).connect(ctx.destination);
+  const dest = masterOutputNode() ?? ctx.destination;
+  osc.connect(gain).connect(dest);
 
   osc.start(t0);
   osc.stop(end + STOP_TAIL);

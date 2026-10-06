@@ -69,17 +69,46 @@ export interface ThermalAudioParams {
  * принимает изменение тембра за движение, а не за скачок громкости.
  */
 export function updateThermalAudio(ctx: AudioContext, { temp, heat, muted }: ThermalAudioParams): void {
-  const target = muted ? 0 : 1;
+  if (muted) {
+    if (voice) {
+      try {
+        voice.saw.stop();
+        voice.noise.stop();
+        voice.body.stop();
+        voice.saw.disconnect();
+        voice.noise.disconnect();
+        voice.body.disconnect();
+        voice.out.disconnect();
+      } catch {
+        // ignore if already stopped
+      }
+      voice = null;
+    }
+    return;
+  }
+
+  const target = 1;
   if (!voice || voice.ctx !== ctx) {
     // Смена контекста: старые узлы глушим и отпускаем, иначе они держат осцилляторы, а
     // новый контекст остался бы без голоса до следующей смены.
-    if (voice) voice.out.gain.setValueAtTime(0, ctx.currentTime);
+    if (voice) {
+      try {
+        voice.saw.stop();
+        voice.noise.stop();
+        voice.body.stop();
+        voice.saw.disconnect();
+        voice.noise.disconnect();
+        voice.body.disconnect();
+        voice.out.disconnect();
+      } catch {
+        // ignore
+      }
+    }
     voice = null;
-    if (muted) return;
 
     const out = ctx.createGain();
     out.gain.value = 0;
-    out.connect(ctx.destination);
+    out.connect(masterOutputNode() ?? ctx.destination);
 
     const saw = ctx.createOscillator();
     saw.type = 'sawtooth';
@@ -118,7 +147,7 @@ export function updateThermalAudio(ctx: AudioContext, { temp, heat, muted }: The
   const tc = 0.08;
   // Расстройка растёт от нуля в холоде до полутона в раскалённом состоянии. Полутон — порог,
   // за которым ухо начинает слышать «не ту ноту» вместо «плавающей ноты»; больше значило бы
-  // уже не характер, а ошибка.
+  // уже не характер, а ошибку.
   const detune = 50 * temp + 220 * heat;
   v.saw.detune.setTargetAtTime(detune, now, tc);
   // Частота фильтра идёт вниз с жаром: раскалённый офис звучит глуше.
@@ -157,7 +186,7 @@ export function playCoolingSound(muted: boolean): void {
   gain.gain.linearRampToValueAtTime(0.16, now + 0.004);
   gain.gain.exponentialRampToValueAtTime(0.001, now + 0.9);
 
-  src.connect(filter).connect(gain).connect(ctx.destination);
+  src.connect(filter).connect(gain).connect(masterOutputNode() ?? ctx.destination);
   src.start(now);
   src.stop(now + 0.92);
 }
@@ -183,7 +212,7 @@ export function playHallucinationSound(muted: boolean): void {
   gain.gain.linearRampToValueAtTime(0.13, now + 0.006);
   gain.gain.exponentialRampToValueAtTime(0.001, now + 0.24);
 
-  osc.connect(gain).connect(ctx.destination);
+  osc.connect(gain).connect(masterOutputNode() ?? ctx.destination);
   osc.start(now);
   osc.stop(now + 0.25);
 }
@@ -196,6 +225,6 @@ export function playHallucinationSound(muted: boolean): void {
  * Владеет им `sound.ts`, а здесь только читается — иначе возник бы цикл импортов, а
  * цикл импортов означал бы, что у звука два хозяина.
  */
-import { audioContext } from './sound';
+import { audioContext, masterOutputNode } from './sound';
 
 const getSharedContext = audioContext;
