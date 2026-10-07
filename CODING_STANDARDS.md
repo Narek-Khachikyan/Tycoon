@@ -69,6 +69,10 @@ components/    presentation: reads state, calls actions
   through `audioBus()` and writes its own level, never the volume. A signal fired by the tick rather
   than a press goes through `runningBus()`, or it would pile up on a sleeping context and burst on
   the first click. `music.ts` is the single music loop; it reads the current settings every tick.
+  A hidden page is silenced on that same master, but by its own flag rather than the player's mute:
+  the store calls `setAudioHidden` on `visibilitychange`, and every effect takes its bus from
+  `effectBus()` or `runningBus()`, which return null while it holds — never test `settings.muted`
+  by hand.
 - **`npm run sprites` is dead**: `scripts/chroma-key.py` is not in the repo. Flag it rather than
   rely on it.
 - `docs/vision.md`, `docs/DECISIONS.md`, `docs/PROGRESS.md` and `docs/research/` are history, not
