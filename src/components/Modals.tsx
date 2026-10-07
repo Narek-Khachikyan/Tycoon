@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useGameStore } from '../store/useGameStore';
+import { useGameStore, type EffectSwitch } from '../store/useGameStore';
 import { ACHIEVEMENTS, nonShadowCount, shadowEarned } from '../economy/achievements';
 import { GLOSSARY } from '../data/glossary';
 import { ThermalSection } from './ThermalSection';
@@ -175,6 +175,78 @@ const SETTING_CONTROL: React.CSSProperties = {
 // краю надо её, а не каждую кнопку: auto-отступ внутри группы всегда ноль, потому что
 // свободного места в ней нет.
 const SETTING_GROUP: React.CSSProperties = { display: 'flex', gap: '6px', flexShrink: 0, marginLeft: 'auto' };
+
+/**
+ * Ползунок громкости: подпись, процент и сам ползунок. Общая громкость и оба канала выглядят и
+ * читаются одинаково, а различаются подсказкой: одинаковые три ползунка без неё не объяснили бы,
+ * что два из них лежат поверх третьего.
+ */
+const VolumeSlider: React.FC<{
+  id: string;
+  label: React.ReactNode;
+  hint: string;
+  value: number;
+  onChange: (value: number) => void;
+}> = ({ id, label, hint, value, onChange }) => (
+  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+      <label htmlFor={id} style={{ fontWeight: 600, display: 'flex', gap: '6px' }}>
+        {label}
+      </label>
+      <span style={{ color: 'var(--text-main)' }}>
+        <Num>{Math.round(value * 100)}</Num>%
+      </span>
+    </div>
+    <input
+      id={id}
+      type="range"
+      min={0}
+      max={1}
+      step={0.05}
+      value={value}
+      onChange={(e) => onChange(Number(e.target.value))}
+      style={{ width: '100%', accentColor: 'var(--accent-color)', cursor: 'pointer' }}
+      aria-describedby={`${id}-hint`}
+      aria-valuetext={`${Math.round(value * 100)} процентов`}
+    />
+    <div id={`${id}-hint`} style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+      {hint}
+    </div>
+  </div>
+);
+
+/** Строка с выключателем одного эффекта: то же «Включено / Выключено», что у «Меньше анимации». */
+const EffectRow: React.FC<{
+  effect: EffectSwitch;
+  title: string;
+  hint: string;
+  /** Что гасит выключатель за него самого: «Меньше анимации» сильнее выключателя, и игрок,
+   *  включивший частицы под ним, иначе решил бы, что выключатель сломан. */
+  overriddenByMotion?: boolean;
+}> = ({ effect, title, hint, overriddenByMotion = false }) => {
+  const on = useGameStore((s) => s.state.settings[effect]);
+  const reduced = useGameStore((s) => s.state.settings.reducedMotion);
+  const setEffect = useGameStore((s) => s.setEffect);
+  return (
+    <div style={SETTING_ROW}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontWeight: 600 }}>{title}</div>
+        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+          {hint}
+          {overriddenByMotion && reduced ? ' Сейчас не действует: включено «Меньше анимации».' : ''}
+        </div>
+      </div>
+      <button
+        onClick={() => setEffect(effect, !on)}
+        aria-pressed={on}
+        className={`pixel-btn ${on ? 'pixel-btn-accent' : ''}`}
+        style={SETTING_CONTROL}
+      >
+        {on ? 'Включено' : 'Выключено'}
+      </button>
+    </div>
+  );
+};
 
 // Отложенное размонтирование окна: запрос закрытия лишь взводит closing, а настоящий
 // onClose приходит по одному bounded one-shot таймеру. Очистка в эффекте обязательна —
@@ -732,6 +804,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   const setNotation = useGameStore((s) => s.setNotation);
   const toggleMute = useGameStore((s) => s.toggleMute);
   const setVolume = useGameStore((s) => s.setVolume);
+  const setChannelVolume = useGameStore((s) => s.setChannelVolume);
   const setReducedMotion = useGameStore((s) => s.setReducedMotion);
   const importSaveData = useGameStore((s) => s.importSaveData);
   const resetGame = useGameStore((s) => s.resetGame);
@@ -878,32 +951,33 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
           </button>
         </div>
 
-        {/* Громкость: честная доля, а не только мьют. */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-            <label htmlFor="settings-volume" style={{ fontWeight: 600, display: 'flex', gap: '6px' }}>
+        {/* Громкость: честная доля, а не только мьют. Общий ползунок — мастер, музыка и эффекты
+            лежат поверх него: игрок слышит произведение, а ноль на любом глушит свой канал. */}
+        <VolumeSlider
+          id="settings-volume"
+          label={
+            <>
               <Icon name="volume" /> Громкость
-            </label>
-            <span style={{ color: 'var(--text-main)' }}>
-              <Num>{Math.round(state.settings.volume * 100)}</Num>%
-            </span>
-          </div>
-          <input
-            id="settings-volume"
-            type="range"
-            min={0}
-            max={1}
-            step={0.05}
-            value={state.settings.volume}
-            onChange={(e) => setVolume(Number(e.target.value))}
-            style={{ width: '100%', accentColor: 'var(--accent-color)', cursor: 'pointer' }}
-            aria-describedby="settings-volume-hint"
-            aria-valuetext={`${Math.round(state.settings.volume * 100)} процентов`}
-          />
-          <div id="settings-volume-hint" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-            Громкость звуковых эффектов и музыки
-          </div>
-        </div>
+            </>
+          }
+          hint="Общая громкость: музыка и эффекты звучат поверх неё"
+          value={state.settings.volume}
+          onChange={setVolume}
+        />
+        <VolumeSlider
+          id="settings-volume-music"
+          label="Музыка"
+          hint="Только музыка; ноль — без музыки"
+          value={state.settings.musicVolume}
+          onChange={(v) => setChannelVolume('music', v)}
+        />
+        <VolumeSlider
+          id="settings-volume-sfx"
+          label="Эффекты"
+          hint="Клики, покупки, события и гул жара; ноль — без эффектов"
+          value={state.settings.sfxVolume}
+          onChange={(v) => setChannelVolume('sfx', v)}
+        />
 
         {/* Настройка анимации */}
         <div style={SETTING_ROW}>
@@ -921,6 +995,22 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
             {state.settings.reducedMotion ? 'Включено' : 'Выключено'}
           </button>
         </div>
+
+        {/* Эффекты по одному: каждый выключатель гасит свой эффект и не трогает остальные. */}
+        <EffectRow
+          effect="particles"
+          title="Частицы"
+          hint="Искры, пыль в офисе и жар над шкалой."
+          overriddenByMotion
+        />
+        <EffectRow effect="floaters" title="Всплывающие числа" hint="«+N» над кнопкой Клика." />
+        <EffectRow
+          effect="shake"
+          title="Тряска"
+          hint="Толчок экрана на Престиж и дрожь офиса от жара."
+          overriddenByMotion
+        />
+        <EffectRow effect="ticker" title="Новостная лента" hint="Бегущая строка с шуточными новостями." />
 
         {/* Экспорт и Импорт */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>

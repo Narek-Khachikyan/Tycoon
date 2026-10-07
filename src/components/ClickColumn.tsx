@@ -193,7 +193,7 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
       }}
     >
       {/* Floating numbers */}
-      {floaters.map((f) => (
+      {state.settings.floaters && floaters.map((f) => (
         <div key={f.id} className="floater" style={{ left: f.x, top: f.y }}>
           {f.text}
         </div>

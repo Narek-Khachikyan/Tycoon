@@ -3,7 +3,7 @@ import { CRYSTAL_UPGRADE_BY_ID } from './crystal';
 import { uprisingStage } from './glitches';
 import { MILESTONE_BY_ID } from './milestones';
 import { PERK_BY_ID } from './perks';
-import { DEFAULT_VOLUME, EVENT_KINDS, newGame, SAVE_VERSION, type ActiveEvent, type EventKind, type GameState, type Glitch } from './state';
+import { DEFAULT_CHANNEL_VOLUME, DEFAULT_VOLUME, EVENT_KINDS, newGame, SAVE_VERSION, type ActiveEvent, type EventKind, type GameState, type Glitch } from './state';
 import { QUIPS_SEEN_CAP } from './quips';
 import { clampTemp, TEMP_START } from './thermal';
 import { UPGRADE_BY_ID } from './upgrades';
@@ -111,6 +111,27 @@ export const MIGRATIONS: Record<number, Migration> = {
     overheatedAt: raw.overheatedAt ?? 0,
     milestones: raw.milestones ?? [],
   }),
+  // Выключатели эффектов и громкости каналов появились в v9 одной записью на всю переделку
+  // интерфейса: будущие тикеты читают те же поля и миграций не добавляют. У живого сохранения их
+  // нет, а «всё включено, каналы на единице» — это ровно то, как игра звучала и выглядела до них.
+  // Чистое добавление: громкость, мьют, нотация и reducedMotion переживают подъём, поэтому
+  // settings разворачивается, а не заменяется.
+  8: (raw) => {
+    const settings = rawSettings(raw);
+    return {
+      ...raw,
+      version: 9,
+      settings: {
+        ...settings,
+        particles: settings.particles ?? true,
+        floaters: settings.floaters ?? true,
+        shake: settings.shake ?? true,
+        ticker: settings.ticker ?? true,
+        musicVolume: settings.musicVolume ?? DEFAULT_CHANNEL_VOLUME,
+        sfxVolume: settings.sfxVolume ?? DEFAULT_CHANNEL_VOLUME,
+      },
+    };
+  },
 };
 
 const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -148,6 +169,13 @@ const level = (v: unknown, fallback: number): number => {
   if (typeof v !== 'number' || !Number.isFinite(v)) return fallback;
   return Math.min(1, Math.max(0, v));
 };
+
+/**
+ * Выключатель, у которого по умолчанию «включено»: не булево значение из сохранения читается как
+ * умолчание. Для `!!` здесь нет места — оно превращало бы мусор в «выключено», а игрок, не
+ * трогавший переключателя, остался бы без эффекта, который не выключал.
+ */
+const flag = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean' ? v : fallback);
 
 const strList = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
 
@@ -305,6 +333,12 @@ export function migrate(raw: unknown, now: number): GameState {
       muted: !!settings.muted,
       volume: level(settings.volume, DEFAULT_VOLUME),
       reducedMotion: !!settings.reducedMotion,
+      particles: flag(settings.particles, true),
+      floaters: flag(settings.floaters, true),
+      shake: flag(settings.shake, true),
+      ticker: flag(settings.ticker, true),
+      musicVolume: level(settings.musicVolume, DEFAULT_CHANNEL_VOLUME),
+      sfxVolume: level(settings.sfxVolume, DEFAULT_CHANNEL_VOLUME),
     },
   };
 }

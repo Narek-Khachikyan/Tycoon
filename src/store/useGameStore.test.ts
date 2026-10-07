@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SAVE_INTERVAL_MS, useGameStore } from './useGameStore';
+import { effectAllowed, SAVE_INTERVAL_MS, useGameStore } from './useGameStore';
 import { CATALOG } from '../economy/catalog';
 import { CHALLENGES } from '../economy/challenges';
 import { QUIPS } from '../data/quips';
@@ -1079,6 +1079,135 @@ describe('the volume setting', () => {
   });
 });
 
+describe('the channel volume settings', () => {
+  // Каналы музыки и эффектов лежат поверх общей громкости: общая остаётся мастером, а границы,
+  // как и у неё, держит стор — значение приходит из ползунка и из импортируемого файла.
+  it('takes a level the player chose for each channel without touching the other or the master', () => {
+    freshStore();
+    const master = state().settings.volume;
+    store().setChannelVolume('music', 0.3);
+    expect(state().settings.musicVolume).toBe(0.3);
+    expect(state().settings.sfxVolume).toBe(1);
+    store().setChannelVolume('sfx', 0.7);
+    expect(state().settings.sfxVolume).toBe(0.7);
+    expect(state().settings.musicVolume).toBe(0.3);
+    expect(state().settings.volume).toBe(master);
+  });
+
+  it('fences off junk from a slider or an imported file', () => {
+    freshStore();
+    store().setChannelVolume('music', 9999);
+    expect(state().settings.musicVolume).toBe(1);
+    store().setChannelVolume('music', -5);
+    expect(state().settings.musicVolume).toBe(0);
+    store().setChannelVolume('sfx', 0.4);
+    store().setChannelVolume('sfx', Number.NaN);
+    // Не число — оставляем то, что уже стояло: сбросить канал вслепую значило бы громче или тише.
+    expect(state().settings.sfxVolume).toBe(0.4);
+  });
+
+  it('keeps zero as a deliberate silence of its own channel, not a mute', () => {
+    freshStore();
+    store().setChannelVolume('music', 0);
+    expect(state().settings.musicVolume).toBe(0);
+    expect(state().settings.muted).toBe(false);
+    expect(state().settings.sfxVolume).toBe(1);
+  });
+});
+
+describe('the effect switches', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('starts with every effect on', () => {
+    freshStore();
+    expect(state().settings).toMatchObject({ particles: true, floaters: true, shake: true, ticker: true });
+  });
+
+  it('flips one effect and leaves the others', () => {
+    freshStore();
+    store().setEffect('shake', false);
+    expect(state().settings).toMatchObject({ particles: true, floaters: true, shake: false, ticker: true });
+    store().setEffect('shake', true);
+    expect(state().settings.shake).toBe(true);
+  });
+
+  /** Числа в воздухе от прошлых тестов не сбрасывает ни `resetGame`, ни `freshStore`: они живут 900 мс. */
+  const freshAir = (): void => {
+    freshStore();
+    useGameStore.setState({ floaters: [] });
+  };
+
+  it('does not leave a floating number after a Клик while floaters are off, and does while they are on', () => {
+    vi.useFakeTimers();
+    freshAir();
+    store().clickPrompt(10, 20);
+    expect(store().floaters).toHaveLength(1);
+    expect(store().floaters[0]).toMatchObject({ x: 10, y: 20 });
+    vi.advanceTimersByTime(1000);
+    expect(store().floaters).toHaveLength(0);
+
+    store().setEffect('floaters', false);
+    store().clickPrompt(10, 20);
+    expect(store().floaters).toHaveLength(0);
+    // Клик при этом засчитан: выключатель гасит число, а не отклик игры.
+    expect(state().clicks).toBe(2);
+  });
+
+  it('takes away a floating number already in the air when the player switches floaters off', () => {
+    vi.useFakeTimers();
+    freshAir();
+    store().clickPrompt(10, 20);
+    store().clickPrompt(10, 20);
+    expect(store().floaters).toHaveLength(2);
+    store().setEffect('floaters', false);
+    expect(store().floaters).toHaveLength(0);
+  });
+
+  describe('which effects may be made', () => {
+    /** Система сообщает о движении так же, как браузер: через matchMedia. */
+    const systemReduces = (reduce: boolean): void => {
+      vi.stubGlobal('window', { matchMedia: (media: string) => ({ matches: reduce, media }) });
+    };
+
+    it('makes particles and shake while they are on and motion is allowed', () => {
+      freshStore();
+      systemReduces(false);
+      expect(effectAllowed('particles')).toBe(true);
+      expect(effectAllowed('shake')).toBe(true);
+    });
+
+    it('makes only what is switched on', () => {
+      freshStore();
+      systemReduces(false);
+      store().setEffect('particles', false);
+      expect(effectAllowed('particles')).toBe(false);
+      expect(effectAllowed('shake')).toBe(true);
+      store().setEffect('particles', true);
+      store().setEffect('shake', false);
+      expect(effectAllowed('particles')).toBe(true);
+      expect(effectAllowed('shake')).toBe(false);
+    });
+
+    it('makes neither under less animation, whatever the switches say', () => {
+      freshStore();
+      systemReduces(false);
+      store().setReducedMotion(true);
+      expect(effectAllowed('particles')).toBe(false);
+      expect(effectAllowed('shake')).toBe(false);
+    });
+
+    it('makes neither when the system asks for less motion, even with both switched on', () => {
+      freshStore();
+      systemReduces(true);
+      expect(effectAllowed('particles')).toBe(false);
+      expect(effectAllowed('shake')).toBe(false);
+    });
+  });
+});
+
 describe('the finale screen flag', () => {
   // Регрессия: комментарий обещал, что рестарт вернёт флаг, а код этого не делал — второе
   // прохождение до последнего Поколения встречало игрока молчащим финалом.
@@ -1246,6 +1375,23 @@ describe('the save', () => {
     expect(w.saved()?.settings.notation).toBe('sci');
     w.store.getState().toggleMute();
     expect(w.saved()?.settings.muted).toBe(true);
+  });
+
+  it('has the effect switches and the channel levels in the save the moment they are touched', async () => {
+    const w = await windowed();
+    w.store.getState().setEffect('particles', false);
+    w.store.getState().setEffect('ticker', false);
+    w.store.getState().setChannelVolume('music', 0);
+    w.store.getState().setChannelVolume('sfx', 0.35);
+    // Переключатель, не доехавший до localStorage, откатился бы с закрытой вкладкой.
+    expect(w.saved()?.settings).toMatchObject({
+      particles: false,
+      floaters: true,
+      shake: true,
+      ticker: false,
+      musicVolume: 0,
+      sfxVolume: 0.35,
+    });
   });
 
   it('has the imported run in the save, so a reload cannot undo the import', async () => {

@@ -66,6 +66,10 @@ import { duckMusic } from '../audio/music';
 import { playCrystalSound, playMilestoneSound, playPrestigeConfirmSound, playToggleSound } from '../audio/sfx';
 
 export type BuyAmount = 1 | 10 | 100 | 'max';
+/** Выключатели эффектов из «Настроек»: каждый гасит свой эффект, остальные не трогает. */
+export type EffectSwitch = 'particles' | 'floaters' | 'shake' | 'ticker';
+/** Канал громкости поверх общей: музыка или звуковые эффекты. */
+export type VolumeChannel = 'music' | 'sfx';
 export type ActiveTab = 'click' | 'office' | 'shop' | 'upgrades' | 'perks' | 'stats' | 'achievements' | 'settings';
 
 export interface ToastMessage {
@@ -277,6 +281,11 @@ interface GameStore {
   setNotation: (notation: Notation) => void;
   toggleMute: () => void;
   setReducedMotion: (on: boolean) => void;
+  /** Включает или выключает один эффект. Всплывающие числа в воздухе гаснут сразу, остальные
+   *  эффекты сами не создаются, пока выключены: см. `effectAllowed`. */
+  setEffect: (effect: EffectSwitch, on: boolean) => void;
+  /** Громкость канала 0..1 поверх общей. Границы держит стор по той же причине, что и у общей. */
+  setChannelVolume: (channel: VolumeChannel, volume: number) => void;
   /** Громкость 0..1. Зажимается здесь, а не в ползунке: значение приходит из импортируемого
    *  файла и из разметки, а громкий хрип на полной шкале — это испорченное впечатление,
    *  поэтому границы держит стор, единственный владелец состояния. */
@@ -575,6 +584,18 @@ export function motionAllowed(): boolean {
   return !media.matches;
 }
 
+/**
+ * Можно ли сейчас создавать эффект с движением: игрок не выключил его в «Настройках» и движение
+ * вообще разрешено (`motionAllowed`).
+ *
+ * Только два эффекта, потому что только они двигаются: частицы и тряска. Всплывающее число и
+ * Новостную ленту «меньше анимации» не убирает, а смягчает (число тает на месте, лента стоит), и
+ * решает за них один выключатель — поэтому здесь им не место.
+ */
+export function effectAllowed(effect: 'particles' | 'shake'): boolean {
+  return useGameStore.getState().state.settings[effect] && motionAllowed();
+}
+
 export const useGameStore = create<GameStore>((set, get) => {
   const initial = loadInitialState();
 
@@ -812,16 +833,19 @@ export const useGameStore = create<GameStore>((set, get) => {
       const clicked = engineClick(state);
       playClickSound(state.settings);
 
-      // Добавление всплывающего числа
+      // Добавление всплывающего числа. Выключатель гасит число, а не Клик: при выключенных числах
+      // список остаётся как был, и убирать за ним нечего.
       const floaterId = ++floaterCounter;
-      const newFloaters = [...floaters.slice(-10), {
-        id: floaterId,
-        x: x ?? window.innerWidth / 2,
-        y: y ?? window.innerHeight / 2,
-        // Не через Math.floor: у Токенов до 1e300 сырое число растянулось бы на весь экран,
-        // а формат обязан совпадать с подписью под кнопкой Клика.
-        text: `+${formatNumber(earned, state.settings.notation)}`,
-      }];
+      const newFloaters = state.settings.floaters
+        ? [...floaters.slice(-10), {
+            id: floaterId,
+            x: x ?? window.innerWidth / 2,
+            y: y ?? window.innerHeight / 2,
+            // Не через Math.floor: у Токенов до 1e300 сырое число растянулось бы на весь экран,
+            // а формат обязан совпадать с подписью под кнопкой Клика.
+            text: `+${formatNumber(earned, state.settings.notation)}`,
+          }]
+        : floaters;
 
       // Обновление чата раз в несколько кликов
       let newChat = chatHistory;
@@ -866,9 +890,11 @@ export const useGameStore = create<GameStore>((set, get) => {
       // оффлайн-доходом, а уход со страницы допишет отложенное само.
       saveLater();
 
-      setTimeout(() => {
-        set((s) => ({ floaters: s.floaters.filter((f) => f.id !== floaterId) }));
-      }, 900);
+      if (state.settings.floaters) {
+        setTimeout(() => {
+          set((s) => ({ floaters: s.floaters.filter((f) => f.id !== floaterId) }));
+        }, 900);
+      }
     },
 
     buyAgents: (modelId: string) => {
@@ -1234,6 +1260,34 @@ toggleMute: () => {
     setReducedMotion: (on: boolean) => {
       set((s) => ({
         state: { ...s.state, settings: { ...s.state.settings, reducedMotion: on } },
+      }));
+      saveNow();
+    },
+
+    // Выключатель живёт в GameState.settings, как и остальные настройки: тот же путь записи, та же
+    // причина — вкладка, закрытая сразу после переключения, не должна вернуть прошлое положение.
+    setEffect: (effect: EffectSwitch, on: boolean) => {
+      set((s) => ({
+        state: { ...s.state, settings: { ...s.state.settings, [effect]: on } },
+        // Число в воздухе уходит вместе с выключателем: оно живёт в сторе, и оставить его значило бы
+        // показывать то, что игрок только что попросил не показывать, ещё секунду.
+        ...(effect === 'floaters' && !on ? { floaters: [] } : {}),
+      }));
+      saveNow();
+    },
+
+    // Ноль — честная тишина своего канала, а не мьют: общий ползунок и мьют остаются мастером, а
+    // канал только делит его между музыкой и эффектами. Зажим тот же, что у общей громкости.
+    setChannelVolume: (channel: VolumeChannel, volume: number) => {
+      const field = channel === 'music' ? 'musicVolume' : 'sfxVolume';
+      set((s) => ({
+        state: {
+          ...s.state,
+          settings: {
+            ...s.state.settings,
+            [field]: Number.isFinite(volume) ? Math.min(1, Math.max(0, volume)) : s.state.settings[field],
+          },
+        },
       }));
       saveNow();
     },

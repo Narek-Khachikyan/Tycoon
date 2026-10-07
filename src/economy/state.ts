@@ -1,6 +1,6 @@
 import { TEMP_START } from './thermal';
 
-export const SAVE_VERSION = 8;
+export const SAVE_VERSION = 9;
 
 /**
  * Громкость по умолчанию: 0.6, а не 1.
@@ -12,6 +12,15 @@ export const SAVE_VERSION = 8;
  * ползунок сам. Ноль означает тишину: это честное положение «звука нет», а не отдельный режим.
  */
 export const DEFAULT_VOLUME = 0.6;
+
+/**
+ * Громкость канала музыки и эффектов по умолчанию: единица, то есть канал ничего не меняет.
+ *
+ * Общий ползунок остаётся мастер-громкостью (DEFAULT_VOLUME выше ставит запас под сумму слоёв),
+ * а каналы только делят её между музыкой и эффектами. Единица означает, что игрок, не тронувший
+ * каналов, слышит игру такой же, какой слышал до их появления; ноль глушит свой канал целиком.
+ */
+export const DEFAULT_CHANNEL_VOLUME = 1;
 
 export type Notation = 'short' | 'sci';
 
@@ -121,6 +130,19 @@ export interface GameState {
      *  границы: число вне диапазона означало бы или неслышимую игру, или удар по ушам. */
     volume: number;
     reducedMotion: boolean;
+    /** Частицы: искры покупки и Достижения, пыль Сцены, жар над шкалой, моты Престижа. */
+    particles: boolean;
+    /** Всплывающие `+N` над кнопкой Клика. В отличие от частиц, «меньше анимации» их не прячет,
+     *  а лишь переводит в плавное исчезновение: число подтверждает Клик, а не украшает. */
+    floaters: boolean;
+    /** Тряска: толчок экрана на Престиж и дрожь Сцены на жаре. */
+    shake: boolean;
+    /** Показывать ли Новостную ленту. Выключенная не бегает и не выдаёт Слухов. */
+    ticker: boolean;
+    /** Громкость канала музыки 0..1 поверх мастера `volume`; 0 = музыки нет. */
+    musicVolume: number;
+    /** Громкость канала эффектов 0..1 поверх мастера `volume`; 0 = эффектов нет. */
+    sfxVolume: number;
   };
 }
 
@@ -169,6 +191,17 @@ export function newGame(now: number): GameState {
     lastTick: now,
     startedAt: now,
     runStartedAt: now,
-    settings: { notation: 'short', muted: false, volume: DEFAULT_VOLUME, reducedMotion: false },
+    settings: {
+      notation: 'short',
+      muted: false,
+      volume: DEFAULT_VOLUME,
+      reducedMotion: false,
+      particles: true,
+      floaters: true,
+      shake: true,
+      ticker: true,
+      musicVolume: DEFAULT_CHANNEL_VOLUME,
+      sfxVolume: DEFAULT_CHANNEL_VOLUME,
+    },
   };
 }

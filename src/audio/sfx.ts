@@ -106,7 +106,7 @@ type Voice =
  * Голос всегда умирает в тишину до `stop()`: без этого ухо ловит обрыв на хвосте, а у
  * `playMilestoneSound` хвост длинный, и обрыв слышался бы как щелчок в конце события.
  */
-function blip({ ctx, master }: AudioBus, v: Voice): void {
+function blip({ ctx, sfx }: AudioBus, v: Voice): void {
   const t0 = ctx.currentTime + (v.at ?? 0);
   const end = t0 + v.attack + v.decay;
 
@@ -122,7 +122,7 @@ function blip({ ctx, master }: AudioBus, v: Voice): void {
   gain.gain.linearRampToValueAtTime(v.peak, t0 + v.attack);
   gain.gain.exponentialRampToValueAtTime(0.001, end);
 
-  osc.connect(gain).connect(master);
+  osc.connect(gain).connect(sfx);
 
   osc.start(t0);
   osc.stop(end + STOP_TAIL);
