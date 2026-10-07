@@ -65,10 +65,12 @@ components/    presentation: reads state, calls actions
   Сцена, every readable label sits off the artwork or on a darkened HUD band of its own (ADR-0002).
 - **Audio is synthesized** — no files, no asset pipeline. `AudioContext` resumes only after a user
   gesture, so silence before the first click is expected. `sound.ts` owns the one context and the
-  master bus: the player's volume and mute live only on the master gain, so every source connects
-  through `audioBus()` and writes its own level, never the volume. A signal fired by the tick rather
-  than a press goes through `runningBus()`, or it would pile up on a sleeping context and burst on
-  the first click. `music.ts` is the single music loop; it reads the current settings every tick.
+  graph: the player's volume and mute live only on the master gain, the music and effects levels
+  only on their own channel gains above it, so every source connects through `audioBus()` — an
+  effect to `bus.sfx`, a note to `bus.musicBus` — and writes its own level, never a volume. A
+  signal fired by the tick rather than a press goes through `runningBus()`, or it would pile up on
+  a sleeping context and burst on the first click. `music.ts` is the single music loop; it reads
+  the current settings every tick.
 - **`npm run sprites` is dead**: `scripts/chroma-key.py` is not in the repo. Flag it rather than
   rely on it.
 - `docs/vision.md`, `docs/DECISIONS.md`, `docs/PROGRESS.md` and `docs/research/` are history, not
