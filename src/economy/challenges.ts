@@ -9,8 +9,6 @@ export interface ChallengeDef {
   id: 'no-synergy' | 'no-click';
   name: string;
   desc: string;
-  /** Вечная награда за закрытие: процент к Доходу, складывается с остальными. */
-  rewardPct: number;
 }
 
 /** Награда у всех Испытаний одна: +10% к Доходу навсегда за каждое закрытое. */
@@ -21,13 +19,11 @@ export const CHALLENGES: ChallengeDef[] = [
     id: 'no-synergy',
     name: 'Забег без Синергий',
     desc: 'Синергии Лабораторий не действуют весь Забег. Награда: +10% к Доходу навсегда.',
-    rewardPct: CHALLENGE_REWARD_PCT,
   },
   {
     id: 'no-click',
     name: 'Забег без Кликов',
     desc: 'Клики не приносят Токены весь Забег, но их счётчик растёт — реплики Моделей и Переписка продолжают работать. Награда: +10% к Доходу навсегда.',
-    rewardPct: CHALLENGE_REWARD_PCT,
   },
 ];
 

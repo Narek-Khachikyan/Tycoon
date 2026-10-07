@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CATALOG } from './catalog';
 import {
-  CHALLENGES,
   canStartChallenge,
   challengeIncomeMult,
   startChallenge,
@@ -35,13 +34,6 @@ const rich = (s: GameState, tokens = 1e50): GameState => ({ ...s, tokens, runTok
 /** Свежий забег с выбранным Испытанием: стартовать можно только до первой покупки и клика. */
 const challenged = (id: 'no-synergy' | 'no-click'): GameState =>
   startChallenge(newGame(T0), id);
-
-describe('challenges table', () => {
-  it('holds exactly two challenges with a +10% forever reward each', () => {
-    expect(CHALLENGES.map((c) => c.id)).toEqual(['no-synergy', 'no-click']);
-    for (const c of CHALLENGES) expect(c.rewardPct).toBe(10);
-  });
-});
 
 describe('canStartChallenge', () => {
   it('allows a challenge only on a fresh run: no agents, no upgrades, no clicks', () => {

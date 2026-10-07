@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useGameStore } from '../store/useGameStore';
 import { EVENT_MIN_MS } from '../economy/events';
-import { newsPool, tickerLine } from '../economy/news';
+import { newsPool, RUMORS, tickerLine } from '../economy/news';
 import { Icon } from './Icon';
 
 // Сколько миллисекунд копия новости идёт мимо окна. Задаёт скорость ленты: за цикл дорожка
@@ -27,20 +27,6 @@ const NEWS_INTERVAL_MS = 15000;
  * «Гранта», и слух остаётся находкой, а не второй зарплатой.
  */
 const RUMOR_ODDS = EVENT_MIN_MS / NEWS_INTERVAL_MS;
-
-/**
- * Слухи. Короткие, потому что полоса показывает одну строку и обрезает её многоточием.
- * Обещания с числом здесь нет намеренно: сумму считает экономика в момент нажатия, и
- * показанная цифра разошлась бы с выплатой, если бы игрок успел потратить Токены.
- */
-const RUMORS: readonly string[] = [
-  'Кто-то слил чужой запас Токенов. Забрать можно один раз.',
-  'Отдел закупок скупил грант и забыл про тебя.',
-  'Лаборатория делит прибыль. Тебя забыли в списке.',
-  'На бирже Токенов прыгнули. Прыгай и ты.',
-  'Ретроспектива: в этом офисе нашли тайник с Токенами.',
-  'Тимлид ушёл в отпуск. Кошелёк остался.',
-];
 
 const pickRumor = (): string => RUMORS[Math.floor(Math.random() * RUMORS.length)];
 

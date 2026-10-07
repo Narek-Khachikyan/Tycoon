@@ -78,9 +78,6 @@ export const HEAT_LIMIT = 1;
  */
 export const HALLUC_HEAT = 0.3;
 
-/** Токенов, снятых одной Галлюцинацией — см. `HALLUC_LOSS`. */
-export const HALLUC_TOKENS = 4;
-
 /**
  * Где на шкале начинается зона перегруза.
  *
@@ -152,8 +149,6 @@ export interface ThermalRead {
   heat: number;
   /** Доход, который жар и перегрев давят на итоговый множитель. */
   mult: number;
-  /** Доля шкалы 0..1 — для полосы. */
-  heatShare: number;
   /** Риск Галлюцинации в секунду, для подсказки. */
   halluRate: number;
   /** Идёт ли оглушение прямо сейчас. */
@@ -169,7 +164,6 @@ export function thermalRead(state: GameState, now: number = state.lastTick): The
     // Оглушение и перегрев складываются, а не выбирают: перегрев — это про тепло,
     // оглушение — про его последствие, и игрок теряет обе вещи сразу.
     mult: tempYieldMult(temp) * heatMult(state.heat) * stun,
-    heatShare: Math.min(1, Math.max(0, state.heat)),
     halluRate: halluRate(temp),
     stunned: stun < 1,
   };

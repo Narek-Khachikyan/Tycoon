@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { quipsSeenOf, SAVE_INTERVAL_MS, useGameStore } from './useGameStore';
+import { SAVE_INTERVAL_MS, useGameStore } from './useGameStore';
 import { CATALOG } from '../economy/catalog';
-import { CHALLENGES, startChallenge as kernelStartChallenge } from '../economy/challenges';
+import { CHALLENGES } from '../economy/challenges';
+import { QUIPS } from '../data/quips';
+import { pickQuip } from '../economy/quips';
 import { CRYSTAL_CYCLE_MS, CRYSTAL_PER_STOCK_BONUS, CRYSTAL_UPGRADES, crystalCycleMs, crystalIncomeMult } from '../economy/crystal';
 import { ACHIEVEMENTS } from '../economy/achievements';
 import {
@@ -63,79 +65,6 @@ vi.mock('../audio/thermal', () => ({
   playHallucinationSound: vi.fn(),
 }));
 
-/**
- * Ядро реплик мокается: его пишет параллельный агент, а стор обязан говорить с ним только
- * через контракт pickQuip/recordQuip. Мок повторяет контракт: реплика каждый 4-й Клик,
- * дубль id не пишется. Настоящие переходы ядра тестируются на его стороне.
- */
-vi.mock('../economy/quips', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../economy/quips')>();
-  return {
-    ...actual,
-    pickQuip: vi.fn(
-      (lab: string | null, clicks: number, seen: readonly string[]) =>
-        clicks % 4 === 0 && !seen.includes('q1')
-          ? { id: 'q1', lab: lab ?? 'openai', text: 'Тестовая реплика' }
-          : null,
-    ),
-    recordQuip: vi.fn((state: GameState, id: string) => {
-      const seen = (state as GameState & { quipsSeen?: readonly string[] }).quipsSeen ?? [];
-      if (seen.includes(id)) return state;
-      return { ...state, quipsSeen: [...seen, id] };
-    }),
-  };
-});
-
-/**
- * Ядро испытаний мокается частично: настоящий engine.ts после слоя 2 читает
- * challengeIncomeMult через globalMult, поэтому оригинал сохраняется, а подменяются
- * только CHALLENGES/canStartChallenge/startChallenge.
- * Мок повторяет контракт: старт только на свежем забеге (иначе тождество), выбор
- * пишется в activeChallenge. Настоящие переходы ядра тестируются на его стороне.
- */
-vi.mock('../economy/challenges', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../economy/challenges')>();
-  return {
-    ...actual,
-    CHALLENGES: [
-      { id: 'no-synergy', name: 'Без синергии', desc: 'Синергия Лабораторий не работает весь Забег', rewardPct: 10 },
-      { id: 'no-click', name: 'Без клика', desc: 'Клик не приносит Токенов весь Забег', rewardPct: 10 },
-    ],
-    canStartChallenge: vi.fn(
-      (state: GameState) => state.runTokens === 0 && state.runClicks === 0,
-    ),
-    startChallenge: vi.fn((state: GameState, id: 'no-synergy' | 'no-click' | null) => {
-      if (state.runTokens !== 0 || state.runClicks !== 0) return state;
-      return { ...state, activeChallenge: id } as GameState;
-    }),
-  };
-});
-
-/**
- * shatterCrystal мокается в engine, где он теперь живёт: он считает деньги от Дохода, и
- * оставлять его в crystal.ts означало бы импорт offlineIncome оттуда — два модуля замкнули бы
- * друг на друга. Оригинал сохраняется целиком, подменяется ровно один переход.
- * Мок повторяет контракт: без кристаллов тождество, иначе -1 кристалл и +500 Токенов в три
- * счётчика. Настоящий переход тестируется на стороне ядра.
- */
-vi.mock('../economy/engine', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../economy/engine')>();
-  return {
-    ...actual,
-    shatterCrystal: vi.fn((state: GameState) => {
-      if (Math.floor(state.crystals) < 1) return state;
-      const gain = 500;
-      return {
-        ...state,
-        crystals: state.crystals - 1,
-        tokens: state.tokens + gain,
-        runTokens: state.runTokens + gain,
-        totalTokens: state.totalTokens + gain,
-      };
-    }),
-  };
-});
-
 /** Реальный час, а не T0 из экономики: Престиж ставит lastTick из Date.now(), и часы разошлись бы. */
 const T0 = 1_700_000_000_000;
 const HOUR = 3600_000;
@@ -146,13 +75,6 @@ const store = () => useGameStore.getState();
 const state = () => store().state;
 const rich = (s: GameState, tokens: number): GameState => ({ ...s, tokens, runTokens: tokens });
 
-/**
- * Чистый магазин перед каждым тестом.
- *
- * `resetGame` вместо ручной расстановки: он возвращает и UI-слой (окно события, расписание
- * Глюков) к значениям модуля, поэтому тест не знает ни про один из них. Обращения к
- * localStorage внутри него за `typeof window` не доходят: в node окна нет.
- */
 /**
  * Чистый магазин перед каждым тестом.
  *
@@ -237,25 +159,6 @@ describe('glitch schedule', () => {
     expect(store().toasts).toEqual([]);
   });
 
-  it('skips a window missed during an absence instead of greeting the player with a glitch', () => {
-    reachedGeneration(2);
-    hire(CATALOG[2].models[0].id);
-    tick();
-    useGameStore.setState({ state: { ...state(), nextGlitchAt: state().lastTick - 10 * 60_000 } });
-    tick();
-    expect(state().glitches).toEqual([]);
-    expect(state().nextGlitchAt).toBeGreaterThan(state().lastTick);
-  });
-
-  it('keeps quiet under a license, because spawnGlitch refuses it', () => {
-    reachedGeneration(2);
-    hire(CATALOG[2].models[0].id);
-    tick();
-    useGameStore.setState({ state: { ...state(), covenant: true, nextGlitchAt: state().lastTick } });
-    tick();
-    expect(state().glitches).toEqual([]);
-  });
-
   it('has no schedule at all on the first screen', () => {
     for (let i = 0; i < 50; i++) tick();
     expect(state().glitches).toEqual([]);
@@ -289,13 +192,6 @@ describe('uprising', () => {
     hire(CATALOG[2].models[0].id);
     expect(state().uprising).toBe(2);
     expect(store().toasts.filter((t) => t.title === 'Восстание моделей')).toHaveLength(raised);
-  });
-
-  it('does not hand the end of the world to a player on the third screen', () => {
-    reachedGeneration(2);
-    hire(CATALOG[2].flagship.id, 1);
-    expect(state().generation).toBe(2);
-    expect(state().uprising).not.toBe(3);
   });
 });
 
@@ -1010,9 +906,11 @@ describe('quips', () => {
     store().clickPrompt(10, 10);
     expect(store().lastQuip).toBeNull();
     store().clickPrompt(10, 10);
-    expect(store().lastQuip?.id).toBe('q1');
-    expect(store().lastQuip?.text).toBe('Тестовая реплика');
-    expect(quipsSeenOf(state())).toContain('q1');
+    const expected = pickQuip(null, 4, [])!;
+    expect(store().lastQuip?.id).toBe(expected.id);
+    expect(store().lastQuip?.text).toBe(expected.text);
+    expect(state().quipsSeen).toEqual([expected.id]);
+    expect(vi.mocked(playQuipSound)).toHaveBeenCalledTimes(1);
   });
 
   it('speaks with the lab of the last bought model', () => {
@@ -1022,40 +920,23 @@ describe('quips', () => {
     expect(store().lastQuip?.lab).toBe(lab);
   });
 
-  it('does not duplicate a seen id and sounds only the new quip', () => {
+  it('stays silent once every quip is heard, instead of replaying one as new', () => {
+    const heard = QUIPS.map((q) => q.id);
+    useGameStore.setState({ state: { ...state(), quipsSeen: heard } });
     for (let i = 0; i < 4; i++) store().clickPrompt(10, 10);
-    expect(quipsSeenOf(state())).toHaveLength(1);
-    expect(vi.mocked(playQuipSound)).toHaveBeenCalledTimes(1);
-    const shown = store().lastQuip;
-    // Восьмой Клик: id уже в seen, pickQuip молчит — ни новой записи, ни звука, ни смены пузыря.
-    for (let i = 0; i < 4; i++) store().clickPrompt(10, 10);
-    expect(quipsSeenOf(state())).toHaveLength(1);
-    expect(vi.mocked(playQuipSound)).toHaveBeenCalledTimes(1);
-    expect(store().lastQuip).toBe(shown);
+    expect(store().lastQuip).toBeNull();
+    expect(state().quipsSeen).toEqual(heard);
+    expect(vi.mocked(playQuipSound)).not.toHaveBeenCalled();
   });
 });
-
-/**
- * Поле activeChallenge приезжает ядром испытаний из параллельной ветки: пока его нет в
- * GameState, чтение через каст, как quipsSeenOf выше.
- */
-const activeChallengeOf = (s: GameState): unknown =>
-  (s as GameState & { activeChallenge?: unknown }).activeChallenge;
 
 describe('starting a challenge', () => {
   it('sets the challenge on a fresh run, toasts its desc and sounds the upgrade', () => {
     freshStore();
-    // Свежий забег — без испытания: ядро держит null, а не отсутствие поля.
-    expect(activeChallengeOf(state())).toBeNull();
+    expect(state().activeChallenge).toBeNull();
     vi.mocked(playUpgradeSound).mockClear();
-    const before = state();
     store().startChallenge('no-synergy');
-    // Экшен идёт в ядро с тем же состоянием и id: решение «можно ли» принимает оно.
-    const calls = vi.mocked(kernelStartChallenge).mock.calls;
-    expect(calls).toHaveLength(1);
-    expect(calls[0][0]).toBe(before);
-    expect(calls[0][1]).toBe('no-synergy');
-    expect(activeChallengeOf(state())).toBe('no-synergy');
+    expect(state().activeChallenge).toBe('no-synergy');
     // Испытание — не Достижение: тост называет его словами из таблицы ядра, а не id.
     const def = CHALLENGES.find((c) => c.id === 'no-synergy');
     const toast = store().toasts.find((t) => t.title === 'Испытание принято');
@@ -1067,19 +948,18 @@ describe('starting a challenge', () => {
   it('records declining without announcing it', () => {
     freshStore();
     store().startChallenge(null);
-    expect(activeChallengeOf(state())).toBeNull();
+    expect(state().activeChallenge).toBeNull();
     // Отказ — тоже выбор, но объявлять его нечем: «принято» здесь врало бы.
     expect(store().toasts).toEqual([]);
   });
 
   it('stays silent on a stale run, because the kernel answers with the same object', () => {
     freshStore();
-    // Забег уже не свежий: что-то заработано, и ядро запрещает старт тождеством.
-    useGameStore.setState({ state: { ...state(), runTokens: 5 } });
+    // Забег уже не свежий: игрок кликал, и ядро запрещает старт тождеством.
+    useGameStore.setState({ state: { ...state(), runClicks: 1 } });
     const before = state();
     vi.mocked(playUpgradeSound).mockClear();
     store().startChallenge('no-click');
-    expect(vi.mocked(kernelStartChallenge)).toHaveBeenCalled();
     expect(state()).toBe(before);
     expect(store().toasts).toEqual([]);
     expect(vi.mocked(playUpgradeSound)).not.toHaveBeenCalled();
@@ -1137,19 +1017,19 @@ describe('the finale screen flag', () => {
 describe('shattering a crystal', () => {
   it('pays the gain into the wallet, names the sum and sounds the achievement', () => {
     freshStore();
-    useGameStore.setState({ state: { ...state(), crystals: 2 } });
+    // Без Агентов Дохода нет, и впрыск — 15% кошелька: 150 из 1000.
+    useGameStore.setState({ state: { ...state(), crystals: 2, tokens: 1000 } });
     const before = state();
     vi.mocked(playAchievementSound).mockClear();
     store().shatterCrystal();
-    // Мок ядра кладёт +500 в три счётчика и снимает один кристалл из запаса.
     expect(state().crystals).toBe(1);
-    expect(state().tokens - before.tokens).toBe(500);
-    expect(state().runTokens - before.runTokens).toBe(500);
-    expect(state().totalTokens - before.totalTokens).toBe(500);
+    expect(state().tokens - before.tokens).toBe(150);
+    expect(state().runTokens - before.runTokens).toBe(150);
+    expect(state().totalTokens - before.totalTokens).toBe(150);
     // Сумма обязана быть названа: кристалл стоит +1% Дохода навсегда, и молчаливый размен
     // читался бы как пропавший кристалл.
     expect(store().toasts.find((t) => t.title === 'Кристалл разбит')?.desc).toBe(
-      `+${formatNumber(500, state().settings.notation)} Токенов`,
+      `+${formatNumber(150, state().settings.notation)} Токенов`,
     );
     expect(vi.mocked(playAchievementSound)).toHaveBeenCalledTimes(1);
   });

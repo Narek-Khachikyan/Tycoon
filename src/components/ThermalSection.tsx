@@ -1,7 +1,7 @@
 import React from 'react';
 import { THERMAL_COPY, THERMAL_RISKS, thermalZone } from '../data/thermalCopy';
 import { useGameStore } from '../store/useGameStore';
-import { clampTemp, isOverloaded, overloadShare } from '../economy/thermal';
+import { isOverloaded, overloadShare } from '../economy/thermal';
 
 /**
  * Справка по Температуре для окна «Инфо».
@@ -108,9 +108,3 @@ export const ThermalSection: React.FC = () => {
     </section>
   );
 };
-
-/** Порог, на котором шкала уходит в перегруз — нужен подписи в самой шкале. */
-export const OVERLOAD_SHARE = Math.round(overloadShare() * 100);
-
-/** Значение шкалы для подсказки: тот же источник, что и у `thermalRead`. */
-export const thermalValue = clampTemp;

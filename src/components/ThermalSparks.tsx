@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { useGameStore, motionAllowed, reduceMotionMedia } from '../store/useGameStore';
-import { heatMult } from '../economy/thermal';
+import { TEMP_MAX } from '../economy/thermal';
 
 /**
  * Искры жара над шкалой Температуры: тем больше и горячее, чем выше жар.
@@ -96,10 +96,5 @@ export const ThermalSparks: React.FC = () => {
   );
 };
 
-/** Температура, при которой искры горят в полную силу. Ссылка на константу шкалы, чтобы
- *  число не разошлось с `TEMP_MAX`: иначе пришлось бы дублировать 1.6 в компоненте. */
-const TEMP_FOR_FULL = 1.6;
-
-/** Доля Дохода, срезаемая полным перегревом — вынесена, чтобы подпись в настройках читала
- *  тот же источник, что и сам перегрев, а не зашитое в неё число. */
-export const heatLoss = heatMult;
+/** Температура, при которой искры горят в полную силу: край шкалы. */
+const TEMP_FOR_FULL = TEMP_MAX;

@@ -1,15 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '../store/useGameStore';
-import { GLITCH_CLICKS, glitchDrainMult } from '../economy/glitches';
+import { glitchDrainMult } from '../economy/glitches';
 import { formatCount, formatNumber } from '../economy/format';
 import {
   droneDrop,
   droneFlight,
   GoldenToken,
   GlitchSprite,
-  glitchCracks,
-  glitchJitter,
-  glitchSize,
   GpuDrone,
   mixVar,
   sceneBands,
@@ -113,149 +110,6 @@ export const SceneGlitchBand: React.FC = () => {
         унесли <Num>{formatNumber(stolen, notation)}</Num>{' '}
         {formatCount(stolen, 'Токен', 'Токена', 'Токенов', notation)}
       </span>
-    </div>
-  );
-};
-
-/**
- * Таблетка «осталось ударов» под паразитом.
- *
- * Три точки, а не цифра: точка — это один удар, и игрок видит, сколько их осталось, не читая.
- * Цифра остаётся в доступном имени и в подсказке, где она читается словами. Подложка своя,
- * как у счётчика Агентов: контраст не зависит от того, что нарисовала машина.
- */
-const GlitchPips: React.FC<{ left: number }> = ({ left }) => (
-  <span
-    aria-hidden={true}
-    style={{
-      display: 'flex',
-      gap: '3px',
-      alignItems: 'center',
-      padding: '0 5px',
-      height: '13px',
-      backgroundColor: 'var(--bg-void)',
-      border: '1px solid var(--border)',
-      borderRadius: 999,
-    }}
-  >
-    {Array.from({ length: GLITCH_CLICKS }, (_, i) => (
-      <span
-        key={i}
-        style={{
-          width: '4px',
-          height: '4px',
-          borderRadius: '50%',
-          // Съеденный удар — тёмный с контуром: без контура точки сливались бы в одну полоску,
-          // и «осталось два» читалось бы как «осталось три».
-          backgroundColor: i < left ? 'var(--green)' : 'var(--bg-raised)',
-          boxShadow: i < left ? 'none' : 'inset 0 0 0 1px var(--border-strong)',
-        }}
-      />
-    ))}
-  </span>
-);
-
-/**
- * Отклик паразита на наведение и на уже нанесённые удары.
- *
- * Каждый удар оставляет паразита чуть крупнее, а последний перед лопанием — заметнее всего:
- * иначе два последних клика выглядели бы одинаково и игрок не видел бы, что следующий что-то
- * значит. В покое остаётся только рамка и подъём по наведению, а не масштаб.
- */
-const glitchReply = (clicks: number, hovered: boolean, motion: boolean): number => {
-  if (!motion) return hovered ? 1.04 : 1;
-  return 1 + (hovered ? 0.08 : 0) + clicks * 0.05;
-};
-
-/** Паразиты на Сцене: каждый показывает, сколько кликов осталось, и лопается от третьего. */
-export const SceneGlitchSwarm: React.FC = () => {
-  const state = useGameStore((s) => s.state);
-  const hitGlitch = useGameStore((s) => s.hitGlitch);
-  const notation = state.settings.notation;
-  const motion = useMotionAllowed();
-  const [plateRef, plate] = usePlateSize();
-  const [hovered, setHovered] = useState<number | null>(null);
-
-  const glitches = state.glitches;
-  if (glitches.length === 0) return null;
-
-  const heat = state.heat;
-  const bands = sceneBands(plate.h);
-  const size = glitchSize(glitches.length, bands.swarmMaxHeight);
-
-  return (
-    // Внешний слой на всё полотно: он и есть измеряемая высота, поэтому полосы считаются от
-    // настоящей геометрии Сцены. Сам рой вложен и ограничен по высоте: если бы он вырос за
-    // отведённую полосу, он наехал бы на счётчики Маскотов, а это текст.
-    <div
-      ref={plateRef}
-      style={{ position: 'absolute', inset: 0, zIndex: 3, pointerEvents: 'none' }}
-    >
-      <div
-        className="scene__glitches"
-        style={{
-          position: 'absolute',
-          top: bands.swarmTop,
-          left: '6%',
-          right: '6%',
-          maxHeight: bands.swarmMaxHeight,
-          overflow: 'hidden',
-          display: 'flex',
-          flexWrap: 'wrap',
-          justifyContent: 'center',
-          alignContent: 'flex-start',
-          gap: '10px 12px',
-        }}
-      >
-        {glitches.map((g, i) => {
-          const left = GLITCH_CLICKS - g.clicks;
-          const cracks = glitchCracks(g.clicks, GLITCH_CLICKS);
-          const jitter = motion ? glitchJitter(state.lastTick, i * 1.7 + 1) : { x: 0, y: 0 };
-          const over = hovered === g.id;
-          return (
-            <button
-              key={g.id}
-              className="glitch-node"
-              onClick={() => hitGlitch(g.id)}
-              onMouseEnter={() => setHovered(g.id)}
-              onMouseLeave={() => setHovered((cur) => (cur === g.id ? null : cur))}
-              onFocus={() => setHovered(g.id)}
-              onBlur={() => setHovered((cur) => (cur === g.id ? null : cur))}
-              aria-label={`Глюк: осталось ${left} ${formatCount(left, 'удар', 'удара', 'ударов', notation)}`}
-              title={`Осталось ${left} ${formatCount(left, 'удар', 'удара', 'ударов', notation)} — кликни, чтобы лопнул`}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: '4px',
-                padding: 0,
-                background: 'none',
-                border: 'none',
-                lineHeight: 0,
-                cursor: 'pointer',
-                pointerEvents: 'auto',
-                // Отклик без перехода по цвету и рамке: у кнопки Глюка нет ни заливки, ни рамки,
-                // кроме системного фокуса, и весь отклик держится на размере картинки.
-                transform: `scale(${glitchReply(g.clicks, over, motion).toFixed(3)})`,
-                transition: motion ? 'transform 0.12s ease-out' : undefined,
-              }}
-            >
-              {/* Дёрганье живёт на обёртке, а отклик на кнопке: два движения на одном узле
-                  переписали бы друг друга, а вложенные transform складываются. */}
-              <span
-                style={{
-                  display: 'block',
-                  lineHeight: 0,
-                  transform: `translate(${jitter.x}px, ${jitter.y}px)`,
-                }}
-              >
-                <GlitchSprite size={size} heat={heat} cracks={cracks} />
-              </span>
-              <GlitchPips left={left} />
-            </button>
-          );
-        })}
-      </div>
     </div>
   );
 };

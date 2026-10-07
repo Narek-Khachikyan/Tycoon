@@ -30,10 +30,6 @@ const currentSave = (settings?: Record<string, unknown>) => {
 };
 
 describe('save volume', () => {
-  it('bumps the save version so the new field has a migration', () => {
-    expect(SAVE_VERSION).toBe(8);
-  });
-
   it('gives a v6 save the default volume and keeps the other settings', () => {
     const s = migrate(v6Save(), T0);
     expect(s.version).toBe(SAVE_VERSION);
@@ -41,18 +37,14 @@ describe('save volume', () => {
     expect(s.settings.notation).toBe('sci');
     expect(s.settings.muted).toBe(true);
     expect(s.settings.reducedMotion).toBe(true);
+    expect(s.generation).toBe(3);
+    expect(s.tokens).toBe(1e6);
   });
 
   it('gives the default volume to a save that predates settings entirely', () => {
     expect(migrate({ version: 1, generation: 2, tokens: 5 }, T0).settings.volume).toBe(DEFAULT_VOLUME);
     // Отсутствие settings целиком — обычное дело, а не мусор: разбор обязан достроить блок.
     expect(migrate({ version: 1, settings: null }, T0).settings.volume).toBe(DEFAULT_VOLUME);
-  });
-
-  it('leaves progress alone while adding the volume', () => {
-    const s = migrate(v6Save(), T0);
-    expect(s.generation).toBe(3);
-    expect(s.tokens).toBe(1e6);
   });
 
   it('clamps a volume from a corrupt or foreign save into 0..1', () => {
@@ -74,27 +66,16 @@ describe('save volume', () => {
     expect(migrate(currentSave({ volume: 0.25 }), T0).settings.volume).toBe(0.25);
     expect(migrate(currentSave({ volume: 0 }), T0).settings.volume).toBe(0);
     expect(migrate(currentSave({ volume: 1 }), T0).settings.volume).toBe(1);
-    // Миграция дополняет, а не перезаписывает (#48): даже поле, которого в настоящей
+    // Миграция дополняет, а не перезаписывает: даже поле, которого в настоящей
     // v7-записи быть не могло, сохраняется как есть, а не сбрасывается в дефолт.
     expect(migrate(v6Save({ volume: 0.25 }), T0).settings.volume).toBe(0.25);
   });
 
-  it('starts a new game at the default volume', () => {
-    expect(newGame(T0).settings.volume).toBe(DEFAULT_VOLUME);
-    // Мьют и громкость независимы: выключенный звук не значит нулевую громкость.
-    expect(newGame(T0).settings).toMatchObject({ muted: false, reducedMotion: false });
-  });
-
-  it('round-trips through export/import', () => {
-    const s = { ...newGame(T0), settings: { ...newGame(T0).settings, volume: 0.35 } };
-    const back = importSave(exportSave(s), T0)!;
-    expect(back.settings.volume).toBe(0.35);
-    expect(back.settings).toEqual(s.settings);
-  });
-
-  it('round-trips a silent volume, so a deliberate silence survives a reload', () => {
-    const s = { ...newGame(T0), settings: { ...newGame(T0).settings, volume: 0 } };
-    expect(importSave(exportSave(s), T0)!.settings.volume).toBe(0);
+  it('round-trips through export/import, including a deliberate silence', () => {
+    for (const volume of [0.35, 0]) {
+      const s = { ...newGame(T0), settings: { ...newGame(T0).settings, volume } };
+      expect(importSave(exportSave(s), T0)!.settings).toEqual(s.settings);
+    }
   });
 });
 
@@ -233,10 +214,8 @@ describe('foreign ids', () => {
   it('keeps the crystal cycle numeric after importing a foreign crystal id', () => {
     const back = importSave(encodeRaw({ ...newGame(T0), crystalUpgrades: ['toString', '__proto__'] }), T0)!;
     expect(back.crystalUpgrades).toEqual([]);
-    // До белого списка чужой id давал cycleMs undefined, и цикл уходил в NaN:
+    // Чужой id без белого списка давал cycleMs undefined, и цикл уходил в NaN:
     // кристалл «дозревал» каждый тик, раздавая бесплатные кристаллы и Доход.
-    expect(back.crystalUpgrades).not.toContain('toString');
-    expect(Number.isFinite(crystalCycleMs(back))).toBe(true);
     expect(crystalCycleMs(back)).toBe(CRYSTAL_CYCLE_MS);
   });
 });

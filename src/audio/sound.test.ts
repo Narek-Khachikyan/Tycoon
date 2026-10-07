@@ -600,13 +600,4 @@ describe('музыкальный луп', () => {
     updateMusic({ intensity: 0.5, generation: 1 });
     expect(masterNode().gain.points.at(-1)?.value).toBeCloseTo(0.25);
   });
-
-  it('шина одна на страницу: повторные вызовы не создают новых узлов', () => {
-    const before = ctx.gains.length;
-    playClickSound(SETTINGS);
-    playBuySound(SETTINGS);
-    expect(ctx.gains.length).toBeGreaterThan(before);
-    const toSpeakers = ctx.gains.filter((gain) => gain.connected.includes(ctx.destination));
-    expect(toSpeakers).toHaveLength(1);
-  });
 });

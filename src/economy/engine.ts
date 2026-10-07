@@ -2,10 +2,8 @@ import { CATALOG, computeGain, LAST_GENERATION, MODEL_BY_ID, prestigeDivisor, ty
 import { challengeIncomeMult } from './challenges';
 import type { LabId } from '../data/labs';
 import { collectCrystals, crystalIncomeMult } from './crystal';
-import { claimMilestones, type Milestone } from './milestones';
 import {
   applyOverheat,
-  clampTemp,
   HALLUC_HEAT,
   HALLUC_LOSS,
   HEAT_LIMIT,
@@ -157,7 +155,7 @@ export function nextAgentCost(state: GameState): number {
     const cost = bulkCost(m, state.agents[m.id] ?? 0, 1, d);
     if (cost < min) min = cost;
   }
-  return min === Infinity ? 0 : min;
+  return min;
 }
 
 /**
@@ -168,14 +166,11 @@ export function nextAgentCost(state: GameState): number {
  * «сколько не хватает», здесь доля по конкретной Модели, чтобы полоса цели была у каждой
  * карточки своей. Обе величины считаются через `bulkCost` со скидкой, иначе полоса и кнопка
  * покупки разошлись бы по цене.
- *
- * Верхняя граница защищает долю от Токенов ниже нуля, которые `migrate` из повреждённого
- * сохранения не отсекает.
  */
 export function progressToNextAgent(state: GameState, model: Model): number {
   const cost = bulkCost(model, state.agents[model.id] ?? 0, 1, discountMult(state));
   if (state.tokens >= cost) return 0;
-  return Math.min(1, 1 - state.tokens / cost);
+  return 1 - state.tokens / cost;
 }
 
 // ---------- Доход ----------
@@ -248,13 +243,10 @@ export function assistClickBonus(state: GameState): number {
  * Без события и без «Прорыва»: это и есть база, из которой платится и активный тик, и
  * оффлайн-доход. Часы здесь не нужны — ни один из этих множителей не зависит от времени.
  */
-function modelBaseIncome(state: GameState, model: Model, thermal: number = 1): number {
+function modelBaseIncome(state: GameState, model: Model): number {
   const n = state.agents[model.id] ?? 0;
   if (!n) return 0;
-  // Температура идёт ПЕРВЫМ множителем и до всех остальных: жар должен поднимать ровно тот
-  // Доход, который игрок видит в строке «+N / сек», а не базовый с множителем поверх — иначе
-  // перегрев резал бы невидимую часть, и полоса на шкале врала бы.
-  let mult = thermal;
+  let mult = 1;
   for (let t = 0; t < MODEL_TIERS.length; t++) {
     if (hasUpgrade(state, modelUpgradeId(model.id, t))) mult *= 2;
   }
@@ -316,16 +308,6 @@ export function modelIncome(state: GameState, model: Model, now: number = state.
 }
 
 /**
- * Постоянный Доход Моделей Поколения — тот, что не зависит от того, что происходит прямо сейчас.
- *
- * Из него платится оффлайн-доход и возврат за Клик: оба обязаны считать заработок до «Ночного
- * кодинга» и без живых Глюков, поэтому и берут одну и ту же сумму.
- */
-function baseIncome(state: GameState, thermal: number = 1): number {
-  return CATALOG[state.generation].models.reduce((s, m) => s + modelBaseIncome(state, m, thermal), 0);
-}
-
-/**
  * Доход секунды, который платит активный тик, — до Глюков и до их множителя.
  *
  * Именно без множителя Глюков: тем же числом считается их укус, иначе каждый следующий вор
@@ -342,15 +324,13 @@ export function totalIncome(state: GameState, now: number = state.lastTick): num
 }
 
 /**
- * Доход, из которого платится Оффлайн-доход.
+ * Постоянный Доход Поколения: без события, «Прорыва», Глюков и Температуры.
  *
- * Отдельное имя, а не флаг у totalIncome, потому что вызывающий не должен решать, честно ли
- * платить за простое: единственный источник истины здесь — тот факт, что ни событие, ни «Прорыв»,
- * ни Глюки в baseIncome не попадают. Читает она тот же счёт, что и тик, поэтому расхождение между
- * активной и оффлайновой скоростью бывает ровно одно — доля Перка.
+ * Из него платится оффлайн-доход и возврат за Клик: оба обязаны считать заработок до «Ночного
+ * кодинга» и без живых Глюков, поэтому и берут одну и ту же сумму.
  */
 export function offlineIncome(state: GameState): number {
-  return baseIncome(state);
+  return CATALOG[state.generation].models.reduce((s, m) => s + modelBaseIncome(state, m), 0);
 }
 
 /**
@@ -367,14 +347,7 @@ export function offlineIncome(state: GameState): number {
 export function shatterCrystal(state: GameState): GameState {
   if (Math.floor(state.crystals) < 1) return state;
   const payout = Math.max(offlineIncome(state) * 3600, state.tokens * 0.15);
-  const broke: GameState = { ...state, crystals: state.crystals - 1 };
-  if (!(payout > 0)) return broke;
-  return {
-    ...broke,
-    tokens: broke.tokens + payout,
-    runTokens: broke.runTokens + payout,
-    totalTokens: broke.totalTokens + payout,
-  };
+  return earnTokens({ ...state, crystals: state.crystals - 1 }, payout);
 }
 
 /**
@@ -447,14 +420,14 @@ export function clickValue(state: GameState, income?: number, now: number = stat
  * Сколько Токенов вернёт ОДИН Клик за окно «Ночного кодинга», 0 когда окна нет.
  *
  * Возврат считается от скорости ДО глушения окна: глушение и есть то, что Клик возвращает, поэтому
- * из заглушенной скорости он вышел бы нулём. Скорость приходит от того же `baseIncome`, из
+ * из заглушенной скорости он вышел бы нулём. Скорость приходит от того же `offlineIncome`, из
  * которого платится оффлайн-доход, а множитель события — из его же таблицы.
  *
  * Проверка окна стоит перед счётом скорости, а не после: вне окна возврат нулевой, и лишний проход
  * по Моделям на каждом Клике и на каждом тике с автокликом не нужен.
  */
 function clickCatchUp(state: GameState, now: number): number {
-  return isDowntime(state, now) ? catchUpClick(state, baseIncome(state) * eventMultiplierFor(state, now), now) : 0;
+  return isDowntime(state, now) ? catchUpClick(state, offlineIncome(state) * eventMultiplierFor(state, now), now) : 0;
 }
 
 export function autoclicksPerSecond(state: GameState): number {
@@ -558,6 +531,10 @@ function buyGenPerk(state: GameState, id: string): GameState {
 
 // ---------- Время ----------
 
+export function isValidInterval(dt: unknown): dt is number {
+  return typeof dt === 'number' && Number.isFinite(dt) && dt > 0;
+}
+
 /**
  * Продвигает игру на `dt` секунд (Доход + автоклик + укус Глюков).
  *
@@ -569,10 +546,6 @@ function buyGenPerk(state: GameState, id: string): GameState {
  * Отдельного `now` здесь нет намеренно: тик — единственное место, где интервал известен целиком,
  * а все читатели временных множителей смотрят тот же `lastTick`.
  */
-export function isValidInterval(dt: unknown): dt is number {
-  return typeof dt === 'number' && Number.isFinite(dt) && dt > 0;
-}
-
 export function advance(state: GameState, dt: number, rnd: () => number = Math.random): GameState {
   // Один guard на не-числа: NaN проходит проверку неположительности (NaN <= 0 ложно) и дальше
   // травит Токены/часы/счётчики в NaN, а сейв пишет null. Тик с NaN — no-op с тем же объектом.
@@ -634,14 +607,12 @@ function applyHallucination(state: GameState): GameState {
  * отменять накопленное, а не наоборот — иначе игрок, пойманный перегревом на границе, терял бы
  * ещё и 4% кошелька за событие, которое тут же началось с нуля.
  */
-export function advanceThermal(state: GameState, dt: number, rnd: () => number, now: number): GameState {
-  if (!Number.isFinite(dt) || dt <= 0) return state;
-  if (!Number.isFinite(now)) return state;
-  const temp = clampTemp(state.temp);
+function advanceThermal(state: GameState, dt: number, rnd: () => number, now: number): GameState {
+  const temp = state.temp;
   // Нижняя граница обязательна: без неё перегрев уходил бы в минус, и отрицательный
   // перегрев резал бы Доход сильнее полного — то есть охлаждение платило бы игроку.
   const heat = Math.min(1, Math.max(0, state.heat + (heatRate(temp) - HEAT_COOL_RATE) * dt));
-  let next: GameState = { ...state, temp, heat };
+  let next: GameState = { ...state, heat };
   if (next.heat >= HEAT_LIMIT) return applyOverheat(next, now);
   if (rnd() < halluRate(temp) * dt) next = applyHallucination(next);
   return next;
@@ -860,20 +831,6 @@ export function prestigePreview(state: GameState): PrestigePreview {
   };
 }
 
-/**
- * Забирает выполненные вехи.
- *
- * Отдельный переход, а не вызов из `tick`: выдача награды двигает все три счётчика Токенов и
- * пишет в `milestones`, то есть это такой же переход состояния, как покупка, и по тем же
- * правилам — возвращает тот же объект, если забирать нечего. Стор зовёт его раз в тик рядом
- * с Достижениями, потому что обе системы проверяются одним и тем же тиком.
- */
-export function claimMilestoneRewards(state: GameState): { state: GameState; total: number; claimed: Milestone[] } {
-  const { state: claimed, total, claimed: list } = claimMilestones(state);
-  if (claimed === state) return { state, total: 0, claimed: [] };
-  return { state: claimed, total, claimed: list };
-}
-
 export function prestige(state: GameState, now: number = state.lastTick): GameState {
   // На финальном Поколении перехода дальше нет: обнулять забег без нового Поколения нельзя.
   if (!canPrestige(state) || isContentFinale(state)) return state;
@@ -883,10 +840,10 @@ export function prestige(state: GameState, now: number = state.lastTick): GameSt
   // и созревание кристалла мимо их циклов. Дефолт — игровые часы; явный now нужен только
   // тестам, которые двигают часы вручную.
   const clock = Number.isFinite(now) ? now : state.lastTick;
-  const next = Math.min(state.generation + 1, LAST_GENERATION);
+  const next = state.generation + 1;
   // Испытание закрывается Престижем: активное дописывается в закрытые без дублей, иначе повторный
   // забег с тем же Испытанием платил бы награду дважды. Переписка при этом не трогается —
-  // коллекция собирается всю игру, а не Забег (покрыто тестом слоя 1).
+  // коллекция собирается всю игру, а не Забег.
   const challengesDone =
     state.activeChallenge !== null && !state.challengesDone.includes(state.activeChallenge)
       ? [...state.challengesDone, state.activeChallenge]

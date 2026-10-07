@@ -119,10 +119,8 @@ export function isEventActive(event: ActiveEvent | null, now: number): boolean {
  * Разовые выплаты («Грант», «Крах», возврат «Ночного кодинга») не умножаются: комбо — это
  * множитель Дохода и Кликов, а не печатный станок.
  */
-export function comboMultFor(state: GameState, now: number = state.lastTick): number {
-  void now;
-  if (state.combo < 2) return 1;
-  return Math.min(state.combo, COMBO_CAP);
+export function comboMultFor(state: GameState): number {
+  return state.combo < 2 ? 1 : Math.min(state.combo, COMBO_CAP);
 }
 
 /**
@@ -132,8 +130,7 @@ export function comboMultFor(state: GameState, now: number = state.lastTick): nu
  * другой вопрос, и isEventActive на него отвечает отдельно.
  */
 export function eventWindowMs(event: ActiveEvent): number {
-  const table = event.red ? RED_TABLES[event.kind] : EVENT_TABLES[event.kind];
-  return table.durationMs;
+  return specOf(event).durationMs;
 }
 
 /** Активное событие вместе с его описанием или null, если события нет либо оно истекло. */
@@ -173,7 +170,7 @@ export function eventMultiplierFor(state: GameState, now: number = state.lastTic
   const event = state.event;
   if (!event || event.kind !== 'hype' || !isEventActive(event, now)) return 1;
   const mult = event.red ? RED_TABLES.hype.incomeMult : EVENT_TABLES.hype.incomeMult;
-  return mult * comboMultFor(state, now);
+  return mult * comboMultFor(state);
 }
 
 /**
@@ -194,7 +191,7 @@ export function downtimeIncomeMult(state: GameState, now: number = state.lastTic
 export function clickMultiplierFor(state: GameState, now: number = state.lastTick): number {
   const event = state.event;
   if (!event || event.red || event.kind !== 'clickRush' || !isEventActive(event, now)) return 1;
-  return EVENT_TABLES.clickRush.clickMult * comboMultFor(state, now);
+  return EVENT_TABLES.clickRush.clickMult * comboMultFor(state);
 }
 
 /**
@@ -209,7 +206,7 @@ export function surgeMultFor(state: GameState, modelId: string, now: number = st
   if (!event || event.kind !== 'surge' || !event.modelId || event.modelId !== modelId) return 1;
   if (!isEventActive(event, now)) return 1;
   const mult = event.red ? RED_TABLES.surge.incomeMult : EVENT_TABLES.surge.incomeMult;
-  return mult * comboMultFor(state, now);
+  return mult * comboMultFor(state);
 }
 
 /**

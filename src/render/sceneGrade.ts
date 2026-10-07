@@ -141,42 +141,6 @@ export function sceneFloorGradient(g: SceneGrade): string {
 }
 
 /**
- * Замер Сцены и кода её кадра.
- *
- * Возвращается пара «яркость, тепло» — те же два числа, на которых считается `sceneGrade`,
- * поэтому после правки стилизации можно проверить, что цель достигнута, а не положиться на
- * глаз по превью. `ct` обязателен: картинка лежит на том же origin, что и страница, но
- * просить её с чужого нельзя.
- */
-export function measureScene(img: CanvasImageSource, size = 96): Promise<{ luma: number; warmth: number }> {
-  return new Promise((resolve, reject) => {
-    const canvas = document.createElement('canvas');
-    canvas.width = size;
-    // Высота по пропорции 3:2 у art 384×256: не квадрат, потому что квадратная выборка
-    // брала бы больше половины кадра из окна, и замер зависел бы от object-position.
-    canvas.height = Math.round((size * 2) / 3);
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) {
-      reject(new Error('2d-контекст недоступен'));
-      return;
-    }
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-    let luma = 0;
-    let red = 0;
-    let blue = 0;
-    let n = 0;
-    for (let i = 0; i < data.length; i += 4) {
-      luma += 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
-      red += data[i];
-      blue += data[i + 2];
-      n++;
-    }
-    resolve({ luma: round4(luma / n), warmth: round4((red - blue) / n) });
-  });
-}
-
-/**
  * Жар поверх Сцены: тонировка и дрожащий воздух.
  *
  * Единственный слой, который двигает состояние в графике: рамка Сцены уже светится от

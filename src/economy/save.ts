@@ -212,16 +212,14 @@ const sanitizeGlitches = (v: unknown): { glitches: Glitch[]; topId: number } => 
 
 export function migrate(raw: unknown, now: number): GameState {
   if (!raw || typeof raw !== 'object') return newGame(now);
-  let record = raw as Record<string, unknown>;
-  let current = record;
-  let v = typeof current.version === 'number' ? current.version : 1;
+  let data = raw as Record<string, unknown>;
+  let v = typeof data.version === 'number' ? data.version : 1;
   while (v < SAVE_VERSION) {
     const step = MIGRATIONS[v];
     if (!step) break;
-    current = step(current);
-    v = typeof current.version === 'number' ? current.version : v + 1;
+    data = step(data);
+    v = typeof data.version === 'number' ? data.version : v + 1;
   }
-  const data = current as Record<string, unknown>;
 
   const agents: Record<string, number> = {};
   if (data.agents && typeof data.agents === 'object') {
@@ -232,7 +230,7 @@ export function migrate(raw: unknown, now: number): GameState {
     }
   }
 
-  const settings = (data.settings as Record<string, unknown>) ?? {};
+  const settings = rawSettings(data);
   const glitched = sanitizeGlitches(data.glitches);
   // Часы не уезжают в будущее: отметка из будущего (перевод часов, чужой сейв) притягивается
   // к now, иначе окна/события/кристалл жили бы впереди времени, а через сутки разница
@@ -379,54 +377,21 @@ function isImportableRecord(raw: unknown): raw is Record<string, unknown> {
   return PROGRESS_FIELDS.some((k) => hasOwn(raw, k));
 }
 
-/**
- * Проверяет, что generation и maxGeneration — целые неотрицательные числа,
- * если они вообще присутствуют в сохранении.
- */
-
-/**
- * Проверяет, что числовые счётчики прогресса не испорчены (не null, не NaN, неотрицательные).
- */
-function hasValidCounters(raw: unknown): boolean {
-  if (!raw || typeof raw !== 'object') return false;
-  const o = raw as Record<string, unknown>;
-  const counters = ['tokens', 'runTokens', 'totalTokens', 'clicks', 'runClicks', 'compute', 'computeSpent'] as const;
-  for (const c of counters) {
-    if (c in o) {
-      const v = o[c];
-      if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) return false;
-    }
-  }
-  return true;
+/** Счётчики прогресса, если они есть, — неотрицательные конечные числа, а не null или NaN. */
+function hasValidCounters(o: Record<string, unknown>): boolean {
+  const counters = ['tokens', 'runTokens', 'totalTokens', 'clicks', 'runClicks', 'compute', 'computeSpent'];
+  return counters.every((k) => {
+    const v = o[k];
+    return !hasOwn(o, k) || (typeof v === 'number' && Number.isFinite(v) && v >= 0);
+  });
 }
 
-function hasValidGeneration(raw: unknown): boolean {
-  if (!raw || typeof raw !== 'object') return false;
-  const o = raw as Record<string, unknown>;
-  if ('generation' in o) {
-    const g = o.generation;
-    if (typeof g !== 'number' || !Number.isInteger(g) || g < 0 || g >= CATALOG.length) return false;
-  }
-  if ('maxGeneration' in o) {
-    const mg = o.maxGeneration;
-    if (typeof mg !== 'number' || !Number.isInteger(mg) || mg < 0 || mg >= CATALOG.length) return false;
-  }
-  return true;
-}
-
-export function loadSave(now: number): GameState | null {
-  const stored = readStoredSave();
-  if (stored.status === 'empty') return null;
-  if (stored.status === 'corrupt') {
-    // Карантин и здесь, а не только в сторе: иначе первый же тик затёр бы битые байты.
-    quarantineStoredSave(stored.text);
-    return null;
-  }
-  try {
-    return migrate(stored.value, now);
-  } catch {
-    return null;
-  }
+/** generation и maxGeneration, если они есть, — индексы каталога. */
+function hasValidGeneration(o: Record<string, unknown>): boolean {
+  return ['generation', 'maxGeneration'].every((k) => {
+    const g = o[k];
+    return !hasOwn(o, k) || (typeof g === 'number' && Number.isInteger(g) && g >= 0 && g < CATALOG.length);
+  });
 }
 
 /**
@@ -466,22 +431,6 @@ export function quarantineStoredSave(text: string): void {
   try {
     if (typeof localStorage === 'undefined') return;
     localStorage.setItem(CORRUPT_SAVE_KEY, text);
-    localStorage.removeItem(SAVE_KEY);
-  } catch {
-    // ignore
-  }
-}
-
-export function writeSave(s: GameState): void {
-  try {
-    localStorage.setItem(SAVE_KEY, serialize(s));
-  } catch {
-    // localStorage can fail in private browsing or quota exceeded
-  }
-}
-
-export function clearSave(): void {
-  try {
     localStorage.removeItem(SAVE_KEY);
   } catch {
     // ignore

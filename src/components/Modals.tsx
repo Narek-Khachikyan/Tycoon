@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useGameStore } from '../store/useGameStore';
-import { ACHIEVEMENTS, ordinaryEarned, shadowEarned } from '../economy/achievements';
+import { ACHIEVEMENTS, nonShadowCount, shadowEarned } from '../economy/achievements';
 import { GLOSSARY } from '../data/glossary';
 import { ThermalSection } from './ThermalSection';
 import { PERKS } from '../economy/perks';
@@ -446,11 +446,11 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
       titleId="achievements-title"
       tone="gold"
       icon={<Icon name="trophy" />}
-      /* Числитель — ordinaryEarned, а не achievements.length: id теней лежат в том же
+      /* Числитель — nonShadowCount, а не achievements.length: id теней лежат в том же
          списке, и прямой длиной счётчик шапал бы выше знаменателя. */
       title={
         <>
-          Достижения <ModalCount earned={ordinaryEarned(state)} total={ACHIEVEMENTS.length} />
+          Достижения <ModalCount earned={nonShadowCount(state)} total={ACHIEVEMENTS.length} />
         </>
       }
     >
@@ -1139,6 +1139,15 @@ export const OfflineModal: React.FC = () => {
          ни Esc, ни клика по скриму. Доступное имя у окна при этом обязано остаться. */
       dismissible={false}
       centered
+      footer={
+        <button
+          onClick={requestClose}
+          className="pixel-btn pixel-btn-accent"
+          style={{ flex: 1, padding: '12px', fontSize: '1.1rem' }}
+        >
+          Забрать Токены!
+        </button>
+      }
     >
       <div style={{ fontSize: '2.4rem', lineHeight: 1 }}>
         <Icon name="bolt" size={40} />
@@ -1306,15 +1315,6 @@ export const OfflineModal: React.FC = () => {
           )}
         </div>
       </div>
-      footer={
-        <button
-          onClick={requestClose}
-          className="pixel-btn pixel-btn-accent"
-          style={{ flex: 1, padding: '12px', fontSize: '1.1rem' }}
-        >
-          Забрать Токены!
-        </button>
-      }
     </ModalFrame>
   );
 };
@@ -1666,17 +1666,17 @@ export const FinaleModal: React.FC = () => {
 
         <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Достижений</div>
-          {/* Числитель — ordinaryEarned, а не achievements.length: id теневых лежат в том же
+          {/* Числитель — nonShadowCount, а не achievements.length: id теневых лежат в том же
               списке, и прямой длиной счётчик на экране финала показывал «25 / 21». */}
           <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--gold)' }}>
-            <Num>{ordinaryEarned(state)}</Num> / <Num>{ACHIEVEMENTS.length}</Num>
+            <Num>{nonShadowCount(state)}</Num> / <Num>{ACHIEVEMENTS.length}</Num>
           </div>
         </div>
 
         <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Реплик в Переписке</div>
           <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>
-            <Num>{(state.quipsSeen ?? []).length}</Num>
+            <Num>{state.quipsSeen.length}</Num>
           </div>
         </div>
       </div>

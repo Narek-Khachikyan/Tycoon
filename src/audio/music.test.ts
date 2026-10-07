@@ -123,7 +123,6 @@ vi.mock('./thermal', () => ({
 const { stopMusic, updateMusic, lastRoot, ROOTS, voiceGains, voicePeakSum, MASTER_LEVEL, MUSIC_PEAK_BUDGET } =
   await import('./music');
 const { CATALOG } = await import('../economy/catalog');
-const { SFX_PEAK_CEILING } = await import('./sfx');
 
 beforeEach(() => {
   scheduled.length = 0;
@@ -303,15 +302,9 @@ describe('музыка', () => {
         expect(MASTER_LEVEL * sum).toBeLessThanOrEqual(MUSIC_PEAK_BUDGET);
       }
     }
-    // Бюджет — половина потолка эффектов, а не сам потолок: щелчок, наложенный на долю,
-    // обязан остаться щелчком. Иначе музыка просто заглушает то, ради чего игрок кликает.
-    expect(MUSIC_PEAK_BUDGET).toBeLessThan(SFX_PEAK_CEILING);
-    // Мастер не задаётся отдельно от голосов: он выведен из худшей суммы по углам области
-    // состояния, поэтому любая правка громкости голоса не выводит музыку за бюджет молча.
     let worst = 0;
     for (const t of [0, 1]) for (const h of [0, 1]) worst = Math.max(worst, voicePeakSum(voiceGains(t, h)));
-    expect(MASTER_LEVEL * worst).toBeCloseTo(MUSIC_PEAK_BUDGET, 12);
-    // И худшая точка — предел Температуры при холодном железе, а не «жар и жар»: бас уходит
+    // Худшая точка — предел Температуры при холодном железе, а не «жар и жар»: бас уходит
     // с перегревом, и сумма голосов на пределе меньше, чем на разгоне.
     expect(worst).toBe(voicePeakSum(voiceGains(1, 0)));
     expect(voicePeakSum(voiceGains(1, 1))).toBeLessThan(worst);

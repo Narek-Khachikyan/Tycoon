@@ -1,5 +1,5 @@
-import { CATALOG, LAST_GENERATION, prestigeDivisor } from './catalog';
-import { canPrestige } from './engine';
+import { CATALOG } from './catalog';
+import { canPrestige, earnTokens } from './engine';
 import type { GameState } from './state';
 import { totalAgents } from './upgrades';
 
@@ -31,8 +31,6 @@ export interface Milestone {
   check: (s: GameState) => boolean;
 }
 
-const agents = totalAgents;
-
 /**
  * Температура в вехах: цель, ради которой игрок двигает шкалу руками, а не только кликает.
  *
@@ -61,14 +59,14 @@ export const MILESTONES: Milestone[] = [
     title: 'Найми первого Агента',
     hint: 'Дешевле всего — самая младшая Модель Поколения',
     units: 60,
-    check: (s) => agents(s) >= 1,
+    check: (s) => totalAgents(s) >= 1,
   },
   {
     id: 'ms_agents10',
     title: 'Собери 10 Агентов',
     hint: 'Кнопка «×10» покупает сразу десяток',
     units: 150,
-    check: (s) => agents(s) >= 10,
+    check: (s) => totalAgents(s) >= 10,
   },
   {
     id: 'ms_upgrade',
@@ -82,7 +80,7 @@ export const MILESTONES: Milestone[] = [
     title: 'Собери 25 Агентов',
     hint: 'Температура важнее количества: доход считается от жара',
     units: 900,
-    check: (s) => agents(s) >= 25,
+    check: (s) => totalAgents(s) >= 25,
   },
   {
     id: 'ms_overheat',
@@ -118,15 +116,6 @@ export const MILESTONES: Milestone[] = [
 export const MILESTONE_BY_ID: Record<string, Milestone> = Object.fromEntries(
   MILESTONES.map((m) => [m.id, m]),
 );
-
-/**
- * Вехи, которые игрок уже выполнил, но ещё не забрал: выполняются по порядку, и забирать
- * можно только первую unmet. Иначе игрок, вернувшийся после простоя, получил бы сразу
- * шесть наград и не понял бы, за что.
- */
-export function claimableMilestones(s: GameState): Milestone[] {
-  return MILESTONES.filter((m) => !s.milestones.includes(m.id) && m.check(s));
-}
 
 /**
  * Награда за веху в Токенах.
@@ -165,13 +154,7 @@ export function claimMilestones(s: GameState): { state: GameState; claimed: Mile
   if (claimed.length === 0) return { state: s, claimed, total: 0 };
   const total = claimed.reduce((sum, m) => sum + milestoneReward(s, m), 0);
   return {
-    state: {
-      ...s,
-      tokens: s.tokens + total,
-      runTokens: s.runTokens + total,
-      totalTokens: s.totalTokens + total,
-      milestones: [...s.milestones, ...claimed.map((m) => m.id)],
-    },
+    state: { ...earnTokens(s, total), milestones: [...s.milestones, ...claimed.map((m) => m.id)] },
     claimed,
     total,
   };
@@ -184,13 +167,3 @@ export function claimMilestones(s: GameState): { state: GameState; claimed: Mile
 export function nextMilestone(s: GameState): Milestone | null {
   return MILESTONES.find((m) => !s.milestones.includes(m.id)) ?? null;
 }
-
-/**
- * Compute, который даст Престиж, округлённый вниз — для подсказки «сколько до следующего».
- * Живёт здесь, а не в компоненте, потому что это числа каталога и Prestige.
- */
-export const nextComputeAt = (s: GameState): number =>
-  Math.pow(Math.floor(Math.cbrt(s.runTokens / prestigeDivisor(s.generation))) + 1, 3) * prestigeDivisor(s.generation);
-
-/** Дошёл ли игрок до финала контента: последнее Поколение и есть цель. */
-export const isFinaleGoal = (s: GameState): boolean => s.generation >= LAST_GENERATION;

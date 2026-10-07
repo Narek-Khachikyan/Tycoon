@@ -235,18 +235,18 @@ export const SHADOW_ACHIEVEMENTS: ShadowAchievement[] = [
   // ничего не увеличивают — коллекция собирается ради гордости, а не ради Дохода.
   {
     id: 'shadow_quips_5', name: 'Первые слова', desc: 'Услышать 5 реплик Моделей',
-    check: (s) => (s.quipsSeen ?? []).length >= 5,
+    check: (s) => s.quipsSeen.length >= 5,
   },
   {
     id: 'shadow_quips_50', name: 'Болтун', desc: 'Услышать 50 реплик Моделей',
-    check: (s) => (s.quipsSeen ?? []).length >= 50,
+    check: (s) => s.quipsSeen.length >= 50,
   },
   {
     // Полный набор одной Лаборатории: id группируются из той же таблицы, что и
     // pickQuip, поэтому правка таблицы реплик не рассинхронизирует условие с игрой.
     id: 'shadow_quips_lab', name: 'Свои люди', desc: 'Собрать все реплики одной Лаборатории',
     check: (s) => {
-      const heard = new Set(s.quipsSeen ?? []);
+      const heard = new Set(s.quipsSeen);
       const byLab = new Map<LabId, string[]>();
       for (const q of QUIPS) {
         const ids = byLab.get(q.lab);

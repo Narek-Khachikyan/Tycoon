@@ -1,5 +1,5 @@
 import React from 'react';
-import { LAB_IDS, LABS, type LabId } from '../data/labs';
+import type { LabId } from '../data/labs';
 
 /**
  * Рабочие места на Сцене: у каждой нанятой Лаборатории по столу.
@@ -271,18 +271,3 @@ export const WorkstationSprite: React.FC<{
     </svg>
   );
 };
-
-/**
- * Лаборатории, у которых рабочее место — Стойка, — высота их предмета заходит
- * в строку 0 сетки и поднимается над остальными. Вынесено отдельным списком
- * не ради списка: расхождение высоты между предметами — это ровно то, что держит
- * силуэты ряда разными, и потерять его можно единственным способом — сдвигом
- * строки 6, и заметить это можно только взглядом на Сцену.
- */
-export const TALL_STATION_LABS: readonly LabId[] = LAB_IDS.filter(
-  (lab) => STATION_OF[lab] === 'rack'
-);
-
-/** Имя Лаборатории для подписи к рабочему месту: `title` у стола в ростере. */
-export const stationTitle = (lab: LabId): string =>
-  `Рабочее место: ${LABS[lab].name}`;

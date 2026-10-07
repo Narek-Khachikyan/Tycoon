@@ -7,7 +7,6 @@ import {
   buyPerk as engineBuyPerk,
   buyUpgrade as engineBuyUpgrade,
   canPrestige,
-  claimMilestoneRewards,
   click as engineClick,
   clickValue,
   earnTokens,
@@ -26,10 +25,10 @@ import {
   awardShadowAchievements,
 } from '../economy/achievements';
 import { activeSpec, grantAmount, isEventActive } from '../economy/events';
-import { LAST_GENERATION } from '../economy/catalog';
 import { formatNumber } from '../economy/format';
 import { buyCrystalUpgrade as engineBuyCrystalUpgrade } from '../economy/crystal';
-import { CHALLENGES, startChallenge as engineStartChallenge } from '../economy/challenges';
+import { CHALLENGES, startChallenge as engineStartChallenge, type ChallengeDef } from '../economy/challenges';
+import { claimMilestones } from '../economy/milestones';
 import {
   buyLicense as engineBuyLicense,
   buyPledge as engineBuyPledge,
@@ -348,34 +347,15 @@ let quipCounter = 0;
 const QUIP_HIDE_MS = 4500;
 
 /**
- * Собранные реплики из состояния. Поле quipsSeen принадлежит ядру реплик и приезжает его
- * миграцией; чтение через каст, а не правкой GameState: контракт сохранения — не мой файл,
- * а без каста свежий сейв (поля ещё нет) ронял бы подбор реплики.
- */
-export function quipsSeenOf(state: GameState): readonly string[] {
-  return (state as GameState & { quipsSeen?: readonly string[] }).quipsSeen ?? [];
-}
-
-/**
  * Лаборатория говорящего: Лаборатория последней купленной Модели. Агентов нет — говорить
  * некому, lab null, и реплику подбирает уже pickQuip: первая реплика видна до первой покупки.
- * Запасной путь — перваяOwned Модель: сохранение из чужой вкладки привозит Агентов без отметки
- * о последней покупке, и без него офис молчал бы до следующей покупки.
+ * Запасной путь — первая купленная Модель: сохранение из чужой вкладки привозит Агентов без
+ * отметки о последней покупке, и без него офис молчал бы до следующей покупки.
  */
 function speakerLab(state: GameState, lastModelId: string | null): LabId | null {
-  let owned = 0;
-  for (const id of Object.keys(state.agents)) owned += state.agents[id] ?? 0;
-  if (owned <= 0) return null;
-  if (lastModelId) {
-    const bought = MODEL_BY_ID[lastModelId];
-    if (bought) return bought.lab;
-  }
-  for (const id of Object.keys(state.agents)) {
-    if ((state.agents[id] ?? 0) <= 0) continue;
-    const model = MODEL_BY_ID[id];
-    if (model) return model.lab;
-  }
-  return null;
+  const ownedId = Object.keys(state.agents).find((id) => state.agents[id] > 0 && MODEL_BY_ID[id]);
+  if (!ownedId) return null;
+  return (lastModelId ? MODEL_BY_ID[lastModelId]?.lab : undefined) ?? MODEL_BY_ID[ownedId].lab;
 }
 
 /**
@@ -762,7 +742,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       announceThermal(state, advanced, dt);
       // Вехи забираются после Достижений и до сериализации: награда обязана попасть в тот же
       // тик, что и Доход, иначе игрок увидит «0 / 10» при полном кошельке на следующем кадре.
-      const { state: withMilestones, claimed } = claimMilestoneRewards(advanced);
+      const { state: withMilestones, claimed } = claimMilestones(advanced);
       // Звук один на событие, а не на веху: за тик их может закрыться несколько, и три
       // аккорда разом звучали бы как заминка, а не как награда.
       if (claimed.length > 0) {
@@ -824,7 +804,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       // и не звучит — собранная коллекция молчит, а не гоняет повторы. Дубль id ядро может
       // вернуть как fallback, когда всё услышано, но стор его не показывает: показ повтора
       // означал бы «услышано новое», которого нет.
-      const seen = quipsSeenOf(clicked);
+      const seen = clicked.quipsSeen;
       const quip = pickQuip(speakerLab(clicked, lastBoughtModelId), clicked.clicks, seen);
       if (quip && !seen.includes(quip.id)) {
         const nonce = ++quipCounter;
@@ -1122,27 +1102,17 @@ export const useGameStore = create<GameStore>((set, get) => {
       if (!canPrestige(state) || isContentFinale(state)) return;
       playPrestigeSound(state.settings);
       const gain = prestigeGain(state);
-      // Поле activeChallenge приезжает ядром испытаний из параллельной ветки: пока его нет в
-      // GameState, чтение через каст, как quipsSeenOf выше. Нужно оверлею, чтобы назвать награду
-      // завершённого испытания в подтверждении Престижа.
-      const activeChallenge = (state as GameState & { activeChallenge?: 'no-synergy' | 'no-click' | null }).activeChallenge ?? null;
-      // Один источник часов: Престиж ставит часы из игровых (lastTick), а не из Date.now() —
-      // иначе неотработанное время между последним тиком и стеной сдвигало Лобби, окно Глюка
-      // и кристалл мимо их циклов. Дефолт движка — те же часы, вызов без аргумента.
-      const next = awardEarned(enginePrestige(state, state.lastTick));
+      // Оверлей Престижа называет награду закрытого этим переходом Испытания.
+      const done = state.activeChallenge as ChallengeDef['id'] | null;
+      const next = awardEarned(enginePrestige(state));
       set({ state: next, news: pickNews(next) });
       // Ставится после awardEarned намеренно: если тот же тик выполнил Достижение, тряска
       // перебивает его отклик. Тост Достижения всё равно живёт и озвучен — теряется только веер искр.
-      const prestige: { generation: number; computeGain: number; challengeId?: 'no-synergy' | 'no-click' } = {
-        generation: Math.min(state.generation + 1, LAST_GENERATION),
-        computeGain: gain,
-      };
-      if (activeChallenge) prestige.challengeId = activeChallenge;
       set({
         burst: {
           kind: 'prestige',
           nonce: ++burstCounter,
-          prestige,
+          prestige: { generation: next.generation, computeGain: gain, ...(done ? { challengeId: done } : {}) },
         },
       });
       saveNow();

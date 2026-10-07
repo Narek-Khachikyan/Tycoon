@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { motionAllowed, quipsSeenOf, useGameStore } from '../store/useGameStore';
+import { motionAllowed, useGameStore } from '../store/useGameStore';
 import { CATALOG } from '../economy/catalog';
 import { LABS, LAB_IDS, type LabId } from '../data/labs';
 import { canPrestige, isContentFinale, labIncomeShare } from '../economy/engine';
@@ -366,7 +366,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
   // Окно «Переписки» — локальный UI-слой колонки, а не стор: кроме неё оно никому не нужно,
   // а счётчик собранных реплик читается прямо из состояния.
   const [quipLogOpen, setQuipLogOpen] = useState(false);
-  const quipsSeenCount = quipsSeenOf(state).length;
+  const quipsSeenCount = state.quipsSeen.length;
 
   // Прыжок Маскота при покупке Агента его Лаборатории. Предыдущие числа — в ref, как
   // prevOwned в ModelRow: магазин перерисовывается каждый тик, и отмечать покупку в сторе

@@ -126,7 +126,7 @@ export const PrestigeOverlay: React.FC = () => {
         </div>
         <div style={{ fontSize: '1rem', color: 'var(--text-main)' }}>
           +<span ref={gainRef} className="pixel-font">
-            {withMotion ? 0 : shown.computeGain}
+            {withMotion ? 0 : formatNumber(shown.computeGain, notation)}
           </span>{' '}
           Compute навсегда
         </div>

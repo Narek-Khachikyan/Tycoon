@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { LABS } from '../data/labs';
 import { QUIPS } from '../data/quips';
-import { quipsSeenOf, useGameStore } from '../store/useGameStore';
+import { useGameStore } from '../store/useGameStore';
 import { Icon } from './Icon';
 import { MascotSprite } from './MascotSprite';
 import { Num } from './Num';
@@ -118,7 +118,7 @@ export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
   const cardRef = useDialogFocus<HTMLDivElement>(isOpen, onClose);
   if (!isOpen) return null;
 
-  const seen = new Set(quipsSeenOf(state));
+  const seen = new Set(state.quipsSeen);
   const found = QUIPS.filter((q) => seen.has(q.id));
 
   return (

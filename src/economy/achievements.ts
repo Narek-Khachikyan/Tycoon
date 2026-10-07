@@ -46,46 +46,33 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'perk_1', name: 'Инвестор', desc: 'Купить первый Перк', check: (s) => s.perks.length >= 1 },
 ];
 
-/** Префикс id теней: по нему тень опознаётся даже в записи, где нет её табличной строки. */
-const SHADOW_ID_PREFIX = 'sh_';
-
-let _shadowIds: Set<string> | null = null;
-function getShadowIds(): Set<string> {
-  if (!_shadowIds) _shadowIds = new Set(SHADOW_ACHIEVEMENTS.map((a) => a.id));
-  return _shadowIds;
-}
-
 /**
  * Число заработанных НЕтеневых Достижений — база Датасета и числитель «N / 21».
  *
  * Тени лежат в том же списке сохранения, поэтому числитель считается по таблице обычных записей
- * и никогда по `achievements.length`. Отсев теней сделан по обоим признакам сразу — по таблице
- * теней и по префиксу `sh_`, — чтобы тень, по ошибке попавшая в обычную таблицу, всё равно не
- * раздувала Датасет.
+ * и никогда по `achievements.length`.
  */
 export function nonShadowCount(s: GameState): number {
-  const shadowIds = getShadowIds();
-  return ACHIEVEMENTS.filter(
-    (a) => !a.id.startsWith(SHADOW_ID_PREFIX) && !shadowIds.has(a.id) && s.achievements.includes(a.id),
-  ).length;
+  return ACHIEVEMENTS.filter((a) => s.achievements.includes(a.id)).length;
 }
-
-/**
- * То же число под именем счётчика в интерфейсе: «N / 21» в шапке и в окне Достижений считается
- * той же величиной, что и Датасет. Два имени — два места чтения одного числа, а не две реализации.
- */
-export const ordinaryEarned = nonShadowCount;
 
 /** Числитель теневого счётчика. */
 export function shadowEarned(s: GameState): number {
   return SHADOW_ACHIEVEMENTS.filter((a) => s.achievements.includes(a.id)).length;
 }
 
-/** Возвращает id новых выполненных Достижений. */
-export function newlyEarned(s: GameState): string[] {
+function earnedFrom(table: readonly Achievement[], s: GameState): string[] {
   const have = new Set(s.achievements);
-  return ACHIEVEMENTS.filter((a) => !have.has(a.id) && a.check(s)).map((a) => a.id);
+  return table.filter((a) => !have.has(a.id) && a.check(s)).map((a) => a.id);
 }
+
+function award(s: GameState, awarded: string[]): { state: GameState; awarded: string[] } {
+  if (awarded.length === 0) return { state: s, awarded };
+  return { state: { ...s, achievements: [...s.achievements, ...awarded] }, awarded };
+}
+
+/** Возвращает id новых выполненных Достижений. */
+export const newlyEarned = (s: GameState): string[] => earnedFrom(ACHIEVEMENTS, s);
 
 /**
  * Применяет вновь заработанные Достижения к состоянию.
@@ -95,17 +82,10 @@ export function newlyEarned(s: GameState): string[] {
  * тосты и в значок в шапке, где теневой id не нашёл бы обычную запись в таблице. Запись
  * теней идёт отдельным вызовом awardShadowAchievements.
  */
-export function awardAchievements(s: GameState): { state: GameState; awarded: string[] } {
-  const awarded = newlyEarned(s);
-  if (awarded.length === 0) return { state: s, awarded };
-  return { state: { ...s, achievements: [...s.achievements, ...awarded] }, awarded };
-}
+export const awardAchievements = (s: GameState) => award(s, newlyEarned(s));
 
 /** Возвращает id новых выполненных теневых Достижений. */
-export function newlyEarnedShadows(s: GameState): string[] {
-  const have = new Set(s.achievements);
-  return SHADOW_ACHIEVEMENTS.filter((a) => !have.has(a.id) && a.check(s)).map((a) => a.id);
-}
+export const newlyEarnedShadows = (s: GameState): string[] => earnedFrom(SHADOW_ACHIEVEMENTS, s);
 
 /**
  * Применяет вновь заработанные тени к состоянию — форма ответа совпадает с
@@ -114,10 +94,6 @@ export function newlyEarnedShadows(s: GameState): string[] {
  * Тени пишутся в тот же `state.achievements`: отдельного поля в GameState нет, а
  * `migrate` отбрасывает только Модели, Апгрейды и Перки, поэтому id теней переживают
  * загрузку без миграции и без bump SAVE_VERSION. Плата за это — знаменатель: числителем
- * обычного счётчика может быть только ordinaryEarned, никогда не `achievements.length`.
+ * обычного счётчика может быть только nonShadowCount, никогда не `achievements.length`.
  */
-export function awardShadowAchievements(s: GameState): { state: GameState; awarded: string[] } {
-  const awarded = newlyEarnedShadows(s);
-  if (awarded.length === 0) return { state: s, awarded };
-  return { state: { ...s, achievements: [...s.achievements, ...awarded] }, awarded };
-}
+export const awardShadowAchievements = (s: GameState) => award(s, newlyEarnedShadows(s));

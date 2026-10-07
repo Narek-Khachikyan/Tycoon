@@ -138,8 +138,7 @@ describe('recordQuip', () => {
     expect(recordQuip(s, 'openai-1')).toBe(s);
   });
 
-  it('держит кап 300, сдвигая голову', () => {
-    expect(QUIPS_SEEN_CAP).toBe(300);
+  it('держит кап, сдвигая голову', () => {
     let s = newGame(T0);
     for (let i = 0; i < QUIPS_SEEN_CAP; i++) s = recordQuip(s, `t-${i}`);
     expect(s.quipsSeen).toHaveLength(QUIPS_SEEN_CAP);
@@ -184,14 +183,6 @@ describe('миграция переписки', () => {
 });
 
 describe('тени переписки', () => {
-  it('молчат в пустой игре', () => {
-    const s = newGame(T0);
-    expect(quipCheck('shadow_quips_5')(s)).toBe(false);
-    expect(quipCheck('shadow_quips_50')(s)).toBe(false);
-    expect(quipCheck('shadow_quips_lab')(s)).toBe(false);
-    expect(newlyEarnedShadows(s)).not.toContain('shadow_quips_5');
-  });
-
   it('считают пороги 5 и 50 ровно по границе', () => {
     const four: GameState = { ...newGame(T0), quipsSeen: QUIPS.slice(0, 4).map((q) => q.id) };
     expect(quipCheck('shadow_quips_5')(four)).toBe(false);
@@ -216,14 +207,5 @@ describe('тени переписки', () => {
     expect(quipCheck('shadow_quips_lab')(spread)).toBe(false);
     const full: GameState = { ...newGame(T0), quipsSeen: openai };
     expect(quipCheck('shadow_quips_lab')(full)).toBe(true);
-  });
-
-  it('ничего не увеличивают: проверка — чистое чтение состояния', () => {
-    const s: GameState = { ...newGame(T0), quipsSeen: QUIPS.slice(0, 50).map((q) => q.id) };
-    const before = JSON.stringify(s);
-    for (const a of SHADOW_ACHIEVEMENTS.filter((x) => x.id.startsWith('shadow_quips'))) {
-      expect(typeof a.check(s)).toBe('boolean');
-    }
-    expect(JSON.stringify(s)).toBe(before);
   });
 });

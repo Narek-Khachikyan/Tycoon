@@ -1,13 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-  BASE_INCOME_PER_COST,
   buildCatalog,
-  COST_BASE,
   CATALOG,
   computeGain,
   COST_STEP,
   genScale,
-  INCOME_BASE,
   INCOME_STEP,
   LADDER_SPAN,
   PRESTIGE_DIVISOR_UNITS,
@@ -48,11 +45,11 @@ import {
   modelUpgradeId, MODEL_TIERS, PAIR_SYNERGY_MULT, pairSynergyUpgradeId, SYNERGY_MIN_AGENTS, synergyUpgradeId, totalAgents, UPGRADE_BY_ID,
   UPGRADES_BY_GEN, type Upgrade,
 } from './upgrades';
-import { formatCount, formatNumber } from './format';
 import { GENERATIONS } from '../data/generations';
 import { LAB_IDS, type LabId } from '../data/labs';
 import { HEAT_COOL_SEC, HEAT_PENALTY, heatRate, OVERHEAT_STUN_SEC, overheatStunMult, TEMP_MAX, TEMP_START, TEMP_YIELD_MAX } from './thermal';
-import { claimMilestones, MILESTONES, nextMilestone } from './milestones';
+import { claimMilestones, MILESTONES, milestoneHint, nextMilestone } from './milestones';
+import { GLOSSARY } from '../data/glossary';
 import { GEN_SCALE } from './catalog';
 
 const T0 = 1_000_000;
@@ -234,10 +231,8 @@ describe('catalog', () => {
    */
   it('keeps the ladder shape itself sane', () => {
     expect(INCOME_STEP).toBeGreaterThan(COST_STEP);
-    // Восстановленное отношение обязано совпадать с объявленным: две копии формулы
-    // разъедутся, и одна из них будет врать в подписи.
-    expect(BASE_INCOME_PER_COST).toBeCloseTo(INCOME_BASE / COST_BASE, 12);
   });
+
   it('prefers snapshot values over seeds unless pinned', () => {
     const seeds = [{ ...GENERATIONS[0], models: GENERATIONS[0].models.map((m, i) => (i === 0 ? { ...m, pin: ['speed' as const] } : m)) }];
     const id = seeds[0].models[0].aa;
@@ -431,7 +426,6 @@ describe('lab readout', () => {
     const s = cold(newGame(T0));
     for (const l of LAB_IDS) {
       expect(labIncomeShare(s, l)).toBe(0);
-      expect(Number.isNaN(labIncomeShare(s, l))).toBe(false);
     }
   });
   it('reports the highest model upgrade bought in a lab', () => {
@@ -535,6 +529,25 @@ describe('offline', () => {
     const after = advanceTime(s, 0.05);
     expect(after.tokens - s.tokens).toBeCloseTo(totalIncome(s) * 0.05);
     expect(advanceTime(s, -1)).toBe(s);
+  });
+});
+
+describe('broken clocks and intervals', () => {
+  it('treats a non-numeric, zero or negative tick as a no-op returning the same state', () => {
+    const s = newGame(T0);
+    for (const dt of [NaN, Infinity, 0, -1]) {
+      expect(advance(s, dt)).toBe(s);
+      expect(advanceTime(s, dt)).toBe(s);
+    }
+  });
+
+  it('pays nothing for a clock rolled back, and pulls lastTick to now', () => {
+    const s = { ...newGame(5000), tokens: 100 };
+    const offline = applyOffline(s, 2000);
+    expect(offline.earned).toBe(0);
+    expect(offline.seconds).toBe(0);
+    expect(offline.state.lastTick).toBe(2000);
+    expect(offline.state.tokens).toBe(100);
   });
 });
 
@@ -1512,7 +1525,41 @@ describe('prestige', () => {
   });
 });
 
+describe('prestige clock', () => {
+  it('takes its clock from lastTick and keeps the pledge and glitch schedules', () => {
+    const s = {
+      ...newGame(1000),
+      tokens: 1e15,
+      pledgeUntil: 2500,
+      nextGlitchAt: 3000,
+      lastTick: 1200,
+      agents: { [CATALOG[0].flagship.id]: 1 },
+    };
+    const p = prestige(s);
+    expect(p.lastTick).toBe(1200);
+    expect(p.runStartedAt).toBe(1200);
+    expect(p.pledgeUntil).toBe(2500);
+    expect(p.nextGlitchAt).toBe(3000);
+  });
+});
+
 describe('save', () => {
+  it('rejects an import with a broken counter instead of zeroing the wallet', () => {
+    const valid = newGame(1000);
+    expect(importSave(exportSave(valid), 1000)).not.toBeNull();
+    for (const patch of [{ tokens: null }, { tokens: 'invalid' }, { clicks: -1 }]) {
+      expect(importSave(btoa(JSON.stringify({ ...valid, ...patch })), 1000)).toBeNull();
+    }
+  });
+
+  it('pulls timestamps from the future back to now on import', () => {
+    const future = { ...newGame(1000), lastTick: 5000, startedAt: 5000, runStartedAt: 5000 };
+    const loaded = importSave(exportSave(future), 2000)!;
+    expect(loaded.lastTick).toBe(2000);
+    expect(loaded.startedAt).toBe(2000);
+    expect(loaded.runStartedAt).toBe(2000);
+  });
+
   it('round-trips through export/import', () => {
     const s = buyAgents(rich(cold(newGame(T0)), 1e9), first.id, 3);
     const back = importSave(exportSave(s), T0)!;
@@ -1784,150 +1831,6 @@ describe('save', () => {
   });
 });
 
-describe('format', () => {
-  it('uses short scale suffixes with a Russian decimal comma', () => {
-    expect(formatNumber(999)).toBe('999');
-    expect(formatNumber(0.5)).toBe('0,5');
-    expect(formatNumber(1500)).toBe('1,50 K');
-    expect(formatNumber(1729)).toBe('1,73 K');
-    expect(formatNumber(999999)).toBe('1,00 M');
-    expect(formatNumber(2.5e9)).toBe('2,50 B');
-    expect(formatNumber(1.23e15, 'sci')).toBe('1.23e15');
-  });
-
-  it('keeps sci notation with a dot while short uses a comma', () => {
-    expect(formatNumber(1729, 'sci')).toBe('1.73e3');
-    expect(formatNumber(1500, 'sci')).toContain('.');
-    expect(formatNumber(1500)).not.toContain('.');
-    // Выход «меньше тысячи» стоит до ветвления по нотации, поэтому запятая не должна
-    // просачиваться в научную запись и на нём.
-    expect(formatNumber(0.5, 'sci')).toBe('0.5');
-    expect(formatNumber(0.5)).toBe('0,5');
-  });
-
-  it('never uses a dot as a decimal separator and keeps at most two decimals', () => {
-    // Значения внутри лестницы суффиксов: за её пределом формат возвращается к sci,
-    // где точка обязательна.
-    const values = [0.5, 9.9, 999, 1000, 1500, 1729, 12345, 999999, 2.5e9, 1.23e15, 1e27, 4.567e60];
-    for (const v of values) {
-      const out = formatNumber(v);
-      expect(out).not.toContain('.');
-      const frac = out.split(',')[1];
-      if (frac !== undefined) expect(frac.split(' ')[0].length).toBeLessThanOrEqual(2);
-    }
-  });
-
-  it('declines agent counts in Russian', () => {
-    const agent = (n: number) => formatCount(n, 'Агент', 'Агента', 'Агентов');
-    expect(agent(0)).toBe('Агентов');
-    expect(agent(1)).toBe('Агент');
-    expect(agent(2)).toBe('Агента');
-    expect(agent(4)).toBe('Агента');
-    expect(agent(5)).toBe('Агентов');
-    // 11–14 живут по правилу десятков, а не хвоста: «11 Агентов», но «21 Агент».
-    expect(agent(11)).toBe('Агентов');
-    expect(agent(12)).toBe('Агентов');
-    expect(agent(14)).toBe('Агентов');
-    expect(agent(21)).toBe('Агент');
-    expect(agent(22)).toBe('Агента');
-    expect(agent(25)).toBe('Агентов');
-    expect(agent(101)).toBe('Агент');
-    expect(agent(111)).toBe('Агентов');
-    expect(agent(-1)).toBe('Агент');
-  });
-
-  it('declines by the digits the player sees once the number outgrows exact integers', () => {
-    const token = (n: number) => formatCount(n, 'Токен', 'Токена', 'Токенов');
-    // Граница точных целых: выше неё единицы float — шум округления, и форма по ним
-    // выбиралась случайно. Раньше 4.67e73 читалось как «Токена», а 9.08e75 как «Токена»
-    // же, при одинаковом виде на экране — теперь обе по значащим цифрам.
-    expect(Number.MAX_SAFE_INTEGER).toBe(9007199254740991);
-    // Ниже границы поведение прежнее и точное.
-    expect(token(9007199254740991)).toBe('Токен');
-    expect(token(9007199254740990)).toBe('Токенов');
-
-    // Форма следует за ЦЕЛОЙ ЧАСТЬЮ напечатанной мантиссы, вместе с отменой на 11–14.
-    // Раньше брались последние две цифры записи без точки, то есть форма соответствовала
-    // числу, которого на экране нет: «1.11e70» читалось как 111, то есть «Токенов», хотя
-    // игрок видит единицу с хвостом. Теперь 4.67e73 → «4,67» → 4 → «Токена», 1.23e70 →
-    // «1,23» → 1 → «Токен», 9.08e75 → 9 → «Токенов».
-    expect(token(4.67e73)).toBe('Токена');
-    expect(token(9.08e75)).toBe('Токенов');
-    expect(token(1.23e70)).toBe('Токен');
-    expect(token(1.11e70)).toBe('Токен');
-    expect(token(1.21e70)).toBe('Токен');
-    // Смена нотации обязана менять форму только вместе с тем, что напечатано: «27,10 Qi» —
-    // двадцать семь, «2.71e19» — две. Прежнее правило давало здесь «Токенов» в обоих
-    // случаях, то есть одно и то же количество называлось двумя словами.
-    expect(formatCount(2.71e19, 'Токен', 'Токена', 'Токенов', 'short')).toBe('Токенов');
-    expect(formatCount(2.71e19, 'Токен', 'Токена', 'Токенов', 'sci')).toBe('Токена');
-
-    // Окончание обязано следовать за цифрами на экране. Раньше форма бралась по трём
-    // значащим цифрам, а короткая запись печатает четыре, и примерно в половине случаев
-    // окончание противоречило тому, что видно: «300,8 Sp Токен» при нуле на экране.
-    for (const n of [3.008e47, 4.71e25, 471.0e23, 33.09e45, 1.23e70]) {
-      for (const notation of ['short', 'sci'] as const) {
-        // Мантисса печати, без экспоненты и суффикса: в «3.01e47» форма обязана смотреть
-        // на целую часть «3,01», а не на «47» из экспоненты.
-        const head = formatNumber(n, notation).split(/[e ]/)[0].replace(',', '.');
-        const whole = Math.floor(Number(head));
-        const last = whole % 10;
-        const tens = whole % 100;
-        const expected =
-          last === 1 && tens !== 11
-            ? 'Токен'
-            : last >= 2 && last <= 4 && (tens < 12 || tens > 14)
-              ? 'Токена'
-              : 'Токенов';
-        expect(formatCount(n, 'Токен', 'Токена', 'Токенов', notation)).toBe(expected);
-      }
-    }
-
-    // Настоящий инвариант: форма не должна зависеть от шума младших разрядов. Два числа,
-    // печатающиеся одинаково, обязаны давать одинаковую форму — до правки именно здесь
-    // и ломалось, поэтому проверка на сам формат без сравнения ничего бы не поймала.
-    for (const n of [1e70, 4.67e73, 9.08e75, 7.77e250]) {
-      const twin = n * (1 + 1e-15);
-      expect(formatNumber(twin, 'sci')).toBe(formatNumber(n, 'sci'));
-      expect(token(twin)).toBe(token(n));
-    }
-  });
-
-  it('prints a float one step off an integer as that integer', () => {
-    // Результат вычитания почти никогда не попадает ровно в целое: дефицит 2 при цене
-    // 1010 и кошельке 1008 приходит как 1.9999999999999998. Печатать его как «2,0» нельзя —
-    // это 2, и так его видит игрок.
-    expect(formatNumber(1.9999999999999998)).toBe('2');
-    expect(formatNumber(5.000000000000001)).toBe('5');
-    expect(formatNumber(7.999999999999999)).toBe('8');
-    expect(formatNumber(-1.9999999999999998)).toBe('-2');
-    // Настоящие дробные и целые значения не изменились.
-    expect(formatNumber(0.1)).toBe('0,1');
-    expect(formatNumber(2)).toBe('2');
-    expect(formatNumber(999)).toBe('999');
-  });
-
-  it('declines below a thousand by the integer it prints', () => {
-    // Строка ShopColumn и ClickColumn печатают число и форму рядом, поэтому форма обязана
-    // следовать за напечатанным целым, а не за младшими разрядами float.
-    const tokens = (n: number) => formatCount(n, 'Токен', 'Токена', 'Токенов');
-    // Тот самый дефицит: на экране «2», значит и «2 Токена», а не «2 Токенов».
-    expect(formatNumber(1.9999999999999998)).toBe('2');
-    expect(tokens(1.9999999999999998)).toBe('Токена');
-    // Настоящая дробь под десятью печатается с одним знаком и склоняется по нему же.
-    expect(formatNumber(2.5)).toBe('2,5');
-    expect(tokens(2.5)).toBe('Токена');
-    // Дробь от десяти и выше печатается целой частью — форма считается по ней.
-    expect(formatNumber(12.5)).toBe('12');
-    expect(tokens(12.5)).toBe('Токенов');
-    expect(formatNumber(21.5)).toBe('21');
-    expect(tokens(21.5)).toBe('Токен');
-    // Целые значения не изменились ни в чём.
-    expect(tokens(1010)).toBe('Токенов');
-    expect(tokens(1021)).toBe('Токен');
-    expect(tokens(111)).toBe('Токенов');
-  });
-});
 describe('news and achievements', () => {
   it('picks relevant news without crashing', () => {
     const s = cold(newGame(T0));
@@ -1962,12 +1865,9 @@ describe('news and achievements', () => {
     expect(awardAchievements(hired).state.achievements).toContain('agents_1');
   });
 
-it('awards every achievement from a single maximal run, and nothing on a second pass', () => {
+  it('awards every achievement from a single maximal run, and nothing on a second pass', () => {
     // id Достижения входит в поверхность сохранения: дубль осиротит запись, пустое имя — экран.
     const ids = ACHIEVEMENTS.map((a) => a.id);
-    expect(new Set(ids).size).toBe(ACHIEVEMENTS.length);
-    expect(ACHIEVEMENTS.filter((a) => a.name.length === 0)).toEqual([]);
-    // id Достижения входит в поверхность сохранения: дубль осиротит запись, пустое имя — экран.
     expect(new Set(ids).size).toBe(ACHIEVEMENTS.length);
     expect(ACHIEVEMENTS.filter((a) => a.name.length === 0)).toEqual([]);
 
@@ -2681,6 +2581,37 @@ describe('milestones', () => {
     // Неизвестный id не должен ни занимать номер настоящей вехи, ни показываться в интерфейсе.
     const junk = migrate({ ...JSON.parse(JSON.stringify(s)), milestones: ['ms_click', 'ms_нет'] }, T0);
     expect(junk.milestones).toEqual(['ms_click']);
+  });
+
+  it('counts the roster hint from the actual size of each generation', () => {
+    const roster = MILESTONES.find((m) => m.id === 'ms_roster')!;
+    CATALOG.forEach((gen, generation) => {
+      expect(milestoneHint({ ...newGame(T0), generation }, roster)).toContain(String(gen.models.length));
+    });
+  });
+});
+
+describe('glossary', () => {
+  it('quotes the event schedule from the event constants', () => {
+    const timing = `Первое Событие после старта Забега приходит через ${FIRST_EVENT_MIN_MS / 1000}–${FIRST_EVENT_MAX_MS / 1000} секунд, а дальше между Событиями проходит от двух до десяти минут`;
+    for (const term of ['Событие', 'Волна хайпа']) {
+      expect(GLOSSARY.find((g) => g.term === term)?.text).toContain(timing);
+    }
+  });
+
+  it('uses none of the synonyms CONTEXT.md avoids', () => {
+    const banned = new Set([
+      'монета', 'монеты', 'монет', 'тап', 'тапы', 'здание', 'здания', 'зданий',
+      'юнит', 'юниты', 'юнитов', 'сессия', 'сессии', 'компания', 'вендор', 'провайдер',
+      'ивент', 'эвент', 'баг', 'баги', 'бонус', 'бонусы', 'улучшение', 'статы',
+      'бенчмарк', 'подписка', 'талант', 'пассивка', 'эпоха', 'сезон', 'ран',
+      'апокалипсис', 'мятеж', 'взятка', 'жетон', 'купон', 'подарок', 'реклама',
+      'промокод', 'самоцвет', 'алмаз', 'аватар', 'логотип', 'тир', 'уровень', 'босс',
+    ]);
+    for (const g of GLOSSARY) {
+      const hits = g.text.toLowerCase().split(/[^а-яёa-z]+/).filter((w) => banned.has(w));
+      expect(hits, g.term).toEqual([]);
+    }
   });
 });
 

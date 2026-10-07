@@ -69,11 +69,10 @@ describe('format: цена никогда не меньше списания', (
     }
   });
 
-  it('тот случай из плей-аудита: 10,5 на кнопке читалось как 10', () => {
+  it('печатает цену 10,5 как 11, а не как 10', () => {
     const cheapest = CATALOG[0].models[0];
     const cost = bulkCost(cheapest, 0, 1, discountMult(newGame(0)));
     expect(cost).toBe(10.5);
-    // Ровно та строка, на которой чисел было 2 в 10.
     expect(formatNumber(cost)).toBe('10');
     expect(price(cost)).toBe('11');
     // Кошелёк ровно в показанную цену теперь всегда хватает: покупка не может отказать
@@ -87,12 +86,6 @@ describe('format: цена никогда не меньше списания', (
       expect(price(n)).toBe(formatNumber(n));
       expect(price(n, 'sci')).toBe(formatNumber(n, 'sci'));
     }
-    // Режим по умолчанию остался прежним, включая свои (осознанные) срезы.
-    expect(formatNumber(10.5)).toBe('10');
-    expect(formatNumber(12.5)).toBe('12');
-    expect(formatNumber(2.5)).toBe('2,5');
-    expect(formatNumber(1.9999999999999998)).toBe('2');
-    expect(formatNumber(1500)).toBe('1,50 K');
     // А под десятью цена округляется вверх, а не вниз до «0» и не в пол-Токена точностью.
     expect(price(7.5)).toBe('8');
     expect(price(0.4)).toBe('1');
@@ -180,5 +173,127 @@ describe('format: цена никогда не меньше списания', (
     // Якоря: одно и то же число читается по-разному, но правильно в каждой нотации.
     expect(formatCount(2.71e19, 'Токен', 'Токена', 'Токенов', 'short', 'price')).toBe('Токенов');
     expect(formatCount(2.71e19, 'Токен', 'Токена', 'Токенов', 'sci', 'price')).toBe('Токена');
+  });
+});
+
+describe('format', () => {
+  it('uses short scale suffixes with a Russian decimal comma', () => {
+    expect(formatNumber(999)).toBe('999');
+    expect(formatNumber(0.5)).toBe('0,5');
+    expect(formatNumber(1500)).toBe('1,50 K');
+    expect(formatNumber(1729)).toBe('1,73 K');
+    expect(formatNumber(999999)).toBe('1,00 M');
+    expect(formatNumber(2.5e9)).toBe('2,50 B');
+    expect(formatNumber(1.23e15, 'sci')).toBe('1.23e15');
+  });
+
+  it('keeps sci notation with a dot while short uses a comma', () => {
+    expect(formatNumber(1729, 'sci')).toBe('1.73e3');
+    expect(formatNumber(1500, 'sci')).toContain('.');
+    expect(formatNumber(1500)).not.toContain('.');
+    // Выход «меньше тысячи» стоит до ветвления по нотации, поэтому запятая не должна
+    // просачиваться в научную запись и на нём.
+    expect(formatNumber(0.5, 'sci')).toBe('0.5');
+    expect(formatNumber(0.5)).toBe('0,5');
+  });
+
+  it('never uses a dot as a decimal separator and keeps at most two decimals', () => {
+    // Значения внутри лестницы суффиксов: за её пределом формат возвращается к sci,
+    // где точка обязательна.
+    const values = [0.5, 9.9, 999, 1000, 1500, 1729, 12345, 999999, 2.5e9, 1.23e15, 1e27, 4.567e60];
+    for (const v of values) {
+      const out = formatNumber(v);
+      expect(out).not.toContain('.');
+      const frac = out.split(',')[1];
+      if (frac !== undefined) expect(frac.split(' ')[0].length).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it('declines agent counts in Russian', () => {
+    const agent = (n: number) => formatCount(n, 'Агент', 'Агента', 'Агентов');
+    expect(agent(0)).toBe('Агентов');
+    expect(agent(1)).toBe('Агент');
+    expect(agent(2)).toBe('Агента');
+    expect(agent(4)).toBe('Агента');
+    expect(agent(5)).toBe('Агентов');
+    // 11–14 живут по правилу десятков, а не хвоста: «11 Агентов», но «21 Агент».
+    expect(agent(11)).toBe('Агентов');
+    expect(agent(12)).toBe('Агентов');
+    expect(agent(14)).toBe('Агентов');
+    expect(agent(21)).toBe('Агент');
+    expect(agent(22)).toBe('Агента');
+    expect(agent(25)).toBe('Агентов');
+    expect(agent(101)).toBe('Агент');
+    expect(agent(111)).toBe('Агентов');
+    expect(agent(-1)).toBe('Агент');
+  });
+
+  it('declines by the digits the player sees once the number outgrows exact integers', () => {
+    const token = (n: number) => formatCount(n, 'Токен', 'Токена', 'Токенов');
+    // Граница точных целых: выше неё единицы float — шум округления, и форма по ним
+    // выбиралась случайно. Раньше 4.67e73 читалось как «Токена», а 9.08e75 как «Токена»
+    // же, при одинаковом виде на экране — теперь обе по значащим цифрам.
+    // Ниже границы поведение прежнее и точное.
+    expect(token(9007199254740991)).toBe('Токен');
+    expect(token(9007199254740990)).toBe('Токенов');
+
+    // Форма следует за ЦЕЛОЙ ЧАСТЬЮ напечатанной мантиссы, вместе с отменой на 11–14.
+    // Раньше брались последние две цифры записи без точки, то есть форма соответствовала
+    // числу, которого на экране нет: «1.11e70» читалось как 111, то есть «Токенов», хотя
+    // игрок видит единицу с хвостом. Теперь 4.67e73 → «4,67» → 4 → «Токена», 1.23e70 →
+    // «1,23» → 1 → «Токен», 9.08e75 → 9 → «Токенов».
+    expect(token(4.67e73)).toBe('Токена');
+    expect(token(9.08e75)).toBe('Токенов');
+    expect(token(1.23e70)).toBe('Токен');
+    expect(token(1.11e70)).toBe('Токен');
+    expect(token(1.21e70)).toBe('Токен');
+    // Смена нотации обязана менять форму только вместе с тем, что напечатано: «27,10 Qi» —
+    // двадцать семь, «2.71e19» — две. Прежнее правило давало здесь «Токенов» в обоих
+    // случаях, то есть одно и то же количество называлось двумя словами.
+    expect(formatCount(2.71e19, 'Токен', 'Токена', 'Токенов', 'short')).toBe('Токенов');
+    expect(formatCount(2.71e19, 'Токен', 'Токена', 'Токенов', 'sci')).toBe('Токена');
+
+    // Настоящий инвариант: форма не должна зависеть от шума младших разрядов. Два числа,
+    // печатающиеся одинаково, обязаны давать одинаковую форму — до правки именно здесь
+    // и ломалось, поэтому проверка на сам формат без сравнения ничего бы не поймала.
+    for (const n of [1e70, 4.67e73, 9.08e75, 7.77e250]) {
+      const twin = n * (1 + 1e-15);
+      expect(formatNumber(twin, 'sci')).toBe(formatNumber(n, 'sci'));
+      expect(token(twin)).toBe(token(n));
+    }
+  });
+
+  it('prints a float one step off an integer as that integer', () => {
+    // Результат вычитания почти никогда не попадает ровно в целое: дефицит 2 при цене
+    // 1010 и кошельке 1008 приходит как 1.9999999999999998. Печатать его как «2,0» нельзя —
+    // это 2, и так его видит игрок.
+    expect(formatNumber(1.9999999999999998)).toBe('2');
+    expect(formatNumber(5.000000000000001)).toBe('5');
+    expect(formatNumber(7.999999999999999)).toBe('8');
+    expect(formatNumber(-1.9999999999999998)).toBe('-2');
+    // Настоящие дробные и целые значения не изменились.
+    expect(formatNumber(0.1)).toBe('0,1');
+    expect(formatNumber(2)).toBe('2');
+    expect(formatNumber(999)).toBe('999');
+  });
+
+  it('declines below a thousand by the integer it prints', () => {
+    // Строка ShopColumn и ClickColumn печатают число и форму рядом, поэтому форма обязана
+    // следовать за напечатанным целым, а не за младшими разрядами float.
+    const tokens = (n: number) => formatCount(n, 'Токен', 'Токена', 'Токенов');
+    // Тот самый дефицит: на экране «2», значит и «2 Токена», а не «2 Токенов».
+    expect(tokens(1.9999999999999998)).toBe('Токена');
+    // Настоящая дробь под десятью печатается с одним знаком и склоняется по нему же.
+    expect(formatNumber(2.5)).toBe('2,5');
+    expect(tokens(2.5)).toBe('Токена');
+    // Дробь от десяти и выше печатается целой частью — форма считается по ней.
+    expect(formatNumber(12.5)).toBe('12');
+    expect(tokens(12.5)).toBe('Токенов');
+    expect(formatNumber(21.5)).toBe('21');
+    expect(tokens(21.5)).toBe('Токен');
+    // Целые значения не изменились ни в чём.
+    expect(tokens(1010)).toBe('Токенов');
+    expect(tokens(1021)).toBe('Токен');
+    expect(tokens(111)).toBe('Токенов');
   });
 });

@@ -1634,21 +1634,7 @@ body {
     animation: chat-reply-in 0.26s cubic-bezier(0.2, 0.8, 0.3, 1);
   }
 
-  
-.scene__heat {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 1;
-  opacity: calc(var(--heat-glow, 0) * 0.8);
-  mix-blend-mode: screen;
-}
-
-.scene__heat--haze {
-  opacity: calc(var(--heat-glow, 0) * 0.85);
-}
-
-.mote {
+  .mote {
     display: block;
     animation: mote-drift var(--mote-dur) ease-in-out var(--mote-delay) infinite alternate;
   }
@@ -1789,11 +1775,11 @@ body {
   animation: tab-badge-fade 0.5s ease-out;
 }
 
+[data-motion='reduced'] .thermal-spark {
+  animation: none;
+  opacity: 0;
+}
 
-  .thermal-spark {
-    animation: none;
-    opacity: 0;
-  }
 [data-motion='reduced'] .spark {
   animation: none;
   opacity: 0;
@@ -1822,21 +1808,7 @@ body {
   animation: none;
 }
 
-[data-motion='reduced'] 
-.scene__heat {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 1;
-  opacity: calc(var(--heat-glow, 0) * 0.8);
-  mix-blend-mode: screen;
-}
-
-.scene__heat--haze {
-  opacity: calc(var(--heat-glow, 0) * 0.85);
-}
-
-.mote {
+[data-motion='reduced'] .mote {
   display: none;
 }
 

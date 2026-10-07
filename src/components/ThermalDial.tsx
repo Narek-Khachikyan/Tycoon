@@ -1,6 +1,6 @@
 import React from 'react';
 import { useGameStore } from '../store/useGameStore';
-import { HEAT_PENALTY, TEMP_MAX, overloadShare, thermalRead } from '../economy/thermal';
+import { TEMP_MAX, overloadShare, thermalRead } from '../economy/thermal';
 import { formatNumber } from '../economy/format';
 import { ThermalSparks } from './ThermalSparks';
 
@@ -252,6 +252,3 @@ export const ThermalDial: React.FC = () => {
     </div>
   );
 };
-
-/** Доля Дохода, срезаемая перегревом на полной шкале — для текста подсказки в настройках. */
-export const HEAT_LOSS_LABEL = Math.round(HEAT_PENALTY * 100);
