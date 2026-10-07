@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { motionAllowed, useGameStore, type ToastMessage } from '../store/useGameStore';
+import { effectAllowed, motionAllowed, useGameStore, type ToastMessage } from '../store/useGameStore';
 import { TOAST_MARGIN, toastStackWidth } from '../layout';
 import { Icon } from './Icon';
 import { Num } from './Num';
@@ -243,7 +243,7 @@ export const Toasts: React.FC = () => {
 
   useEffect(() => {
     if (burst?.kind !== 'achievement') return;
-    if (!motionAllowed()) return;
+    if (!effectAllowed('particles')) return;
     // Якорь — свежайшая карточка в стопке: она и есть отметка о Достижении, на неё и летят
     // искры. Именно карточка, а не последний узел: когда хвост очереди не пуст, последним
     // узлом стоит счётчик «ещё N», и веер вылетал бы из-под него, то есть из цифры, а не

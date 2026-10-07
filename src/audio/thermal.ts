@@ -11,10 +11,10 @@
  *   - низкий треугольник — «тело», всегда на месте, чтобы голос не исчезал в холоде.
  *
  * Расстройство и фильтр задаются одним числом из состояния, поэтому игрок слышит ровно ту же
- * температуру, которую видит на шкале. Всё идёт через мастер-шину `sound.ts`: громкость и мьют
+ * температуру, которую видит на шкале. Всё идёт через канал эффектов `sound.ts`: громкость и мьют
  * игрока применяются там.
  */
-import { audioBus, noiseBuffer, runningBus, type SoundSettings } from './sound';
+import { audioBus, isAudioHidden, noiseBuffer, runningBus, type SoundSettings } from './sound';
 
 /**
  * Живой голос. Держится между вызовами, поэтому `updateThermalAudio` на каждом тике ничего
@@ -45,19 +45,19 @@ export interface ThermalAudioParams {
  * Один вызов на тик, а не событие: параметры ползучие, и пересоздавать источники каждые
  * 50 мс было бы и слышно, и дорого. `start()` вызывается ровно один раз за жизнь голоса,
  * а всё остальное — `setTargetAtTime`, который по определению плавный и не щёлкает.
- * Пока звук выключен, голос не создаётся вовсе; уже созданный глушит мастер.
+ * Пока звук выключен или страница скрыта, голос не создаётся вовсе; уже созданный глушит мастер.
  */
 export function updateThermalAudio(settings: SoundSettings, { temp, heat }: ThermalAudioParams): void {
-  if (settings.muted && !voice) return;
+  if ((settings.muted || isAudioHidden()) && !voice) return;
   const bus = audioBus(settings);
   if (!bus) return;
-  const { ctx, master } = bus;
+  const { ctx, sfx } = bus;
   if (!voice || voice.ctx !== ctx) {
     const saw = ctx.createOscillator();
     saw.type = 'sawtooth';
     const sawGain = ctx.createGain();
     sawGain.gain.value = 0;
-    saw.connect(sawGain).connect(master);
+    saw.connect(sawGain).connect(sfx);
 
     const noise = ctx.createBufferSource();
     noise.buffer = noiseBuffer(ctx);
@@ -67,14 +67,14 @@ export function updateThermalAudio(settings: SoundSettings, { temp, heat }: Ther
     noiseFilter.Q.value = 1.1;
     const noiseGain = ctx.createGain();
     noiseGain.gain.value = 0;
-    noise.connect(noiseFilter).connect(noiseGain).connect(master);
+    noise.connect(noiseFilter).connect(noiseGain).connect(sfx);
 
     const body = ctx.createOscillator();
     body.type = 'triangle';
     body.frequency.value = 55; // A1: ниже голоса телефона, поэтому его почти не слышно как тон
     const bodyGain = ctx.createGain();
     bodyGain.gain.value = 0;
-    body.connect(bodyGain).connect(master);
+    body.connect(bodyGain).connect(sfx);
 
     saw.start();
     noise.start();
@@ -107,7 +107,7 @@ export function updateThermalAudio(settings: SoundSettings, { temp, heat }: Ther
 export function playCoolingSound(settings: SoundSettings): void {
   const bus = runningBus(settings);
   if (!bus) return;
-  const { ctx, master } = bus;
+  const { ctx, sfx } = bus;
 
   const now = ctx.currentTime;
   const src = ctx.createBufferSource();
@@ -123,7 +123,7 @@ export function playCoolingSound(settings: SoundSettings): void {
   gain.gain.linearRampToValueAtTime(0.16, now + 0.004);
   gain.gain.exponentialRampToValueAtTime(0.001, now + 0.9);
 
-  src.connect(filter).connect(gain).connect(master);
+  src.connect(filter).connect(gain).connect(sfx);
   src.start(now);
   src.stop(now + 0.92);
 }
@@ -137,7 +137,7 @@ export function playCoolingSound(settings: SoundSettings): void {
 export function playHallucinationSound(settings: SoundSettings): void {
   const bus = runningBus(settings);
   if (!bus) return;
-  const { ctx, master } = bus;
+  const { ctx, sfx } = bus;
 
   const now = ctx.currentTime;
   const osc = ctx.createOscillator();
@@ -149,7 +149,7 @@ export function playHallucinationSound(settings: SoundSettings): void {
   gain.gain.linearRampToValueAtTime(0.13, now + 0.006);
   gain.gain.exponentialRampToValueAtTime(0.001, now + 0.24);
 
-  osc.connect(gain).connect(master);
+  osc.connect(gain).connect(sfx);
   osc.start(now);
   osc.stop(now + 0.25);
 }

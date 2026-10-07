@@ -52,12 +52,12 @@ export const ACHIEVEMENTS: Achievement[] = [
  * Тени лежат в том же списке сохранения, поэтому числитель считается по таблице обычных записей
  * и никогда по `achievements.length`.
  */
-export function nonShadowCount(s: GameState): number {
+export function nonShadowCount(s: Pick<GameState, 'achievements'>): number {
   return ACHIEVEMENTS.filter((a) => s.achievements.includes(a.id)).length;
 }
 
 /** Числитель теневого счётчика. */
-export function shadowEarned(s: GameState): number {
+export function shadowEarned(s: Pick<GameState, 'achievements'>): number {
   return SHADOW_ACHIEVEMENTS.filter((a) => s.achievements.includes(a.id)).length;
 }
 

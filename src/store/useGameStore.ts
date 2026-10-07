@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { useShallow } from 'zustand/react/shallow';
 import { CATALOG, MODEL_BY_ID } from '../economy/catalog';
 import {
   advanceTime,
@@ -57,6 +58,7 @@ import {
   playQuipSound,
   playRestartSound,
   playUpgradeSound,
+  setAudioHidden,
 } from '../audio/sound';
 import type { LabId } from '../data/labs';
 import { PROMPT_TEMPLATES } from '../data/prompts';
@@ -65,6 +67,10 @@ import { duckMusic } from '../audio/music';
 import { playCrystalSound, playMilestoneSound, playPrestigeConfirmSound, playToggleSound } from '../audio/sfx';
 
 export type BuyAmount = 1 | 10 | 100 | 'max';
+/** Выключатели эффектов из «Настроек»: каждый гасит свой эффект, остальные не трогает. */
+export type EffectSwitch = 'particles' | 'floaters' | 'shake' | 'ticker';
+/** Канал громкости поверх общей: музыка или звуковые эффекты. */
+export type VolumeChannel = 'music' | 'sfx';
 export type ActiveTab = 'click' | 'office' | 'shop' | 'upgrades' | 'perks' | 'stats' | 'achievements' | 'settings';
 
 export interface ToastMessage {
@@ -97,7 +103,7 @@ export interface BurstEvent {
   prestige?: { generation: number; computeGain: number; challengeId?: 'no-synergy' | 'no-click' };
 }
 
-interface OfflineReport {
+export interface OfflineReport {
   seconds: number;
   earned: number;
   /** Сколько кристаллов дозрело за простой: их собирает applyOffline, и без этой строки игрок
@@ -192,6 +198,9 @@ interface GameStore {
    *  условия отказа живут там, а не в окне. */
   prestigePrompt: boolean;
   activeTab: ActiveTab;
+  /** Скрыта ли страница. Вне GameState: это «где сейчас игрок», а не состояние Забега, и в сейв
+   *  оно не попадает — молчание не настройка, и мьют с ползунком остаются такими, как есть. */
+  tabHidden: boolean;
   buyAmount: BuyAmount;
   sellMode: boolean;
   toasts: ToastMessage[];
@@ -267,9 +276,17 @@ interface GameStore {
   setBuyAmount: (amt: BuyAmount) => void;
   setSellMode: (mode: boolean) => void;
   setActiveTab: (tab: ActiveTab) => void;
+  /** Страница скрыта (фоновая вкладка, свёрнутое окно): звук молчит, пока она такая. Зовётся
+   *  подпиской на `visibilitychange`; повтор того же значения ничего не делает. */
+  setTabHidden: (hidden: boolean) => void;
   setNotation: (notation: Notation) => void;
   toggleMute: () => void;
   setReducedMotion: (on: boolean) => void;
+  /** Включает или выключает один эффект. Всплывающие числа в воздухе гаснут сразу, остальные
+   *  эффекты сами не создаются, пока выключены: см. `effectAllowed`. */
+  setEffect: (effect: EffectSwitch, on: boolean) => void;
+  /** Громкость канала 0..1 поверх общей. Границы держит стор по той же причине, что и у общей. */
+  setChannelVolume: (channel: VolumeChannel, volume: number) => void;
   /** Громкость 0..1. Зажимается здесь, а не в ползунке: значение приходит из импортируемого
    *  файла и из разметки, а громкий хрип на полной шкале — это испорченное впечатление,
    *  поэтому границы держит стор, единственный владелец состояния. */
@@ -490,6 +507,42 @@ function installSaveFlush(): void {
   window.addEventListener('pagehide', flushSave);
 }
 
+/**
+ * Как часто тик переписывает заголовок вкладки.
+ *
+ * Число, а не тики, по той же причине, что и `SAVE_INTERVAL_MS`: тик идёт двадцать раз в секунду
+ * на переднем плане и раз в секунду (а то и реже) в фоне, и частота записи не должна зависеть
+ * от того, как браузер душит таймеры. Раз в секунду — потому что большего глаз в строке вкладки
+ * не различит, а каждая запись заголовка перерисовывает полосу вкладок.
+ */
+export const TITLE_INTERVAL_MS = 1000;
+
+/** То же имя, что в `<title>` страницы: заголовок без числа — это он. */
+const TITLE_NAME = 'Token Clicker';
+
+/** Момент последней записи заголовка; 0 = ещё не писали, и первый же тик запишет сразу. */
+let titleAt = 0;
+
+/**
+ * Пишет число Токенов в заголовок вкладки, не чаще раза в `TITLE_INTERVAL_MS`.
+ *
+ * Число идёт первым: узкая вкладка обрезает хвост, и то, ради чего заголовок меняют, обязано
+ * пережить обрезку. Слова «Токенов» рядом нет намеренно: форма числительного считается по
+ * целому, а запись «1,23 K» его не печатает, и любая фиксированная форма где-нибудь соврала бы.
+ * Нотация — та, что игрок выбрал в настройках, поэтому число совпадает с тем, что на экране.
+ */
+function syncTitle(): void {
+  if (typeof document === 'undefined') return;
+  const now = Date.now();
+  if (now - titleAt < TITLE_INTERVAL_MS) return;
+  titleAt = now;
+  const { tokens, settings } = useGameStore.getState().state;
+  const next = `${formatNumber(tokens, settings.notation)} · ${TITLE_NAME}`;
+  // Тот же текст не пишется: браузер заменяет узел заголовка и на равном значении, а читаемое
+  // число в «1,50 M» стоит на месте десятки секунд.
+  if (document.title !== next) document.title = next;
+}
+
 /** Системная настройка движения. Литерал живёт здесь один раз: тот же запрос читает
  *  CSS-гейт в index.css, а JS нужен ещё и сам список — для слушателя смены настройки. */
 export const REDUCE_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
@@ -530,6 +583,18 @@ export function motionAllowed(): boolean {
   // без этой фичи она сама по себе ответит «движение разрешено».
   if (!media) return false;
   return !media.matches;
+}
+
+/**
+ * Можно ли сейчас создавать эффект с движением: игрок не выключил его в «Настройках» и движение
+ * вообще разрешено (`motionAllowed`).
+ *
+ * Только два эффекта, потому что только они двигаются: частицы и тряска. Всплывающее число и
+ * Новостную ленту «меньше анимации» не убирает, а смягчает (число тает на месте, лента стоит), и
+ * решает за них один выключатель — поэтому здесь им не место.
+ */
+export function effectAllowed(effect: 'particles' | 'shake'): boolean {
+  return useGameStore.getState().state.settings[effect] && motionAllowed();
 }
 
 export const useGameStore = create<GameStore>((set, get) => {
@@ -693,6 +758,7 @@ export const useGameStore = create<GameStore>((set, get) => {
     offlineReport: initial.offline,
     prestigePrompt: false,
     activeTab: 'click',
+    tabHidden: false,
     buyAmount: 1,
     sellMode: false,
     toasts: initial.notice ? [initial.notice] : [],
@@ -757,6 +823,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       // Голос идёт после set, чтобы читать уже новое состояние, и до записи в localStorage:
       // звук не должен ждать завершения сериализации.
       syncThermalVoice();
+      syncTitle();
 
       saveLater();
     },
@@ -767,16 +834,19 @@ export const useGameStore = create<GameStore>((set, get) => {
       const clicked = engineClick(state);
       playClickSound(state.settings);
 
-      // Добавление всплывающего числа
+      // Добавление всплывающего числа. Выключатель гасит число, а не Клик: при выключенных числах
+      // список остаётся как был, и убирать за ним нечего.
       const floaterId = ++floaterCounter;
-      const newFloaters = [...floaters.slice(-10), {
-        id: floaterId,
-        x: x ?? window.innerWidth / 2,
-        y: y ?? window.innerHeight / 2,
-        // Не через Math.floor: у Токенов до 1e300 сырое число растянулось бы на весь экран,
-        // а формат обязан совпадать с подписью под кнопкой Клика.
-        text: `+${formatNumber(earned, state.settings.notation)}`,
-      }];
+      const newFloaters = state.settings.floaters
+        ? [...floaters.slice(-10), {
+            id: floaterId,
+            x: x ?? window.innerWidth / 2,
+            y: y ?? window.innerHeight / 2,
+            // Не через Math.floor: у Токенов до 1e300 сырое число растянулось бы на весь экран,
+            // а формат обязан совпадать с подписью под кнопкой Клика.
+            text: `+${formatNumber(earned, state.settings.notation)}`,
+          }]
+        : floaters;
 
       // Обновление чата раз в несколько кликов
       let newChat = chatHistory;
@@ -821,9 +891,11 @@ export const useGameStore = create<GameStore>((set, get) => {
       // оффлайн-доходом, а уход со страницы допишет отложенное само.
       saveLater();
 
-      setTimeout(() => {
-        set((s) => ({ floaters: s.floaters.filter((f) => f.id !== floaterId) }));
-      }, 900);
+      if (state.settings.floaters) {
+        setTimeout(() => {
+          set((s) => ({ floaters: s.floaters.filter((f) => f.id !== floaterId) }));
+        }, 900);
+      }
     },
 
     buyAgents: (modelId: string) => {
@@ -1155,6 +1227,13 @@ export const useGameStore = create<GameStore>((set, get) => {
       set({ sellMode: mode });
     },
     setActiveTab: (tab: ActiveTab) => set({ activeTab: tab }),
+    // Звук получает настройки как есть: тишина живёт в звуковом модуле отдельно от мьюта и
+    // громкости, поэтому возвращение снимает её, не гадая, что игрок выбрал до ухода.
+    setTabHidden: (hidden: boolean) => {
+      if (get().tabHidden === hidden) return;
+      set({ tabHidden: hidden });
+      setAudioHidden(hidden, get().state.settings);
+    },
 
     // Настройки объединены в одну запись по одной причине: любая из них меняет GameState, а
     // GameState — это сейв. Переключатель молча уехал бы в localStorage только с ближайшим тиком,
@@ -1182,6 +1261,34 @@ toggleMute: () => {
     setReducedMotion: (on: boolean) => {
       set((s) => ({
         state: { ...s.state, settings: { ...s.state.settings, reducedMotion: on } },
+      }));
+      saveNow();
+    },
+
+    // Выключатель живёт в GameState.settings, как и остальные настройки: тот же путь записи, та же
+    // причина — вкладка, закрытая сразу после переключения, не должна вернуть прошлое положение.
+    setEffect: (effect: EffectSwitch, on: boolean) => {
+      set((s) => ({
+        state: { ...s.state, settings: { ...s.state.settings, [effect]: on } },
+        // Число в воздухе уходит вместе с выключателем: оно живёт в сторе, и оставить его значило бы
+        // показывать то, что игрок только что попросил не показывать, ещё секунду.
+        ...(effect === 'floaters' && !on ? { floaters: [] } : {}),
+      }));
+      saveNow();
+    },
+
+    // Ноль — честная тишина своего канала, а не мьют: общий ползунок и мьют остаются мастером, а
+    // канал только делит его между музыкой и эффектами. Зажим тот же, что у общей громкости.
+    setChannelVolume: (channel: VolumeChannel, volume: number) => {
+      const field = channel === 'music' ? 'musicVolume' : 'sfxVolume';
+      set((s) => ({
+        state: {
+          ...s.state,
+          settings: {
+            ...s.state.settings,
+            [field]: Number.isFinite(volume) ? Math.min(1, Math.max(0, volume)) : s.state.settings[field],
+          },
+        },
       }));
       saveNow();
     },
@@ -1279,3 +1386,31 @@ toggleMute: () => {
 });
 
 installSaveFlush();
+
+/**
+ * Срез состояния для компонента: перерисовка только тогда, когда изменился сам срез.
+ *
+ * Тик кладёт в стор новый `GameState` двадцать раз в секунду, поэтому подписка на `s.state`
+ * целиком перерисовывала бы компонент на каждом тике. Срезы из `selectors.ts` плоские и состоят
+ * из того, что компонент рисует, а поверхностное сравнение `useShallow` отсекает тик, в котором
+ * на экране ничего не изменилось. Селектор может вернуть и примитив: для него сравнение — обычное
+ * `Object.is`.
+ */
+export function useStateSlice<T>(select: (state: GameState) => T): T {
+  return useGameStore(useShallow((store) => select(store.state)));
+}
+
+/**
+ * Следит за видимостью страницы и передаёт её стору.
+ *
+ * Первое чтение — сразу: вкладка, открытая в фоне (средняя кнопка, восстановление сессии),
+ * загружается скрытой, и события видимости не будет, пока игрок на неё не перейдёт.
+ */
+function installTabVisibility(): void {
+  if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return;
+  const sync = (): void => useGameStore.getState().setTabHidden(document.visibilityState === 'hidden');
+  sync();
+  document.addEventListener('visibilitychange', sync);
+}
+
+installTabVisibility();

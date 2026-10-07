@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { motionAllowed, useGameStore } from '../store/useGameStore';
+import { motionAllowed, useGameStore, useStateSlice } from '../store/useGameStore';
 import { CATALOG } from '../economy/catalog';
 import { ACHIEVEMENTS, nonShadowCount } from '../economy/achievements';
 import { formatNumber } from '../economy/format';
@@ -12,26 +12,29 @@ interface HeaderProps {
   onOpenSettings: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({
+const HeaderView: React.FC<HeaderProps> = ({
   onOpenAchievements,
   onOpenStats,
   onOpenSettings,
 }) => {
-  const state = useGameStore((s) => s.state);
+  // Шапка читает пять чисел, а не состояние: тик двигает Токены и часы, и подписка на
+  // `s.state` перерисовывала бы её двадцать раз в секунду ради тех же самых цифр.
+  const generation = useGameStore((s) => s.state.generation);
+  const compute = useGameStore((s) => s.state.compute);
+  const isMuted = useGameStore((s) => s.state.settings.muted);
+  // Бейдж Compute печатается нотацией игрока, а не значением по умолчанию: иначе в научном
+  // режиме вся игра показывала «1.00e4», а шапка — «10,00 K», то есть два разных числа на
+  // одном экране для одной и той же величины.
+  const notation = useGameStore((s) => s.state.settings.notation);
+  // Числитель — nonShadowCount, а не achievements.length: тени лежат в том же списке, и
+  // прямой длиной счётчик шапал бы выше знаменателя. Знаменатель остаётся только обычный.
+  const unlockedAchCount = useStateSlice(nonShadowCount);
   const toggleMute = useGameStore((s) => s.toggleMute);
   const burst = useGameStore((s) => s.burst);
   const badgeRef = useRef<HTMLButtonElement>(null);
 
-  const gen = CATALOG[state.generation];
-  // Числитель — nonShadowCount, а не achievements.length: тени лежат в том же списке, и
-  // прямой длиной счётчик шапал бы выше знаменателя. Знаменатель остаётся только обычный.
-  const unlockedAchCount = nonShadowCount(state);
+  const gen = CATALOG[generation];
   const totalAchCount = ACHIEVEMENTS.length;
-  const isMuted = state.settings.muted;
-  // Бейдж Compute печатается нотацией игрока, а не значением по умолчанию: иначе в научном
-  // режиме вся игра показывала «1.00e4», а шапка — «10,00 K», то есть два разных числа на
-  // одном экране для одной и той же величины.
-  const notation = state.settings.notation;
 
   // Значок — единственное место на экране, где Достижение остаётся видимым после того, как
   // тост уйдёт, поэтому пульсирует он, а не тост: вспышка тоста длится полсекунды.
@@ -90,7 +93,7 @@ export const Header: React.FC<HeaderProps> = ({
             остальную шапку вниз; теперь он всегда одна строка, а не поместившийся хвост
             обрезается многоточием — имя Поколения, ради которого бейдж и нужен, остаётся. */}
         <span
-          key={state.generation}
+          key={generation}
           style={{
             fontSize: '0.85rem',
             backgroundColor: 'var(--tint-accent)',
@@ -109,7 +112,7 @@ export const Header: React.FC<HeaderProps> = ({
             Поколение {gen.id}: {gen.name} ({gen.period})
           </span>
         </span>
-        {state.compute > 0 && (
+        {compute > 0 && (
           <span
             style={{
               fontSize: '0.85rem',
@@ -125,7 +128,7 @@ export const Header: React.FC<HeaderProps> = ({
             }}
             title="Бонус к доходу от Compute"
           >
-            <Num>{formatNumber(state.compute, notation)}</Num> Compute (+<Num>{state.compute}</Num>%)
+            <Num>{formatNumber(compute, notation)}</Num> Compute (+<Num>{compute}</Num>%)
           </span>
         )}
       </div>
@@ -180,3 +183,5 @@ export const Header: React.FC<HeaderProps> = ({
     </header>
   );
 };
+
+export const Header = React.memo(HeaderView);

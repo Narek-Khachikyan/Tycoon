@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SAVE_INTERVAL_MS, useGameStore } from './useGameStore';
+import { effectAllowed, SAVE_INTERVAL_MS, useGameStore } from './useGameStore';
 import { CATALOG } from '../economy/catalog';
 import { CHALLENGES } from '../economy/challenges';
 import { QUIPS } from '../data/quips';
@@ -66,6 +66,7 @@ vi.mock('../audio/sound', () => ({
   playUpgradeSound: vi.fn(),
   playVoice: vi.fn(),
   audioBus: vi.fn(() => null),
+  setAudioHidden: vi.fn(),
 }));
 
 /** Сигналы sfx.ts и приглушение музыки — тоже стороны действий стора, которые здесь проверяются. */
@@ -1078,6 +1079,135 @@ describe('the volume setting', () => {
   });
 });
 
+describe('the channel volume settings', () => {
+  // Каналы музыки и эффектов лежат поверх общей громкости: общая остаётся мастером, а границы,
+  // как и у неё, держит стор — значение приходит из ползунка и из импортируемого файла.
+  it('takes a level the player chose for each channel without touching the other or the master', () => {
+    freshStore();
+    const master = state().settings.volume;
+    store().setChannelVolume('music', 0.3);
+    expect(state().settings.musicVolume).toBe(0.3);
+    expect(state().settings.sfxVolume).toBe(1);
+    store().setChannelVolume('sfx', 0.7);
+    expect(state().settings.sfxVolume).toBe(0.7);
+    expect(state().settings.musicVolume).toBe(0.3);
+    expect(state().settings.volume).toBe(master);
+  });
+
+  it('fences off junk from a slider or an imported file', () => {
+    freshStore();
+    store().setChannelVolume('music', 9999);
+    expect(state().settings.musicVolume).toBe(1);
+    store().setChannelVolume('music', -5);
+    expect(state().settings.musicVolume).toBe(0);
+    store().setChannelVolume('sfx', 0.4);
+    store().setChannelVolume('sfx', Number.NaN);
+    // Не число — оставляем то, что уже стояло: сбросить канал вслепую значило бы громче или тише.
+    expect(state().settings.sfxVolume).toBe(0.4);
+  });
+
+  it('keeps zero as a deliberate silence of its own channel, not a mute', () => {
+    freshStore();
+    store().setChannelVolume('music', 0);
+    expect(state().settings.musicVolume).toBe(0);
+    expect(state().settings.muted).toBe(false);
+    expect(state().settings.sfxVolume).toBe(1);
+  });
+});
+
+describe('the effect switches', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('starts with every effect on', () => {
+    freshStore();
+    expect(state().settings).toMatchObject({ particles: true, floaters: true, shake: true, ticker: true });
+  });
+
+  it('flips one effect and leaves the others', () => {
+    freshStore();
+    store().setEffect('shake', false);
+    expect(state().settings).toMatchObject({ particles: true, floaters: true, shake: false, ticker: true });
+    store().setEffect('shake', true);
+    expect(state().settings.shake).toBe(true);
+  });
+
+  /** Числа в воздухе от прошлых тестов не сбрасывает ни `resetGame`, ни `freshStore`: они живут 900 мс. */
+  const freshAir = (): void => {
+    freshStore();
+    useGameStore.setState({ floaters: [] });
+  };
+
+  it('does not leave a floating number after a Клик while floaters are off, and does while they are on', () => {
+    vi.useFakeTimers();
+    freshAir();
+    store().clickPrompt(10, 20);
+    expect(store().floaters).toHaveLength(1);
+    expect(store().floaters[0]).toMatchObject({ x: 10, y: 20 });
+    vi.advanceTimersByTime(1000);
+    expect(store().floaters).toHaveLength(0);
+
+    store().setEffect('floaters', false);
+    store().clickPrompt(10, 20);
+    expect(store().floaters).toHaveLength(0);
+    // Клик при этом засчитан: выключатель гасит число, а не отклик игры.
+    expect(state().clicks).toBe(2);
+  });
+
+  it('takes away a floating number already in the air when the player switches floaters off', () => {
+    vi.useFakeTimers();
+    freshAir();
+    store().clickPrompt(10, 20);
+    store().clickPrompt(10, 20);
+    expect(store().floaters).toHaveLength(2);
+    store().setEffect('floaters', false);
+    expect(store().floaters).toHaveLength(0);
+  });
+
+  describe('which effects may be made', () => {
+    /** Система сообщает о движении так же, как браузер: через matchMedia. */
+    const systemReduces = (reduce: boolean): void => {
+      vi.stubGlobal('window', { matchMedia: (media: string) => ({ matches: reduce, media }) });
+    };
+
+    it('makes particles and shake while they are on and motion is allowed', () => {
+      freshStore();
+      systemReduces(false);
+      expect(effectAllowed('particles')).toBe(true);
+      expect(effectAllowed('shake')).toBe(true);
+    });
+
+    it('makes only what is switched on', () => {
+      freshStore();
+      systemReduces(false);
+      store().setEffect('particles', false);
+      expect(effectAllowed('particles')).toBe(false);
+      expect(effectAllowed('shake')).toBe(true);
+      store().setEffect('particles', true);
+      store().setEffect('shake', false);
+      expect(effectAllowed('particles')).toBe(true);
+      expect(effectAllowed('shake')).toBe(false);
+    });
+
+    it('makes neither under less animation, whatever the switches say', () => {
+      freshStore();
+      systemReduces(false);
+      store().setReducedMotion(true);
+      expect(effectAllowed('particles')).toBe(false);
+      expect(effectAllowed('shake')).toBe(false);
+    });
+
+    it('makes neither when the system asks for less motion, even with both switched on', () => {
+      freshStore();
+      systemReduces(true);
+      expect(effectAllowed('particles')).toBe(false);
+      expect(effectAllowed('shake')).toBe(false);
+    });
+  });
+});
+
 describe('the finale screen flag', () => {
   // Регрессия: комментарий обещал, что рестарт вернёт флаг, а код этого не делал — второе
   // прохождение до последнего Поколения встречало игрока молчащим финалом.
@@ -1247,6 +1377,23 @@ describe('the save', () => {
     expect(w.saved()?.settings.muted).toBe(true);
   });
 
+  it('has the effect switches and the channel levels in the save the moment they are touched', async () => {
+    const w = await windowed();
+    w.store.getState().setEffect('particles', false);
+    w.store.getState().setEffect('ticker', false);
+    w.store.getState().setChannelVolume('music', 0);
+    w.store.getState().setChannelVolume('sfx', 0.35);
+    // Переключатель, не доехавший до localStorage, откатился бы с закрытой вкладкой.
+    expect(w.saved()?.settings).toMatchObject({
+      particles: false,
+      floaters: true,
+      shake: true,
+      ticker: false,
+      musicVolume: 0,
+      sfxVolume: 0.35,
+    });
+  });
+
   it('has the imported run in the save, so a reload cannot undo the import', async () => {
     const w = await windowed();
     const other: GameState = { ...newGame(T0), generation: 1, maxGeneration: 1, totalTokens: 5e9 };
@@ -1344,6 +1491,171 @@ describe('the save', () => {
     expect(() => w.store.getState().buyAgents(first.id)).not.toThrow();
     // Состояние продолжает жить, даже когда запись не проходит: игра не обязана уметь сохраняться.
     expect(w.store.getState().state.agents[first.id]).toBe(1);
+  });
+});
+
+/**
+ * Фоновая вкладка: число Токенов в заголовке и тишина, пока страница скрыта.
+ *
+ * Модуль магазина перезагружается тем же приёмом, что и в «the save»: подписка на видимость
+ * ставится при загрузке, поэтому документ-подделка обязана существовать до импорта.
+ */
+describe('the background tab', () => {
+  const BASE_TITLE = 'Token Clicker';
+
+  interface Tab {
+    store: typeof useGameStore;
+    /** Что сейчас в заголовке вкладки. */
+    title: () => string;
+    /** Игрок ушёл с вкладки или вернулся на неё. */
+    show: (visible: boolean) => void;
+    /** Вызовы, которыми магазин просил звук замолчать или вернуться. */
+    silence: () => ReturnType<typeof vi.fn>;
+  }
+
+  /** Каждое присваивание заголовка, в том числе повторное тем же текстом. */
+  const assigned: string[] = [];
+
+  const openTab = async (visibility: 'visible' | 'hidden' = 'visible'): Promise<Tab> => {
+    const listeners: (() => void)[] = [];
+    let title = BASE_TITLE;
+    const doc = {
+      get title() {
+        return title;
+      },
+      set title(next: string) {
+        assigned.push(next);
+        title = next;
+      },
+      visibilityState: visibility as DocumentVisibilityState,
+      addEventListener: (type: string, fn: () => void) => {
+        if (type === 'visibilitychange') listeners.push(fn);
+      },
+      removeEventListener: () => {},
+    };
+    vi.stubGlobal('window', { innerWidth: 800, innerHeight: 600, addEventListener: () => {}, removeEventListener: () => {} });
+    vi.stubGlobal('document', doc);
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {}, removeItem: () => {} });
+    vi.resetModules();
+    // Звуковой модуль берётся из того же реестра, что и магазин: после resetModules у них общая
+    // подделка, а не та, что импортирована в начале файла.
+    const sound = await import('../audio/sound');
+    const mod = await import('./useGameStore');
+    return {
+      store: mod.useGameStore,
+      silence: () => vi.mocked(sound.setAudioHidden),
+      title: () => doc.title,
+      show: (visible) => {
+        doc.visibilityState = visible ? 'visible' : 'hidden';
+        for (const fn of listeners) fn();
+      },
+    };
+  };
+
+  /** Кошелёк под рукой: Доход без Агентов нулевой, и тик Токены не двигает. */
+  const holding = (tab: Tab, tokens: number): void => {
+    tab.store.setState({ state: { ...tab.store.getState().state, tokens, temp: 0, heat: 0 } });
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    assigned.length = 0;
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('shows the Tokens in the tab title in the notation the player chose', async () => {
+    const tab = await openTab();
+    holding(tab, 1.5e6);
+    tab.store.getState().tick(0.05);
+    expect(tab.title()).toBe('1,50 M · Token Clicker');
+
+    tab.store.getState().setNotation('sci');
+    vi.advanceTimersByTime(1000);
+    tab.store.getState().tick(0.05);
+    expect(tab.title()).toBe('1.50e6 · Token Clicker');
+  });
+
+  it('rewrites the title at most once a second, however often the tick runs', async () => {
+    const tab = await openTab();
+    const writes: string[] = [];
+    const seen = (): void => {
+      if (writes.at(-1) !== tab.title()) writes.push(tab.title());
+    };
+    holding(tab, 1000);
+    tab.store.getState().tick(0.05);
+    seen();
+
+    // Двадцать тиков за секунду, и Токены растут на каждом: заголовок не должен поспевать за ними.
+    for (let i = 1; i < 20; i += 1) {
+      vi.advanceTimersByTime(50);
+      holding(tab, 1000 * (i + 1));
+      tab.store.getState().tick(0.05);
+      seen();
+    }
+    expect(writes).toEqual(['1,00 K · Token Clicker']);
+
+    vi.advanceTimersByTime(50);
+    tab.store.getState().tick(0.05);
+    seen();
+    expect(writes).toEqual(['1,00 K · Token Clicker', '20,00 K · Token Clicker']);
+  });
+
+  it('does not touch the title when the number reads the same, so the tab strip stays still', async () => {
+    const tab = await openTab();
+    holding(tab, 1.5e6);
+    tab.store.getState().tick(0.05);
+    for (let i = 0; i < 5; i += 1) {
+      vi.advanceTimersByTime(1000);
+      tab.store.getState().tick(0.05);
+    }
+    // Токены не двигались, а пять секунд прошло: заголовок остался тем же и писался один раз.
+    expect(assigned).toEqual(['1,50 M · Token Clicker']);
+  });
+
+  it('silences the sound while the page is hidden and gives it back with the settings it had', async () => {
+    const tab = await openTab();
+    tab.store.getState().setVolume(0.4);
+    const settings = tab.store.getState().state.settings;
+    expect(tab.silence()).not.toHaveBeenCalledWith(true, expect.anything());
+
+    tab.show(false);
+    expect(tab.silence()).toHaveBeenLastCalledWith(true, settings);
+    // Тишина — не настройка: ползунок и мьют игрока остаются там, где он их оставил, поэтому
+    // возвращение не может прозвучать иначе, чем он выбрал.
+    expect(tab.store.getState().state.settings).toEqual(settings);
+
+    tab.show(true);
+    expect(tab.silence()).toHaveBeenLastCalledWith(false, settings);
+    expect(tab.store.getState().state.settings).toEqual(settings);
+    expect(tab.store.getState().state.settings.volume).toBe(0.4);
+  });
+
+  it('hands over the settings the player has at the moment he leaves, not the ones from load', async () => {
+    const tab = await openTab();
+    tab.store.getState().toggleMute();
+    tab.show(false);
+    // Мьют, поставленный до ухода, должен пережить возвращение: тишина не снимает его за игрока.
+    expect(tab.silence()).toHaveBeenLastCalledWith(true, expect.objectContaining({ muted: true }));
+    tab.show(true);
+    expect(tab.silence()).toHaveBeenLastCalledWith(false, expect.objectContaining({ muted: true }));
+  });
+
+  it('starts silent when the page is opened in the background', async () => {
+    const tab = await openTab('hidden');
+    expect(tab.silence()).toHaveBeenCalledWith(true, tab.store.getState().state.settings);
+  });
+
+  it('does not ask the sound twice for a visibility that has not changed', async () => {
+    const tab = await openTab();
+    tab.show(true);
+    expect(tab.silence()).not.toHaveBeenCalled();
+    tab.show(false);
+    tab.show(false);
+    expect(tab.silence()).toHaveBeenCalledTimes(1);
   });
 });
 

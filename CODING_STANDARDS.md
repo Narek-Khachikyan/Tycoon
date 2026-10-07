@@ -48,6 +48,13 @@ components/    presentation: reads state, calls actions
   toast, a write) is a store action, covered in `useGameStore.test.ts`.
 - **A transition is `(GameState) => GameState` and returns the same object when nothing changed.**
   The store checks `next !== state` to skip sounds, toasts and re-renders.
+- **Components subscribe to slices, never to `state`.** The tick stores a new `GameState` twenty
+  times a second, so `useGameStore((s) => s.state)` re-renders its component at 20 Hz even when no
+  number on screen moved. Read one primitive (`useGameStore((s) => s.state.generation)`), a stable
+  reference (`s.state.agents` changes on a purchase, not on a tick) or a view from
+  `src/store/selectors.ts` through `useStateSlice`: flat, already formatted, rounded to what the
+  eye can tell apart. `selectors.test.ts` asserts each view stays equal across idle ticks. A window
+  that needs most of the state (`StatsBody`, `PrestigeBody`) subscribes only while it is open.
 - **One clock, one persistence path.** `App.tsx`'s 50 ms tick drives `advanceTime`. Every
   `localStorage` write goes through the store's save: throttled to `SAVE_INTERVAL_MS` (1 s) for the
   tick and the Клик, written at once on every other player action, flushed on
@@ -65,10 +72,15 @@ components/    presentation: reads state, calls actions
   Сцена, every readable label sits off the artwork or on a darkened HUD band of its own (ADR-0002).
 - **Audio is synthesized** — no files, no asset pipeline. `AudioContext` resumes only after a user
   gesture, so silence before the first click is expected. `sound.ts` owns the one context and the
-  master bus: the player's volume and mute live only on the master gain, so every source connects
-  through `audioBus()` and writes its own level, never the volume. A signal fired by the tick rather
-  than a press goes through `runningBus()`, or it would pile up on a sleeping context and burst on
-  the first click. `music.ts` is the single music loop; it reads the current settings every tick.
+  graph: the player's volume and mute live only on the master gain, the music and effects levels
+  only on their own channel gains above it, so every source connects through `audioBus()` — an
+  effect to `bus.sfx`, a note to `bus.musicBus` — and writes its own level, never a volume. A
+  signal fired by the tick rather than a press goes through `runningBus()`, or it would pile up on
+  a sleeping context and burst on the first click. `music.ts` is the single music loop; it reads
+  the current settings every tick. A hidden page is silenced on that same master, but by its own
+  flag rather than the player's mute: the store calls `setAudioHidden` on `visibilitychange`, and
+  every effect takes its bus from `effectBus()` or `runningBus()`, which return null while it
+  holds — never test `settings.muted` by hand.
 - **`npm run sprites` is dead**: `scripts/chroma-key.py` is not in the repo. Flag it rather than
   rely on it.
 - `docs/vision.md`, `docs/DECISIONS.md`, `docs/PROGRESS.md` and `docs/research/` are history, not
@@ -95,10 +107,12 @@ components/    presentation: reads state, calls actions
   touches, named after the behaviour the player gets — not after the issue number. The issue
   number belongs in the PR (`Closes #N`).
 - Assert values and contracts, not markup snapshots, wiring, or the text of the source. A regex
-  over a `.tsx` passes on code that is broken and fails on code that is fine. The one exception is
-  `src/index.test.ts`: nothing else parses `index.css`, so it checks the file's structure (balanced
-  braces, no `@keyframes` inside `@media`) through `readFileSync`. There is no `@types/node`:
-  extend `src/node-fs.d.ts` rather than adding the package.
+  over a `.tsx` passes on code that is broken and fails on code that is fine. The two exceptions
+  read `index.css` through `readFileSync`: `src/index.test.ts` checks the file's structure
+  (balanced braces, no `@keyframes` inside `@media`), and `src/palette.test.ts` reads the `:root`
+  palette, the `color-mix` shares in `.app-root` and the eight accents from `generations.ts`, and
+  asserts the ADR-0007 pairs at 4.5:1 — change a surface or a fill and it tells you which pair
+  fell. There is no `@types/node`: extend `src/node-fs.d.ts` rather than adding the package.
 - Use the real pure functions of `src/economy/` in store tests; mock only what node cannot run
   (audio). A mock that re-implements a rule asserts the mock, not the game.
 - Assert over the **whole catalog**, not one hand-picked Поколение; a test that shrinks its loop is
@@ -108,9 +122,14 @@ components/    presentation: reads state, calls actions
   (`rich`); there is no fixture directory. Drive late-game volumes: a fresh state hides the rounding
   and overflow bugs in `formatNumber`, `maxAffordable` and prestige gains.
 
-## Checking the UI by hand
+## Checking the UI in a browser
 
-Component behaviour is checked by hand, not by browser automation.
+Component behaviour is checked in a real browser driven by Playwright — the CLI, an MCP server or a
+throwaway script — and never by committed browser tests: Playwright is not a declared dependency,
+like `npx tsx` above, and its scripts live outside the tree. Run it against your own `npm run dev`
+port in a fresh browser context, so no real save is read or overwritten; for a hit-stop or
+`:active` state, send real input (`mouse.down`/`keyboard.press`), since a synthetic DOM event
+doesn't trigger CSS `:active`. Screenshots go to the PR, not into git.
 
 - Every layout band from `src/layout.ts`: three columns at or above `THREE_COL_MIN`, one tab at a
   time below it, and the compressed header at or below `NARROW_MAX`, where the footer's AA
@@ -124,8 +143,14 @@ Component behaviour is checked by hand, not by browser automation.
 
 - Judge at representative volumes: all eight Поколения, and Токены up to the `1e300` the tests
   already drive.
-- Hot paths: `advanceTime` every 50 ms, per-render income in the shop, serialization on save, audio
-  scheduling.
+- Hot paths: `advanceTime` every 50 ms, per-tick income in the shop (`incomeGain` per card),
+  serialization on save, audio scheduling.
+- Count re-renders on a production build, not in dev: install
+  `__REACT_DEVTOOLS_GLOBAL_HOOK__.onCommitFiberRoot` before the page loads and count the function
+  components whose fiber carries `PerformedWork` in each commit. A subtree that bailed out keeps its
+  old flags, so count a fiber once, and build with `minify: false` to keep component names. At idle
+  in a late run only what moves should re-render: the mascots' bob, a card whose printed deficit
+  just changed.
 
 ## Documentation
 

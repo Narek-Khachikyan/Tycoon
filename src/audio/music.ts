@@ -18,7 +18,7 @@
  * Музыка не стартует сама: пока AudioContext suspended, планировать нечего, и первое озвученное
  * касание оживит контекст, после чего луп оживёт сам.
  */
-import { audioBus, masterVolume, playVoice, type AudioBus, type SoundSettings } from './sound';
+import { audioBus, channelVolume, masterVolume, playVoice, type AudioBus, type SoundSettings } from './sound';
 
 /** Ступени пентатоники в полутонах от корня: до-мажорная пентатоника, без D и F. */
 const PENTATONIC = [0, 2, 4, 7, 9] as const;
@@ -200,7 +200,12 @@ export interface MusicParams {
 let timer: ReturnType<typeof setInterval> | null = null;
 let bus: AudioBus | null = null;
 let cursor: LoopCursor = { step: 0, time: 0 };
-let params: MusicParams = { settings: { muted: false, volume: 1 }, intensity: 0, temp01: 0, generation: 0 };
+let params: MusicParams = {
+  settings: { muted: false, volume: 1, musicVolume: 1, sfxVolume: 1 },
+  intensity: 0,
+  temp01: 0,
+  generation: 0,
+};
 let duckUntil = 0;
 /** Куда сейчас уехала музыкальная шина: нужно, чтобы не переписывать AudioParam на каждом тике. */
 let busLevel = 0;
@@ -243,9 +248,9 @@ export function stopMusic(): void {
 /**
  * Обновить то, что музыка слышит от игры. Зовётся каждый тик.
  *
- * Настройки читаются отсюда, а не запоминаются при старте: ползунок громкости и мьют доходят до
- * мастер-шины на следующем же тике, без перезапуска лупа. Мьют луп не останавливает — его глушит
- * мастер, и снятие мьюта возвращает музыку с того же такта.
+ * Настройки читаются отсюда, а не запоминаются при старте: ползунки громкости и мьют доходят до
+ * мастера и канала музыки на следующем же тике, без перезапуска лупа. Мьют луп не останавливает —
+ * его глушит мастер, и снятие мьюта возвращает музыку с того же такта.
  */
 export function updateMusic(next: MusicParams): void {
   params = next;
@@ -283,7 +288,8 @@ function setBusLevel(target: number): void {
  * Планирования нет, пока контекст suspended (его время не идёт) и пока вкладка скрыта (там
  * setInterval душится до раза в секунду, и заметки всё равно не поспевают). Без второй проверки
  * курсор отстал бы на всё это время и вернул ноты пачкой в одно касание. Под мьютом и на нулевой
- * громкости курсор идёт, но нот не создаёт: молчащие осцилляторы стоили бы работы и не дали бы ничего.
+ * громкости — общей или канала музыки — курсор идёт, но нот не создаёт: молчащие осцилляторы
+ * стоили бы работы и не дали бы ничего.
  */
 function tick(): void {
   if (!bus) return;
@@ -298,7 +304,7 @@ function tick(): void {
   const plan = planSteps(cursor, ctx.currentTime, bpm, SCHEDULE_AHEAD_SEC);
   const firstStep = plan.next.step - plan.times.length;
   cursor = plan.next;
-  if (masterVolume(settings) === 0) return;
+  if (masterVolume(settings) === 0 || channelVolume(settings, 'music') === 0) return;
 
   const layers = calcMusicLayers(intensity, generation);
   // Фильтры открываются вместе с Доходом: на старте Забега луп — фон, к концу — собирается.
