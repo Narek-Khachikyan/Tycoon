@@ -1,138 +1,143 @@
 # CODING_STANDARDS.md
 
-The standard applied to code you are writing or reviewing in this repo. `AGENTS.md` holds the
-invariants that must never be traded; this file holds everything that is otherwise good practice,
-and it is the place a rule lives when it is not an invariant. Read it before the first edit of a
-session, or when a reviewer pushes back.
+Read before your first edit or code review. `AGENTS.md` names the five invariants; this file holds
+their mechanism and every other rule that attaches to code. The tree is the source of truth: where
+this file disagrees with it, fix this file in the same change.
 
-The tree is the source of truth for all of it. Where this file and the tree disagree, the tree is
-right and this file is stale — fix this file in the same change.
+## Invariants in detail
 
-## Understand before changing
+1. **Save.** Read `src/economy/state.ts` (`GameState`, `newGame(now)`, `SAVE_VERSION`) and
+   `save.ts` (`migrate`, `MIGRATIONS`, import/export, the `CORRUPT_SAVE_KEY` quarantine) together.
+   `migrate` silently drops model, upgrade and perk ids that have left the catalog; `importSave`
+   rejects a whole export over one bad `generation`; a `SAVE_VERSION` bump with no matching
+   `MIGRATIONS` entry rewrites old saves. Nothing in the repo recovers a lost run, so the migration
+   and its test land in the same commit as the change.
+2. **Offline.** Any gap past `OFFLINE_THRESHOLD_SEC` goes through `applyOffline` and its cap: a
+   background tab or a sleeping laptop hands `advanceTime` a huge `dt`. Let `lastTick` drift from an
+   income mutation, or skip the cap, and hours of income are silently created or destroyed.
+3. **Balance.** Within a Поколение, cost and income strictly increase with Ранг, and every Модель's
+   payback (cost ÷ income) stays within 3× of every other in its Поколение — the bound that keeps
+   the Флагман, the only key to Престиж, reachable. Each Поколение scales ×1000; the real price
+   bends cost within ±30% only, and speed is reference-only. `catalog.ts` is ADR-0001 in code
+   (`buildCatalog`, `GEN_SCALE`, `MOD_SPREAD`, `PRESTIGE_DIVISOR_UNITS`). Before changing the
+   ladder, run `tools/sim.ts`: the real engine with no renderer, printing when each milestone
+   lands; its header gives the flags, and it runs under `npx tsx`, which is not a declared
+   dependency.
+4. **AA data.** The snapshot is public (see Снимок in `CONTEXT.md`). `npm run sync:aa` is
+   maintainer-only and takes the key inline or from a gitignored `.env`. Vite hands only
+   `VITE_`-prefixed variables to the bundle, so the key stays unprefixed and out of `index.html`.
+   To override a number, `pin` it on the seed rather than hand-editing the JSON. The attribution
+   stays in `Footer.tsx` and the shop's «Справка AA»; monetization would additionally need a
+   commercial AA license.
+5. **Russian.** The avoided synonyms — монета, тап, здание, юнит, сессия — stay out of
+   player-facing text, identifiers and commit messages. `src/issues.test.ts` enforces them over the
+   glossary, `src/economy/quips.test.ts` over the quip table.
 
-- Read the module, its callers and its tests. Find the local convention and the local verification
-  command instead of guessing either.
-- Separate fact from assumption. Ask when the ambiguity changes the outcome; otherwise assume, and
-  say which you assumed.
-- Before adding code, know the **blast radius**: who reads this, what crosses the boundary, what
-  breaks if it is wrong. A change to `GameState`, to a catalog id or to `SAVE_VERSION` is a change
-  to live player data — see invariant 1 in `AGENTS.md`.
+## Where each rule lives
 
-## Design
+```
+App.tsx        the shell and the only game clock
+  └─ store/useGameStore   the only mutable owner, the only side effects
+      └─ economy/         every rule, pure, free of React and the DOM
+data/          content tables, never logic
+components/    presentation: reads state, calls actions
+```
 
-- **Smallest correct model.** Complexity is the knowledge someone needs to change the system
-  safely, not the line count. It arrives one reasonable special case at a time and is far easier to
-  add than to remove — so do not preserve it just because it already exists, and do not pay
-  **sunk cost** into a design that predates you.
-- **Design it twice** when the decision is consequential: two plausible approaches, the trade-off,
-  a short note. Planning is not a separate project.
-- **Deep modules, small interfaces.** Hide complexity behind a surface a caller understands without
-  reading the inside. Encapsulate what is likely to change. Keep a wrapper that carries a real
-  contract; delete one that only adds a hop.
-- **Boundaries hold the mess.** External quirks live in adapters and parsers. Separate domain logic
-  from transport, storage and presentation where that reduces complexity, not to satisfy a diagram.
-- **Abstract knowledge, not similar-looking code.** One source of truth per rule and contract.
-  Merge fragments that share a *reason to change*, never fragments that merely look alike; an
-  abstraction that accumulates flags and special cases is asking to be split.
-- **Reversible wins ties.** Say out loud what a migration, a compatibility break or a new
-  dependency costs before you take it.
-- **Good enough.** Fix rot you touch or flag it in your final message; do not fold unrelated work
-  into the change. Know when to stop and honour the developer's intent minimally and realistically.
-- If one of these fights the task in front of you, say so and get sign-off before breaking it.
+- **Money math lives in `src/economy/`.** Components get every number by calling it; only the store
+  and `src/economy/` construct or change `GameState`. Anything that needs a side effect (a sound, a
+  toast, a write) is a store action, covered in `useGameStore.test.ts`.
+- **A transition is `(GameState) => GameState` and returns the same object when nothing changed.**
+  The store checks `next !== state` to skip sounds, toasts and re-renders.
+- **One clock, one persistence path.** `App.tsx`'s 50 ms tick drives `advanceTime`. Every
+  `localStorage` write goes through the store's save: throttled to `SAVE_INTERVAL_MS` (1 s) for the
+  tick and the Клик, written at once on every other player action, flushed on
+  `visibilitychange`/`pagehide`. New code hangs off the tick through the store; a bounded one-shot
+  `setTimeout` (a toast's dwell) is the only other timer it starts.
+- **Numbers reach the screen only through `formatNumber`, `formatCount` and `formatDuration`**; a
+  bare number renders through `Num`, in `pixel-font` (ADR-0003).
+- **`src/layout.ts` holds every layout number**; `THREE_COL_MIN` is the desktop/mobile switch.
+- **Content tables move in pairs:** a new Лаборатория edits the `LabId` union and `LABS` together;
+  `data/glossary.ts` timings are asserted against the code constants, so change both.
+- **Components** style with inline `style` objects, the CSS variables and `pixel-*` classes from
+  `index.css`, where keyframes live too. Dialogs trap focus through `useDialogFocus.ts`. Over a
+  Сцена, every readable label sits off the artwork or on a darkened HUD band of its own (ADR-0002).
+- **Audio is synthesized** — no files, no asset pipeline. `AudioContext` resumes only after a user
+  gesture, so silence before the first click is expected.
+- **`npm run sprites` is dead**: `scripts/chroma-key.py` is not in the repo. Flag it rather than
+  rely on it.
+- `docs/vision.md`, `docs/DECISIONS.md`, `docs/PROGRESS.md` and `docs/research/` are history, not
+  instructions.
 
-## Code quality
+## Code
 
-- Strict TypeScript, with `noUnusedLocals` and `noUnusedParameters`; `npx tsc -b` is the gate. Prefer
-  inferred types. Content that varies in shape is a discriminated union (`Upgrade`, `PerkEffect`),
-  never a bag of optional flags.
-- One concept, one name, everywhere. If a comment is needed to say *what* a thing is, rename it.
-- Comments are for **why** — domain context and constraints a name cannot carry — and they are
-  written in Russian, like the ones already in the tree. They describe how a thing is used, move
-  with it, and are corrected or deleted the moment they stop being true. They never narrate the
-  next line, and they never excuse confusing code.
-- **Language by audience**, which is not "identifiers are English": identifiers and type names are
-  English; player-facing strings are Russian (invariant 5); a commit *type prefix* is English
-  (`feat(ui):`) while its subject names what the player sees, and the history is mostly Russian
-  subjects — `fix(ux): не спрашивать про Испытание Забега до первого Престижа`.
-- `any` does not belong in shipped code. The handful of casts in tests exist to drive deliberately
-  invalid input at `advance`; do not spread that pattern.
-- Errors: define them out of existence where you can, handle them where a real decision exists,
-  never disguise failure as success. Validate untrusted input at the boundary and trust invariants
-  inside.
-- Minimize implicit side effects and undocumented call-order. Make illegal states unrepresentable
-  where it is cheap.
-- Follow the conventions already around you. If they block a correct solution, explain the
-  conflict instead of quietly starting a competing style.
-
-## Dependencies
-
+- Content that varies in shape is a discriminated union (`Upgrade`, `PerkEffect`), never a bag of
+  optional flags. Shipped code has no `any`; the few `as any` casts in tests feed deliberately
+  invalid input or reach through a `Proxy` target.
+- Comments carry the **why** a name cannot, in Russian like the rest of the tree.
+- **Language by audience**: identifiers English; player-facing strings Russian; a commit's type
+  prefix English (`feat(ui):`) with a subject, usually Russian, naming what the player sees —
+  `fix(ux): не спрашивать про Испытание Забега до первого Престижа`.
 - `npm install` from the committed lockfile. React, Vite, TypeScript, Zustand and Vitest move only
-  when the task is about them.
-- Before adding anything, check what the project already has and weigh the maintenance cost out
-  loud. `tools/sim.ts` runs under `npx tsx`, which is not a declared dependency; the repo carries no
-  `@types/node`, and `src/node-fs.d.ts` declares exactly the one call its source-reading tests need.
+  when the task is about them; state a new dependency's maintenance cost out loud before adding it.
+- **Blast radius**, before calling it done: who reads what you changed, which UI states it reaches,
+  and whether it crosses the save contract.
 
 ## Tests
 
-- Assert observable behaviour, public contracts and invariants — not implementation shape. A test
-  that only proves a callback is wired mirrors the line it checks.
-- The exception, and it is a real one: when the contract *is* the source — the CSS gate under
-  `[data-motion="reduced"]`, a cleanup handler, a banned word in a Russian table — read the file as
-  text with `readFileSync` and assert on it. `src/index.test.ts` and `src/issues.test.ts` do this.
-- Group by area in `describe` blocks and assert over the **whole catalog**, not one hand-picked
-  generation. Invariant 3 lives as tests, and a test that shrinks its loop is a deleted invariant.
-- No golden snapshots of markup. No arbitrary sleeps: wait on the signal, or poll under a bound so
-  the test cannot hang.
+- Name every test `*.test.ts`: `vite.config.ts` includes only `src/**/*.test.ts`, so a `.test.tsx`
+  is skipped silently. Run one case with `npm test -- -t '<name>'`.
+- A bug fix ships with a test that goes **red** on the bug, in `src/issues.test.ts` as
+  `describe('Issue #N: …')`.
+- Assert values and contracts, not markup snapshots or wiring. When the contract *is* the source —
+  the CSS gate under `[data-motion="reduced"]`, a cleanup handler — read the file as text with
+  `readFileSync`, as `src/index.test.ts` and `src/issues.test.ts` do. There is no `@types/node`:
+  extend `src/node-fs.d.ts` rather than adding the package.
+- Assert over the **whole catalog**, not one hand-picked Поколение; a test that shrinks its loop is
+  a deleted invariant.
+- An async test waits on the real signal, or polls under a bound.
 - Build state with `newGame(T0)` plus `buyAgents` / `buyUpgrade` / `prestige`, or a literal spread
-  (`rich`). There is no fixture directory and none should appear. Late-game volumes are the point:
-  a suite that only ever sees a fresh state hides the rounding and overflow bugs in `formatNumber`,
-  `maxAffordable` and prestige gains.
+  (`rich`); there is no fixture directory. Drive late-game volumes: a fresh state hides the rounding
+  and overflow bugs in `formatNumber`, `maxAffordable` and prestige gains.
 
-## Documentation
+## Checking the UI by hand
 
-- Most code changes need no doc change. The code records the implementation; what you cannot read
-  from it is a maintainer's reasoning, which is the only thing worth writing down.
-- Internal docs hold decisions and their reasons, cross-component constraints, and traps that are
-  hard to find from source. Before adding a paragraph, ask what a maintainer would get wrong
-  without it; if the code answers it, leave it out.
-- Never enumerate fields or methods, narrate control flow, or maintain a file catalog — that is
-  `CODE_MAP.md`'s job, and it goes stale faster than code does.
-- When a documented decision changes, rewrite the affected text. Never keep a second account.
-- `CONTEXT.md` and `docs/adr/` are the internal docs. `README.md` is for players and stays thin: what
-  the game is, how to run it, what Температура means. A merged PR is the implementation record — do
-  not commit plans, research notes, screenshots or checklists.
-- No new doc files unless the developer asks.
-- **Do not cache what the tree already answers.** Counts, file lists and test inventories go stale
-  silently and cost a reader more than a `ls` would: the previous `AGENTS.md` claimed "174 tests
-  across three files" against a tree that has seventeen.
+Component behaviour is checked by hand, not by browser automation.
+
+- Every layout band from `src/layout.ts`: three columns at or above `THREE_COL_MIN`, one tab at a
+  time below it, and the compressed header at or below `NARROW_MAX`, where the footer's AA
+  attribution must still show.
+- The states you touched: empty first run, no income yet, the offline report at its cap, Престиж
+  confirmation, the content finale, an import error.
+- To reach a late state on a throwaway origin, export a run as a code from «Настройки» and import it
+  there.
 
 ## Performance
 
-- Judge against representative volumes, not empty states. This game is played at `1e300` Токенов
-  in Поколение 8; a fast path on a fresh state proves nothing.
-- Critical paths here: `advanceTime` every 50 ms, per-render income in the shop, serialization on
-  save, and audio scheduling.
-- Justify a non-trivial optimization with a measurement. If speed needs a more complex design,
-  record the measured problem and the trade-off.
+- Judge at representative volumes: all eight Поколения, and Токены up to the `1e300` the tests
+  already drive.
+- Hot paths: `advanceTime` every 50 ms, per-render income in the shop, serialization on save, audio
+  scheduling.
+
+## Documentation
+
+- Write down only what the code cannot say: a decision's reason, a cross-module constraint, a trap.
+  When a documented decision changes, rewrite it in place so one account remains.
+- `CONTEXT.md` and `docs/adr/` are the internal docs; `README.md` is the player's and stays thin.
+  A merged PR is the implementation record: commit no plans, research notes, screenshots or
+  checklists, and add no doc file unless the developer asks.
 
 ## Pull requests
 
-Reached only when the developer asks for one. The developer pushes.
+Only when the developer asks; the developer pushes.
 
 - **Title:** Conventional Commits with a scope, matching the history — `feat(economy):`,
   `feat(ui):`, `fix(format):`, `fix:`. Say what the player sees.
 - **Body:** the problem in a sentence or two, the fix, and the alternatives you rejected and why.
   `Closes #N` for GitHub Issues (`Narek-Khachikyan/token-clicker`, driven by `gh`). Macroscope
-  appends its own summary and review sections between invisible markers — leave them alone and
-  never paste them into another document.
+  appends its own sections between invisible markers — leave them alone and never paste them
+  elsewhere.
 - **One concern per PR.** If the description says "also", split it.
-- **Evidence:** before/after screenshots for UI changes, uploaded to the PR, never committed.
+- **Evidence:** before/after screenshots for UI changes, uploaded to the PR.
 - **Babysitting:** poll checks and comments newer than the last push, verify each finding against
-  the source, fix the real ones, dismiss false positives in writing. Stay quiet when nothing is new.
-  Stop when checks are green on the latest commit.
-
-## Reporting back
-
-Your final message states, briefly: what changed, how it was verified, what remains unverified,
-and anything out of scope you noticed. Communicate blockers and risks the moment they appear, not
-in the final paragraph.
+  the source, fix the real ones, dismiss false positives in writing. Stop when checks are green on
+  the latest commit.
