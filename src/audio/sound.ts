@@ -4,9 +4,11 @@
  * Звук синтезируется целиком: ни mp3, ни wav, ни лицензии на них. Источники одноразовые — каждый
  * эффект держит свой осциллятор, огибающую «экспонента в 0.001» и уходит.
  *
- * Громкость игрока — одна мастер-шина: на неё подключается каждый источник, поэтому ни один
- * эффект не может оказаться громче выбранного уровня, а мьют глушит всё разом. Музыка приходит из
- * music.ts, но контекст и граф остаются здесь: второй AudioContext на страницу браузер не даёт.
+ * Громкость игрока — мастер-шина плюс два канала поверх неё: эффекты и музыка. Каждый источник
+ * подключается к своему каналу, а оба канала — к мастеру, поэтому ни один звук не может оказаться
+ * громче выбранного уровня, мьют глушит всё разом, а ноль на ползунке канала глушит только его.
+ * Музыка приходит из music.ts, но контекст и граф остаются здесь: второй AudioContext на
+ * страницу браузер не даёт.
  *
  * AudioContext создаётся лениво и один на страницу. Без жеста игрока он остаётся suspended, и
  * звука нет: браузер не даёт звучать без жеста, и никакой код этого не обойдёт — это не баг. Ошибку
@@ -15,8 +17,12 @@
 
 export interface SoundSettings {
   muted: boolean;
-  /** Громкость игрока 0..1. */
+  /** Общая громкость игрока 0..1: мастер, на котором сидят оба канала. */
   volume: number;
+  /** Громкость канала музыки 0..1 поверх мастера. */
+  musicVolume: number;
+  /** Громкость канала эффектов 0..1 поверх мастера. */
+  sfxVolume: number;
 }
 
 /**
@@ -25,7 +31,7 @@ export interface SoundSettings {
  * Отдельная чистая функция, потому что её результат — единственное число, на котором держится
  * тишина при мьюте, и его обязано быть видно в тесте без AudioContext.
  */
-export function masterVolume(settings: SoundSettings): number {
+export function masterVolume(settings: Pick<SoundSettings, 'muted' | 'volume'>): number {
   if (settings.muted) return 0;
   const volume = settings.volume;
   // Сохранение, сделанное до появления громкости, приезжает без этого поля: NaN в AudioParam бросил
@@ -34,11 +40,30 @@ export function masterVolume(settings: SoundSettings): number {
   return Math.min(1, Math.max(0, volume));
 }
 
+/**
+ * Громкость канала: 0..1, а нет числа — полный канал.
+ *
+ * Сохранение, сделанное до появления каналов, приезжает без этих полей, а NaN в AudioParam бросил
+ * бы TypeError на каждом звуке. Полный, а не нулевой, потому что отсутствие настройки — это не
+ * просьба о тишине: игрок, не трогавший каналов, слышит игру как раньше.
+ */
+export function channelVolume(settings: SoundSettings, channel: 'music' | 'sfx'): number {
+  const level = channel === 'music' ? settings.musicVolume : settings.sfxVolume;
+  if (!Number.isFinite(level)) return 1;
+  return Math.min(1, Math.max(0, level));
+}
+
 let audioCtx: AudioContext | null = null;
 let masterNode: GainNode | null = null;
 let musicNode: GainNode | null = null;
-/** Громкость, уже записанная в мастер: тик зовёт audioBus двадцать раз в секунду. */
-let appliedVolume: number | null = null;
+let musicChannelNode: GainNode | null = null;
+let sfxNode: GainNode | null = null;
+/** Громкости, уже записанные в узлы: тик зовёт audioBus двадцать раз в секунду. */
+const applied: { master: number | null; music: number | null; sfx: number | null } = {
+  master: null,
+  music: null,
+  sfx: null,
+};
 
 /**
  * Контекст игры, общий для всех модулей звука.
@@ -69,8 +94,8 @@ export function audioContext(): AudioContext | null {
 /** Граф, к которому подключается всё звучание страницы. Отдаётся music.ts, который строит луп. */
 export interface AudioBus {
   ctx: AudioContext;
-  /** Мастер-шина игрока: на неё подключается каждый одноразовый источник. */
-  master: GainNode;
+  /** Канал эффектов: на него подключается каждый одноразовый источник и голос Температуры. */
+  sfx: GainNode;
   /** Музыкальная шина: её глушит дакинг под Событие, не трогая звуки. */
   musicBus: GainNode;
 }
@@ -78,9 +103,13 @@ export interface AudioBus {
 /**
  * Шина (или null, если окна/AudioContext нет) с уже применённой громкостью игрока.
  *
- * Шины создаются один раз на контекст и переживают источники: подключение на каждый клик плодило
- * бы узлы, а отключать их всё равно пришлось бы вручную. Громкость игрока живёт только здесь, на
- * мастере: источники пишут свой собственный уровень, иначе громкость применялась бы дважды.
+ * Граф: источник эффекта → канал эффектов → мастер; нота лупа → шина дакинга → канал музыки →
+ * мастер; мастер → колонки. Шины создаются один раз на контекст и переживают источники:
+ * подключение на каждый клик плодило бы узлы, а отключать их всё равно пришлось бы вручную.
+ *
+ * Каждая громкость игрока живёт ровно в одном узле: общая — на мастере, музыки и эффектов — на
+ * своих каналах. Источники пишут только собственный уровень, иначе громкость применялась бы
+ * дважды: ползунок канала на 0.5 при общем 0.5 дал бы 0.25, а не то, что показывают ползунки.
  */
 export function audioBus(settings: SoundSettings): AudioBus | null {
   const ctx = audioContext();
@@ -90,21 +119,41 @@ export function audioBus(settings: SoundSettings): AudioBus | null {
     masterNode = ctx.createGain();
     masterNode.connect(ctx.destination);
   }
-  const volume = masterVolume(settings);
-  if (volume !== appliedVolume) {
-    // Короткое сглаживание, а не скачок: мьют и ползунок двигают мастер, пока звучат гул и
-    // музыка, и мгновенная ступенька щёлкала бы.
-    masterNode.gain.setTargetAtTime(volume, now, 0.01);
-    appliedVolume = volume;
-  }
   if (!musicNode) {
     musicNode = ctx.createGain();
     // Музыки ещё нет, поэтому шина закрыта: startMusic открывает её, а лишний молчащий узел
     // ничего не слышит и не стоит ничего.
     musicNode.gain.setValueAtTime(0, now);
-    musicNode.connect(masterNode);
   }
-  return { ctx, master: masterNode, musicBus: musicNode };
+  if (!musicChannelNode) {
+    musicChannelNode = ctx.createGain();
+    musicNode.connect(musicChannelNode);
+    musicChannelNode.connect(masterNode);
+  }
+  if (!sfxNode) {
+    sfxNode = ctx.createGain();
+    sfxNode.connect(masterNode);
+  }
+  // Короткое сглаживание, а не скачок: мьют и ползунки двигают громкость, пока звучат гул и
+  // музыка, и мгновенная ступенька щёлкала бы.
+  const levels = {
+    master: masterVolume(settings),
+    music: channelVolume(settings, 'music'),
+    sfx: channelVolume(settings, 'sfx'),
+  };
+  if (levels.master !== applied.master) {
+    masterNode.gain.setTargetAtTime(levels.master, now, 0.01);
+    applied.master = levels.master;
+  }
+  if (levels.music !== applied.music) {
+    musicChannelNode.gain.setTargetAtTime(levels.music, now, 0.01);
+    applied.music = levels.music;
+  }
+  if (levels.sfx !== applied.sfx) {
+    sfxNode.gain.setTargetAtTime(levels.sfx, now, 0.01);
+    applied.sfx = levels.sfx;
+  }
+  return { ctx, sfx: sfxNode, musicBus: musicNode };
 }
 
 /** Шина для эффекта: мьют не создаёт даже контекста, лишний звук всё равно не прозвучит. */
@@ -267,7 +316,7 @@ export function playClickSound(settings: SoundSettings): void {
 
   playVoice({
     ctx: bus.ctx,
-    out: bus.master,
+    out: bus.sfx,
     wave: 'square',
     freq: [[0, 320], [0.05, 740]],
     start: bus.ctx.currentTime,
@@ -284,7 +333,7 @@ export function playBuySound(settings: SoundSettings): void {
 
   playVoice({
     ctx: bus.ctx,
-    out: bus.master,
+    out: bus.sfx,
     wave: 'triangle',
     freq: [[0, 440], [0.05, 659.25]],
     glide: false,
@@ -304,7 +353,7 @@ export function playUpgradeSound(settings: SoundSettings): void {
   notes.forEach((freq, idx) => {
     playVoice({
       ctx: bus.ctx,
-      out: bus.master,
+      out: bus.sfx,
       wave: 'triangle',
       freq: [[0, freq]],
       start: now + idx * 0.04,
@@ -328,7 +377,7 @@ export function playPrestigeSound(settings: SoundSettings): void {
 
   playVoice({
     ctx: bus.ctx,
-    out: bus.master,
+    out: bus.sfx,
     wave: 'sawtooth',
     freq: [[0, 150], [0.35, 1200]],
     start: now,
@@ -340,7 +389,7 @@ export function playPrestigeSound(settings: SoundSettings): void {
   notes.forEach((freq, idx) => {
     playVoice({
       ctx: bus.ctx,
-      out: bus.master,
+      out: bus.sfx,
       wave: 'triangle',
       freq: [[0, freq]],
       start: now + 0.35 + idx * 0.13,
@@ -360,7 +409,7 @@ export function playAchievementSound(settings: SoundSettings): void {
   notes.forEach((freq, idx) => {
     playVoice({
       ctx: bus.ctx,
-      out: bus.master,
+      out: bus.sfx,
       wave: 'square',
       freq: [[0, freq]],
       start: now + idx * 0.07,
@@ -393,7 +442,7 @@ export function playEventAlertSound(settings: SoundSettings): void {
     const hold = idx === 2 ? 0.22 : 0.07;
     playVoice({
       ctx: bus.ctx,
-      out: bus.master,
+      out: bus.sfx,
       wave: 'square',
       freq: [[0, freq]],
       start: now + idx * 0.06,
@@ -411,7 +460,7 @@ export function playDenySound(settings: SoundSettings): void {
 
   playVoice({
     ctx: bus.ctx,
-    out: bus.master,
+    out: bus.sfx,
     wave: 'square',
     freq: [[0, 140], [0.12, 90]],
     start: bus.ctx.currentTime,
@@ -438,7 +487,7 @@ export function playQuipSound(settings: SoundSettings): void {
   ticks.forEach((freq, idx) => {
     playVoice({
       ctx: bus.ctx,
-      out: bus.master,
+      out: bus.sfx,
       wave: 'square',
       freq: [[0, freq]],
       start: now + idx * 0.035,
@@ -463,7 +512,7 @@ export function playGlitchHitSound(settings: SoundSettings): void {
 
   playNoise({
     ctx: bus.ctx,
-    out: bus.master,
+    out: bus.sfx,
     start: now,
     dur: 0.06,
     level: 0.05,
@@ -471,7 +520,7 @@ export function playGlitchHitSound(settings: SoundSettings): void {
   });
   playVoice({
     ctx: bus.ctx,
-    out: bus.master,
+    out: bus.sfx,
     wave: 'triangle',
     freq: [[0, 210], [0.07, 90]],
     start: now,
@@ -492,7 +541,7 @@ export function playGlitchPopSound(settings: SoundSettings): void {
 
   playVoice({
     ctx: bus.ctx,
-    out: bus.master,
+    out: bus.sfx,
     wave: 'square',
     freq: [[0, 760], [0.09, 170]],
     start: now,
@@ -501,7 +550,7 @@ export function playGlitchPopSound(settings: SoundSettings): void {
   });
   playNoise({
     ctx: bus.ctx,
-    out: bus.master,
+    out: bus.sfx,
     start: now,
     dur: 0.08,
     level: 0.04,
@@ -510,7 +559,7 @@ export function playGlitchPopSound(settings: SoundSettings): void {
   [1400, 2000, 2600, 2200, 3000].forEach((freq, idx) => {
     playVoice({
       ctx: bus.ctx,
-      out: bus.master,
+      out: bus.sfx,
       wave: 'sine',
       freq: [[0, freq]],
       start: now + 0.06 + idx * 0.035,
@@ -535,7 +584,7 @@ export function playCrashSound(settings: SoundSettings): void {
 
   playVoice({
     ctx: bus.ctx,
-    out: bus.master,
+    out: bus.sfx,
     wave: 'sawtooth',
     freq: [[0, 330], [0.5, 75]],
     start: now,
@@ -545,7 +594,7 @@ export function playCrashSound(settings: SoundSettings): void {
   });
   playVoice({
     ctx: bus.ctx,
-    out: bus.master,
+    out: bus.sfx,
     wave: 'sawtooth',
     freq: [[0, 345], [0.5, 79]],
     start: now,
@@ -555,7 +604,7 @@ export function playCrashSound(settings: SoundSettings): void {
   });
   playNoise({
     ctx: bus.ctx,
-    out: bus.master,
+    out: bus.sfx,
     start: now,
     dur: 0.3,
     level: 0.06,
@@ -580,7 +629,7 @@ export function playFinaleSound(settings: SoundSettings): void {
     const last = idx === notes.length - 1;
     playVoice({
       ctx: bus.ctx,
-      out: bus.master,
+      out: bus.sfx,
       wave: 'triangle',
       freq: [[0, freq]],
       start: now + idx * 0.1,
@@ -591,7 +640,7 @@ export function playFinaleSound(settings: SoundSettings): void {
   // Квинта под последней нотой (A5 под E6) держит звук на месте, когда игрок уже закрыл окно.
   playVoice({
     ctx: bus.ctx,
-    out: bus.master,
+    out: bus.sfx,
     wave: 'sine',
     freq: [[0, 880]],
     start: now + 0.6,
@@ -614,7 +663,7 @@ export function playRestartSound(settings: SoundSettings): void {
 
   playVoice({
     ctx: bus.ctx,
-    out: bus.master,
+    out: bus.sfx,
     wave: 'square',
     freq: [[0, 520], [0.2, 160]],
     start: now,
@@ -624,7 +673,7 @@ export function playRestartSound(settings: SoundSettings): void {
   });
   playVoice({
     ctx: bus.ctx,
-    out: bus.master,
+    out: bus.sfx,
     wave: 'sine',
     freq: [[0, 130], [0.22, 70]],
     start: now + 0.16,

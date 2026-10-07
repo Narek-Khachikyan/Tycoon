@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { motionAllowed, useGameStore, type ActiveTab } from './store/useGameStore';
+import { effectAllowed, useGameStore, type ActiveTab } from './store/useGameStore';
 import { Header } from './components/Header';
 import { NewsTicker } from './components/NewsTicker';
 import { ClickColumn } from './components/ClickColumn';
@@ -47,6 +47,8 @@ export const App: React.FC = () => {
   const setActiveTab = useGameStore((s) => s.setActiveTab);
   const generation = useGameStore((s) => s.state.generation);
   const reducedMotion = useGameStore((s) => s.state.settings.reducedMotion);
+  const shake = useGameStore((s) => s.state.settings.shake);
+  const ticker = useGameStore((s) => s.state.settings.ticker);
   const burst = useGameStore((s) => s.burst);
 
   const [isAchievementsOpen, setAchievementsOpen] = useState(false);
@@ -130,11 +132,12 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // Тряска на Престиж — единственное движение всего корня в игре. Класс ставится вручную:
+  // Тряска на Престиж — единственное движение всего корня в игре; выключатель игрока и «меньше
+  // анимации» гасят её оба (effectAllowed). Класс ставится вручную:
   // пока атрибут на месте, повторный Престиж не перезапустил бы анимацию, а перезапуск
   // обязателен — иначе второй Престиж в забеге прошёл бы без единого кадра.
   useEffect(() => {
-    if (burst?.kind !== 'prestige' || !motionAllowed()) return;
+    if (burst?.kind !== 'prestige' || !effectAllowed('shake')) return;
     const node = rootRef.current;
     if (!node) return;
 
@@ -204,6 +207,8 @@ export const App: React.FC = () => {
       // только снимает анимацию, а @media (prefers-reduced-motion: no-preference) в index.css
       // добавляет её обратно там, где система её разрешает.
       data-motion={reducedMotion ? 'reduced' : 'full'}
+      // Дрожь Сцены на жаре живёт в одном CSS и без атрибута до выключателя не дотянулась бы.
+      data-shake={shake ? 'on' : 'off'}
       data-narrow={viewport.narrow ? 'true' : 'false'}
       data-thermal={thermalState}
       style={{
@@ -225,7 +230,8 @@ export const App: React.FC = () => {
         onOpenSettings={() => setSettingsOpen(true)}
       />
 
-      <NewsTicker />
+      {/* Выключенная лента не монтируется: не бегает, не крутит таймер новостей и не выдаёт Слухов. */}
+      {ticker && <NewsTicker />}
 
       {/* Основная рабочая область игры */}
       <main

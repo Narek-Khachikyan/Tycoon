@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { useGameStore, motionAllowed, reduceMotionMedia } from '../store/useGameStore';
+import { useGameStore, effectAllowed, reduceMotionMedia } from '../store/useGameStore';
 import { TEMP_MAX } from '../economy/thermal';
 
 /**
@@ -11,7 +11,8 @@ import { TEMP_MAX } from '../economy/thermal';
  * нагрев раньше, чем прочитает подпись.
  *
  * Количество и скорость привязаны к состоянию, а не к времени: при `prefers-reduced-motion`
- * узлы вообще не создаются (проверка `motionAllowed`), потому что CSS-гейт умеет сделать
+ * узлы вообще не создаются (проверка `effectAllowed`: «меньше анимации» и выключатель частиц),
+ * потому что CSS-гейт умеет сделать
  * элемент неподвижным, но не умеет его убрать — и иначе они жили бы в DOM вечно.
  */
 
@@ -35,20 +36,27 @@ const SPARK = Array.from({ length: 9 }, (_, i) => {
 export const ThermalSparks: React.FC = () => {
   const heat = useGameStore((s) => s.state.heat);
   const temp = useGameStore((s) => s.state.temp);
+  // Настройки игрока читаются подпиской: переключение должно перерисовать искры, а не ждать
+  // следующего изменения жара. Системный запрос движения подписки не имеет — для него кэш ниже.
+  const particles = useGameStore((s) => s.state.settings.particles);
+  const reducedMotion = useGameStore((s) => s.state.settings.reducedMotion);
 
-  // Один раз на смонтированную настройку, а не на каждый жар: `motionAllowed()` дёргает
+  // Один раз на смонтированную настройку, а не на каждый жар: `effectAllowed()` дёргает
   // matchMedia, и вызывать его двадцать раз в секунду дороже, чем весь рендер искр.
   const allowed = useRef(false);
   useEffect(() => {
-    allowed.current = motionAllowed();
+    allowed.current = effectAllowed('particles');
     const mq = reduceMotionMedia();
     // Именованный обработчик, а не две стрелки: removeEventListener с чужой функцией
     // молча ничего не снимает, и каждое перемонтирование оставляло живой слушатель.
-    const onChange = () => { allowed.current = motionAllowed(); };
+    const onChange = () => { allowed.current = effectAllowed('particles'); };
     mq?.addEventListener('change', onChange);
     return () => mq?.removeEventListener('change', onChange);
-  }, []);
+  }, [particles, reducedMotion]);
 
+  // Выключатель проверяется и в рендере, а не только в кэше: кэш обновится эффектом уже после
+  // этого кадра, и выключенные искры показывались бы ещё один тик.
+  if (!particles) return null;
   if (!allowed.current && heat < TIER_AT[1]) return null;
 
   const count = TIERS[TIER_AT.filter((at) => heat >= at).length - 1];

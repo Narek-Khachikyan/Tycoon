@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { motionAllowed, useGameStore } from '../store/useGameStore';
+import { effectAllowed, motionAllowed, useGameStore } from '../store/useGameStore';
 import { CATALOG } from '../economy/catalog';
 import { formatNumber } from '../economy/format';
 import { Num } from './Num';
@@ -10,8 +10,8 @@ const EXIT_MS = 220;
 /** Тиканье Compute стартует на ударе и идёт чуть дольше секунды. */
 const TICK_DELAY_MS = 450;
 const TICK_MS = 1200;
-/** Частиц немного и только при разрешённом движении: CSS-гейт умеет остановить
- *  анимацию, но не убрать элемент, поэтому моты создаются лишь сюда. */
+/** Частиц немного и только при разрешённом движении и включённых частицах: CSS-гейт умеет
+ *  остановить анимацию, но не убрать элемент, поэтому моты создаются лишь сюда. */
 const MOTES = 14;
 
 /**
@@ -27,6 +27,7 @@ export const PrestigeOverlay: React.FC = () => {
   const [shown, setShown] = useState<{ generation: number; computeGain: number } | null>(null);
   const [exiting, setExiting] = useState(false);
   const [withMotion, setWithMotion] = useState(false);
+  const [withMotes, setWithMotes] = useState(false);
   const gainRef = useRef<HTMLSpanElement>(null);
   const doneRef = useRef(0);
 
@@ -48,6 +49,8 @@ export const PrestigeOverlay: React.FC = () => {
     setShown(payload);
     setExiting(false);
     setWithMotion(motion);
+    // Моты — частицы, и выключатель игрока гасит их, не трогая тиканье Compute и масштаб карточки.
+    setWithMotes(effectAllowed('particles'));
     // Счётчик пишет прямо в DOM-ноду, как счётчик Токенов: ре-рендер на каждый кадр не нужен.
     // Письмо идёт в textContent, поэтому класс pixel-font обязан стоять на самой этой ноде —
     // на обёртке он остался бы в Nunito, и число меняло бы начертание в момент старта
@@ -93,7 +96,7 @@ export const PrestigeOverlay: React.FC = () => {
         cursor: 'pointer',
       }}
     >
-      {withMotion &&
+      {withMotes &&
         Array.from({ length: MOTES }, (_, i) => (
           <span
             key={i}

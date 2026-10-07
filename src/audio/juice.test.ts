@@ -21,8 +21,8 @@ vi.mock('./sound', () => {
   return { audioBus, runningBus: vi.fn((s: SoundSettings) => (s.muted ? null : audioBus())) };
 });
 
-const ON: SoundSettings = { muted: false, volume: 1 };
-const MUTED: SoundSettings = { muted: true, volume: 1 };
+const ON: SoundSettings = { muted: false, volume: 1, musicVolume: 1, sfxVolume: 1 };
+const MUTED: SoundSettings = { muted: true, volume: 1, musicVolume: 1, sfxVolume: 1 };
 
 /** Момент контекста, с которого считаются все расписания: ненулевой, чтобы ошибка времени бросалась в глаза. */
 const NOW = 100;
@@ -122,8 +122,8 @@ class RecordedGain {
 
 interface Recording {
   context: AudioContext;
-  /** Мастер-шина игры: последняя остановка каждого голоса. */
-  master: object;
+  /** Канал эффектов: последняя остановка каждого голоса, дальше громкость игрока. */
+  sfx: object;
   oscillators: RecordedOscillator[];
   gains: RecordedGain[];
 }
@@ -146,11 +146,11 @@ function record(): Recording {
       return gain;
     },
   } as unknown as AudioContext;
-  return { context, master: { id: 'master' }, oscillators, gains };
+  return { context, sfx: { id: 'sfx' }, oscillators, gains };
 }
 
 const use = (rec: Recording): void => {
-  vi.mocked(audioBus).mockReturnValue({ ctx: rec.context, master: rec.master } as unknown as AudioBus);
+  vi.mocked(audioBus).mockReturnValue({ ctx: rec.context, sfx: rec.sfx } as unknown as AudioBus);
 };
 
 /** Прогон сигнала без заглушения и его запись. */
@@ -446,7 +446,7 @@ describe('задержка', () => {
     }
   });
 
-  it('plays every voice through a gain into the master bus, so nothing bypasses the envelope or the volume', () => {
+  it('plays every voice through a gain into the effects channel, so nothing bypasses the envelope or the volume', () => {
     for (const [name, play] of SOUNDS) {
       const rec = run(play);
       // Один голос — одна огибающая, и голос подключается ровно к ней: подключение мимо
@@ -456,9 +456,9 @@ describe('задержка', () => {
         expect(osc.connections, name).toEqual([rec.gains[index]]);
         expect(rec.gains[index].gain.ramps.length, name).toBeGreaterThan(0);
       }
-      // Огибающая уходит в мастер, а не мимо него в колонки: иначе громкость игрока не дошла бы.
+      // Огибающая уходит в канал эффектов, а не мимо него в колонки: иначе громкость игрока не дошла бы.
       for (const gain of rec.gains) {
-        expect(gain.connections, name).toEqual([rec.master]);
+        expect(gain.connections, name).toEqual([rec.sfx]);
       }
     }
   });

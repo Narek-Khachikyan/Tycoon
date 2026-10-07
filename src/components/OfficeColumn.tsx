@@ -715,7 +715,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
             с полом, а не светится поверх затемнения. Держит порядок разметка: у пыли и у
             скрима одинаковый z-index 1, а при равном z-index рисуется тот, кто позже в DOM. */}
         <div className="scene__motes">
-          {MOTES.slice(0, moteCount(totalAgents)).map((_, i) => (
+          {MOTES.slice(0, state.settings.particles ? moteCount(totalAgents) : 0).map((_, i) => (
             <span key={i} className="mote" style={moteStyle(i)} />
           ))}
         </div>
