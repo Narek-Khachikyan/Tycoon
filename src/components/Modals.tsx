@@ -96,11 +96,18 @@ const AchievementCard: React.FC<{
         listStyle: 'none',
       }}
     >
+      {/* Состояние несут и форма значка, и подпись для слушающего ниже, поэтому сам значок
+          для скринридера скрыт. Золото у кубка и луны — «трофей», приглушённый замок — «ещё
+          нет»: цвет задаёт обёртка, а значок берёт его через currentColor. */}
       <span
         aria-hidden="true"
-        style={{ fontSize: '1.1rem', lineHeight: 1.35, opacity: unlocked ? 1 : 0.55 }}
+        style={{
+          display: 'flex',
+          marginTop: '3px',
+          color: unlocked ? 'var(--gold)' : 'var(--text-muted)',
+        }}
       >
-        {unlocked ? (shadow ? '🌑' : '🏆') : '🔒'}
+        <Icon name={unlocked ? (shadow ? 'moon' : 'trophy') : 'lock'} />
       </span>
       <div style={{ flex: 1, minWidth: 0 }}>
         {/* Состояние и для слушающего, а не только для глаза: печать, цвет и рамку
@@ -486,7 +493,7 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
         style={{
           display: 'flex',
           justifyContent: 'space-between',
-          alignItems: 'baseline',
+          alignItems: 'center',
           gap: '8px',
           marginTop: '4px',
           paddingTop: '10px',
@@ -494,9 +501,20 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
         }}
       >
         {/* Без pixel-font: в строке есть кириллица, а по ADR-0003 пиксельный шрифт
-            допустим только там, где её нет. */}
-        <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>
-          <span aria-hidden="true">🌑</span> Теневые Достижения
+            допустим только там, где её нет. Подпись рядом есть, поэтому луна скрыта. */}
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            fontSize: '0.95rem',
+            color: 'var(--text-main)',
+          }}
+        >
+          <span aria-hidden="true" style={{ display: 'flex', color: 'var(--gold)' }}>
+            <Icon name="moon" />
+          </span>
+          Теневые Достижения
         </span>
         <ModalCount earned={shadowEarned(state)} total={SHADOW_ACHIEVEMENTS.length} />
       </div>
@@ -1396,7 +1414,7 @@ export const PrestigeModal: React.FC = () => {
       tone="gold"
       /* Разрушающее окно, поэтому рамка и заголовок золотые — тот же тон, что у Достижений
          и экрана финала: золото в игре означает «трофей или разрушение Забега». */
-      icon={<span aria-hidden="true">🚀</span>}
+      icon={<Icon name="rocket" />}
       title="Престиж"
       footer={
         <>
