@@ -30,8 +30,8 @@ this file disagrees with it, fix this file in the same change.
    stays in `Footer.tsx` and the shop's «Справка AA»; monetization would additionally need a
    commercial AA license.
 5. **Russian.** The avoided synonyms — монета, тап, здание, юнит, сессия — stay out of
-   player-facing text, identifiers and commit messages. `src/issues.test.ts` enforces them over the
-   glossary, `src/economy/quips.test.ts` over the quip table.
+   player-facing text, identifiers and commit messages. `src/economy/economy.test.ts` enforces them
+   over the glossary, `src/economy/quips.test.ts` over the quip table.
 
 ## Where each rule lives
 
@@ -52,7 +52,9 @@ components/    presentation: reads state, calls actions
   `localStorage` write goes through the store's save: throttled to `SAVE_INTERVAL_MS` (1 s) for the
   tick and the Клик, written at once on every other player action, flushed on
   `visibilitychange`/`pagehide`. New code hangs off the tick through the store; a bounded one-shot
-  `setTimeout` (a toast's dwell) is the only other timer it starts.
+  `setTimeout` (a toast's dwell) is the only other timer it starts. The repeating timers that
+  already exist — `NewsTicker`'s news rotation, the rAF counters in `ClickColumn` and
+  `PrestigeOverlay`, `music.ts`'s note scheduler — are exceptions, not patterns to copy.
 - **Numbers reach the screen only through `formatNumber`, `formatCount` and `formatDuration`**; a
   bare number renders through `Num`, in `pixel-font` (ADR-0003).
 - **`src/layout.ts` holds every layout number**; `THREE_COL_MIN` is the desktop/mobile switch.
@@ -62,7 +64,11 @@ components/    presentation: reads state, calls actions
   `index.css`, where keyframes live too. Dialogs trap focus through `useDialogFocus.ts`. Over a
   Сцена, every readable label sits off the artwork or on a darkened HUD band of its own (ADR-0002).
 - **Audio is synthesized** — no files, no asset pipeline. `AudioContext` resumes only after a user
-  gesture, so silence before the first click is expected.
+  gesture, so silence before the first click is expected. `sound.ts` owns the one context and the
+  master bus: the player's volume and mute live only on the master gain, so every source connects
+  through `audioBus()` and writes its own level, never the volume. A signal fired by the tick rather
+  than a press goes through `runningBus()`, or it would pile up on a sleeping context and burst on
+  the first click. `music.ts` is the single music loop; it reads the current settings every tick.
 - **`npm run sprites` is dead**: `scripts/chroma-key.py` is not in the repo. Flag it rather than
   rely on it.
 - `docs/vision.md`, `docs/DECISIONS.md`, `docs/PROGRESS.md` and `docs/research/` are history, not
@@ -71,8 +77,7 @@ components/    presentation: reads state, calls actions
 ## Code
 
 - Content that varies in shape is a discriminated union (`Upgrade`, `PerkEffect`), never a bag of
-  optional flags. Shipped code has no `any`; the few `as any` casts in tests feed deliberately
-  invalid input or reach through a `Proxy` target.
+  optional flags. There is no `any`, in shipped code or in tests.
 - Comments carry the **why** a name cannot, in Russian like the rest of the tree.
 - **Language by audience**: identifiers English; player-facing strings Russian; a commit's type
   prefix English (`feat(ui):`) with a subject, usually Russian, naming what the player sees —
@@ -86,12 +91,16 @@ components/    presentation: reads state, calls actions
 
 - Name every test `*.test.ts`: `vite.config.ts` includes only `src/**/*.test.ts`, so a `.test.tsx`
   is skipped silently. Run one case with `npm test -- -t '<name>'`.
-- A bug fix ships with a test that goes **red** on the bug, in `src/issues.test.ts` as
-  `describe('Issue #N: …')`.
-- Assert values and contracts, not markup snapshots or wiring. When the contract *is* the source —
-  the CSS gate under `[data-motion="reduced"]`, a cleanup handler — read the file as text with
-  `readFileSync`, as `src/index.test.ts` and `src/issues.test.ts` do. There is no `@types/node`:
+- A bug fix ships with a test that goes **red** on the bug, in the test file of the area it
+  touches, named after the behaviour the player gets — not after the issue number. The issue
+  number belongs in the PR (`Closes #N`).
+- Assert values and contracts, not markup snapshots, wiring, or the text of the source. A regex
+  over a `.tsx` passes on code that is broken and fails on code that is fine. The one exception is
+  `src/index.test.ts`: nothing else parses `index.css`, so it checks the file's structure (balanced
+  braces, no `@keyframes` inside `@media`) through `readFileSync`. There is no `@types/node`:
   extend `src/node-fs.d.ts` rather than adding the package.
+- Use the real pure functions of `src/economy/` in store tests; mock only what node cannot run
+  (audio). A mock that re-implements a rule asserts the mock, not the game.
 - Assert over the **whole catalog**, not one hand-picked Поколение; a test that shrinks its loop is
   a deleted invariant.
 - An async test waits on the real signal, or polls under a bound.
