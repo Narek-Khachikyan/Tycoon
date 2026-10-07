@@ -166,6 +166,9 @@ const IncomeLine: React.FC = () => {
 /** Всплывающие числа Клика: меняются только на Клик и на уход числа через 900 мс. */
 const Floaters: React.FC = () => {
   const floaters = useGameStore((s) => s.floaters);
+  // Выключатель из «Настроек»: стор число всё равно ведёт, а показывать его или нет решает экран.
+  const enabled = useGameStore((s) => s.state.settings.floaters);
+  if (!enabled) return null;
   return (
     <>
       {floaters.map((f) => (

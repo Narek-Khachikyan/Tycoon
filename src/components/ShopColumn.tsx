@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { motionAllowed, useGameStore, useStateSlice, type BuyAmount } from '../store/useGameStore';
+import { effectAllowed, useGameStore, useStateSlice, type BuyAmount } from '../store/useGameStore';
 import {
   availableUpgradesOf,
   crystalGrowthView,
@@ -154,7 +154,7 @@ const ModelRow: React.FC<{
     void node.offsetWidth;
     node.classList.add('model-row--pop');
 
-    if (!motionAllowed()) return;
+    if (!effectAllowed('particles')) return;
     // Искры летят из кнопки покупки — это и есть точка покупки. Координаты пересчитываются
     // в систему строки, потому что слой искр позиционирован относительно неё.
     const row = node.getBoundingClientRect();

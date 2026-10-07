@@ -11,6 +11,7 @@
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  audioBus,
   clickVolumeForStreak,
   masterVolume,
   playAchievementSound,
@@ -26,6 +27,7 @@ import {
   playQuipSound,
   playRestartSound,
   playUpgradeSound,
+  setAudioHidden,
   type SoundSettings,
 } from './sound';
 import {
@@ -44,11 +46,11 @@ import {
   updateMusic,
   type MusicParams,
 } from './music';
-import { playMilestoneSound, SFX_PEAK_CEILING } from './sfx';
+import { playMilestoneSound, playPrestigeConfirmSound, playToggleSound, SFX_PEAK_CEILING } from './sfx';
 import { playCoolingSound, playHallucinationSound, updateThermalAudio } from './thermal';
 
 const T0 = 1_700_000_000_000;
-const SETTINGS: SoundSettings = { muted: false, volume: 0.8 };
+const SETTINGS: SoundSettings = { muted: false, volume: 0.8, musicVolume: 1, sfxVolume: 1 };
 
 // ---------- Подделка Web Audio ----------
 
@@ -145,6 +147,8 @@ class FakeAudioContext {
   readonly destination = new FakeNode();
   readonly gains: FakeGain[] = [];
   readonly oscillators: FakeOscillator[] = [];
+  /** Все осцилляторы за жизнь файла: голос Температуры заводится один раз и чистку не переживает. */
+  readonly everOscillators: FakeOscillator[] = [];
   readonly filters: FakeBiquadFilter[] = [];
   readonly noise: FakeBufferSource[] = [];
   resumes = 0;
@@ -162,6 +166,7 @@ class FakeAudioContext {
   createOscillator(): FakeOscillator {
     const node = new FakeOscillator();
     this.oscillators.push(node);
+    this.everOscillators.push(node);
     return node;
   }
   createBiquadFilter(): FakeBiquadFilter {
@@ -187,6 +192,8 @@ class FakeAudioContext {
 }
 
 const ctx = new FakeAudioContext();
+/** Сколько раз звуковой модуль создавал AudioContext: нужен тесту «скрытие не будит звук». */
+let contextsBuilt = 0;
 
 /** Мастер-шина создаётся первой, музыкальная — сразу за ней: порядок в audioBus фиксирован. */
 const masterNode = (): FakeGain => ctx.gains[0];
@@ -245,6 +252,7 @@ beforeAll(() => {
   // экземпляр: иначе тест смотрел бы в пустой объект, а звук писал бы в свой.
   vi.stubGlobal('window', {
     AudioContext: function SingleAudioContext() {
+      contextsBuilt += 1;
       return ctx;
     },
   });
@@ -281,16 +289,16 @@ describe('громкость игрока', () => {
   });
 
   it('громкость игрока применяется один раз — на мастере, а эффект пишет свой уровень', () => {
-    clickLevel({ muted: false, volume: 0.5 });
+    clickLevel({ muted: false, volume: 0.5, musicVolume: 1, sfxVolume: 1 });
     expect(masterNode().gain.points.at(-1)?.value).toBeCloseTo(0.5);
     const click = ctx.gains[ctx.gains.length - 1];
     expect(click.gain.peak).toBeCloseTo(clickVolumeForStreak(60_000));
   });
 
   it('при мьюте ни один источник не создаётся', () => {
-    playClickSound({ muted: true, volume: 1 });
-    playBuySound({ muted: true, volume: 1 });
-    playPrestigeSound({ muted: true, volume: 1 });
+    playClickSound({ muted: true, volume: 1, musicVolume: 1, sfxVolume: 1 });
+    playBuySound({ muted: true, volume: 1, musicVolume: 1, sfxVolume: 1 });
+    playPrestigeSound({ muted: true, volume: 1, musicVolume: 1, sfxVolume: 1 });
     expect(ctx.oscillators).toHaveLength(0);
   });
 
@@ -309,6 +317,229 @@ describe('громкость игрока', () => {
     const sources: FakeNode[] = [...ctx.oscillators, ...ctx.noise];
     expect(sources.length).toBeGreaterThan(0);
     for (const source of sources) expect(chainFrom(source)).toContain(masterNode());
+  });
+});
+
+// ---------- Каналы музыки и эффектов ----------
+
+describe('громкость каналов поверх мастера', () => {
+  /**
+   * Во сколько раз игрок приглушает источник: произведение всех шин на его пути к колонкам.
+   * Собственная огибающая голоса — первый GainNode цепочки — в счёт не идёт: это тембр, а не
+   * громкость игрока. Остальное — мастер, канал и приглушение музыки.
+   */
+  const playerLevel = (source: FakeNode): number => {
+    const [, ...shared] = chainFrom(source).filter((node): node is FakeGain => node instanceof FakeGain);
+    return shared.reduce((product, bus) => product * bus.gain.value, 1);
+  };
+
+  const mix = (over: Partial<SoundSettings>): SoundSettings => ({ ...SETTINGS, ...over });
+
+  /** Уровень игрока для каждой ноты лупа за две секунды при этих настройках. */
+  const musicLevels = (settings: SoundSettings): number[] => {
+    startMusic(settings);
+    ctx.clearSources();
+    updateMusic(music({ settings, intensity: 1, generation: 2 }));
+    advance(2000);
+    return ctx.oscillators.map(playerLevel);
+  };
+
+  /** Тело голоса Температуры: единственный осциллятор на 55 Гц, заданный присваиванием, а не расписанием. */
+  const humBody = (): FakeOscillator => {
+    const body = ctx.everOscillators.find((o) => o.frequency.value === 55 && o.frequency.points.length === 0);
+    if (!body) throw new Error('голос Температуры не заведён');
+    return body;
+  };
+
+  it('эффект идёт через канал эффектов: мастер и канал дают громкость ровно по разу', () => {
+    nextClickMoment();
+    playClickSound(mix({ volume: 0.5, sfxVolume: 0.4, musicVolume: 0.1 }));
+    expect(playerLevel(ctx.oscillators[0])).toBeCloseTo(0.5 * 0.4);
+  });
+
+  it('нота лупа идёт через канал музыки: громкость эффектов её не трогает', () => {
+    const levels = musicLevels(mix({ volume: 0.5, musicVolume: 0.2, sfxVolume: 0.9 }));
+    expect(levels.length).toBeGreaterThan(0);
+    for (const level of levels) expect(level).toBeCloseTo(0.5 * 0.2);
+  });
+
+  it('голос Температуры идёт через канал эффектов, а не мимо него', () => {
+    updateThermalAudio(mix({ volume: 0.8, sfxVolume: 0.5 }), { temp: 0.8, heat: 0.5 });
+    expect(playerLevel(humBody())).toBeCloseTo(0.8 * 0.5);
+    updateThermalAudio(mix({ volume: 0.8, sfxVolume: 0 }), { temp: 0.8, heat: 0.5 });
+    expect(playerLevel(humBody())).toBe(0);
+  });
+
+  it('ноль на ползунке эффектов глушит каждый эффект, а музыку не трогает', () => {
+    const silent = mix({ sfxVolume: 0, volume: 1 });
+    const effects: ((s: SoundSettings) => void)[] = [
+      playClickSound,
+      playBuySound,
+      playPrestigeSound,
+      playGlitchPopSound,
+      playMilestoneSound,
+      playCoolingSound,
+      playHallucinationSound,
+    ];
+    for (const play of effects) {
+      ctx.clearSources();
+      nextClickMoment();
+      play(silent);
+      const sources: FakeNode[] = [...ctx.oscillators, ...ctx.noise];
+      expect(sources.length).toBeGreaterThan(0);
+      for (const source of sources) expect(playerLevel(source)).toBe(0);
+    }
+
+    const notes = musicLevels(silent);
+    expect(notes.length).toBeGreaterThan(0);
+    for (const level of notes) expect(level).toBeGreaterThan(0);
+  });
+
+  it('ноль на ползунке музыки глушит луп и не ставит молчащих нот, а эффекты звучат', () => {
+    // Как мьют и ноль мастера: молчащие осцилляторы стоили бы работы и не дали бы ничего.
+    expect(musicLevels(mix({ musicVolume: 0 }))).toHaveLength(0);
+    expect(isMusicPlaying()).toBe(true);
+
+    ctx.clearSources();
+    nextClickMoment();
+    playClickSound(mix({ musicVolume: 0, volume: 1 }));
+    expect(playerLevel(ctx.oscillators[0])).toBeGreaterThan(0);
+  });
+
+  it('ползунки доходят до своих каналов: музыка слышит их с ближайшего такта, эффект — со следующего звука', () => {
+    startMusic(mix({ musicVolume: 1 }));
+    ctx.clearSources();
+    updateMusic(music({ settings: mix({ musicVolume: 0.3 }) }));
+    advance(1000);
+    expect(ctx.oscillators.length).toBeGreaterThan(0);
+    for (const note of ctx.oscillators) expect(playerLevel(note)).toBeCloseTo(0.8 * 0.3);
+
+    ctx.clearSources();
+    nextClickMoment();
+    playClickSound(mix({ sfxVolume: 0.6 }));
+    expect(playerLevel(ctx.oscillators[0])).toBeCloseTo(0.8 * 0.6);
+  });
+
+  it('мьют глушит оба канала сразу', () => {
+    const muted = mix({ muted: true });
+    expect(musicLevels(muted)).toHaveLength(0);
+    nextClickMoment();
+    playClickSound(muted);
+    expect(ctx.oscillators).toHaveLength(0);
+  });
+
+  it('настройка без каналов (старое сохранение) читается как полные каналы, а не как NaN', () => {
+    const legacy = { muted: false, volume: 0.5 } as unknown as SoundSettings;
+    nextClickMoment();
+    playClickSound(legacy);
+    expect(playerLevel(ctx.oscillators[0])).toBeCloseTo(0.5);
+  });
+
+  it('значение вне 0..1 зажимается, как у мастера', () => {
+    nextClickMoment();
+    playClickSound(mix({ volume: 1, sfxVolume: 7 }));
+    expect(playerLevel(ctx.oscillators[0])).toBe(1);
+    ctx.clearSources();
+    nextClickMoment();
+    playClickSound(mix({ volume: 1, sfxVolume: -3 }));
+    expect(playerLevel(ctx.oscillators[0])).toBe(0);
+  });
+});
+
+// ---------- Фоновая вкладка ----------
+
+describe('тишина скрытой страницы', () => {
+  const masterLevel = (): number | undefined => masterNode().gain.points.at(-1)?.value;
+
+  afterEach(() => {
+    setAudioHidden(false, SETTINGS);
+  });
+
+  it('закрывает мастер-шину, пока страница скрыта, и возвращает громкость игрока, когда она видна', () => {
+    playClickSound(SETTINGS);
+    expect(masterLevel()).toBeCloseTo(0.8);
+
+    setAudioHidden(true, SETTINGS);
+    expect(masterLevel()).toBe(0);
+
+    setAudioHidden(false, SETTINGS);
+    expect(masterLevel()).toBeCloseTo(0.8);
+  });
+
+  it('глушит и непрерывный голос, и музыку: они идут через ту же мастер-шину', () => {
+    startMusic(SETTINGS);
+    updateThermalAudio(SETTINGS, { temp: 0.8, heat: 0.2 });
+    setAudioHidden(true, SETTINGS);
+
+    // Тик, пришедший из скрытой вкладки, зовёт те же функции с теми же настройками игрока:
+    // он не должен открыть шину обратно.
+    updateThermalAudio(SETTINGS, { temp: 0.9, heat: 0.2 });
+    updateMusic(music());
+    expect(masterLevel()).toBe(0);
+  });
+
+  it('не создаёт источников для эффектов, пока страница скрыта, и звучит снова после возврата', () => {
+    setAudioHidden(true, SETTINGS);
+    playClickSound(SETTINGS);
+    playBuySound(SETTINGS);
+    playAchievementSound(SETTINGS);
+    playPrestigeSound(SETTINGS);
+    playCoolingSound(SETTINGS);
+    playHallucinationSound(SETTINGS);
+    playMilestoneSound(SETTINGS);
+    playToggleSound(SETTINGS);
+    playPrestigeConfirmSound(SETTINGS);
+    expect(ctx.oscillators).toHaveLength(0);
+    expect(ctx.noise).toHaveLength(0);
+
+    setAudioHidden(false, SETTINGS);
+    playBuySound(SETTINGS);
+    expect(ctx.oscillators.length).toBeGreaterThan(0);
+  });
+
+  it('не отпирает то, что игрок заглушил сам: мьют переживает возвращение', () => {
+    const muted: SoundSettings = { ...SETTINGS, muted: true };
+    playClickSound(SETTINGS);
+    setAudioHidden(true, muted);
+    setAudioHidden(false, muted);
+    expect(masterLevel()).toBe(0);
+  });
+
+  it('возвращается с громкостью, выставленной к моменту возврата, а не к моменту ухода', () => {
+    playClickSound(SETTINGS);
+    setAudioHidden(true, SETTINGS);
+    setAudioHidden(false, { ...SETTINGS, volume: 0.3 });
+    expect(masterLevel()).toBeCloseTo(0.3);
+  });
+
+  it('не открывается обратно от запроса шины с полной громкостью, пока страница скрыта', () => {
+    playClickSound(SETTINGS);
+    setAudioHidden(true, SETTINGS);
+    audioBus({ ...SETTINGS, volume: 1 });
+    expect(masterLevel()).toBe(0);
+  });
+
+  it('не заводит голос Температуры под скрытой страницей и заводит его после возврата', async () => {
+    vi.resetModules();
+    const fresh = await import('./sound');
+    const thermal = await import('./thermal');
+    fresh.setAudioHidden(true, SETTINGS);
+    thermal.updateThermalAudio(SETTINGS, { temp: 0.5, heat: 0 });
+    expect(ctx.oscillators).toHaveLength(0);
+    expect(ctx.noise).toHaveLength(0);
+
+    fresh.setAudioHidden(false, SETTINGS);
+    thermal.updateThermalAudio(SETTINGS, { temp: 0.5, heat: 0 });
+    expect(ctx.oscillators.length).toBeGreaterThan(0);
+  });
+
+  it('не создаёт AudioContext сама: до первого жеста звука нет, и скрытие его не будит', async () => {
+    vi.resetModules();
+    const fresh = await import('./sound');
+    const before = contextsBuilt;
+    fresh.setAudioHidden(true, SETTINGS);
+    fresh.setAudioHidden(false, SETTINGS);
+    expect(contextsBuilt).toBe(before);
   });
 });
 
@@ -628,17 +859,17 @@ describe('музыкальный луп', () => {
   });
 
   it('ползунок громкости и мьют доходят до мастера с ближайшего тика', () => {
-    startMusic({ muted: false, volume: 0.25 });
+    startMusic({ muted: false, volume: 0.25, musicVolume: 1, sfxVolume: 1 });
     expect(masterNode().gain.points.at(-1)?.value).toBeCloseTo(0.25);
-    updateMusic(music({ settings: { muted: false, volume: 0.7 } }));
+    updateMusic(music({ settings: { muted: false, volume: 0.7, musicVolume: 1, sfxVolume: 1 } }));
     expect(masterNode().gain.points.at(-1)?.value).toBeCloseTo(0.7);
-    updateMusic(music({ settings: { muted: true, volume: 0.7 } }));
+    updateMusic(music({ settings: { muted: true, volume: 0.7, musicVolume: 1, sfxVolume: 1 } }));
     expect(masterNode().gain.points.at(-1)?.value).toBe(0);
   });
 
   it('мьют не останавливает луп и не плодит молчащих нот, а снятие мьюта возвращает музыку', () => {
     startMusic(SETTINGS);
-    expect(notesOver(2000, { settings: { muted: true, volume: 1 } })).toHaveLength(0);
+    expect(notesOver(2000, { settings: { muted: true, volume: 1, musicVolume: 1, sfxVolume: 1 } })).toHaveLength(0);
     expect(isMusicPlaying()).toBe(true);
     expect(notesOver(2000).length).toBeGreaterThan(0);
   });

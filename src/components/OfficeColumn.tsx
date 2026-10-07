@@ -6,6 +6,7 @@ import { LABS, LAB_IDS, type LabId } from '../data/labs';
 import { canPrestige, isContentFinale } from '../economy/engine';
 import { labAgents, labWork, SYNERGY_PER_AGENT, synergyUpgradeId } from '../economy/upgrades';
 import { formatCount, formatNumber } from '../economy/format';
+import { Icon } from './Icon';
 import { MascotSprite } from './MascotSprite';
 import { Num } from './Num';
 import { STATION_SURFACE_ROW, WorkstationSprite } from './WorkstationSprite';
@@ -272,15 +273,21 @@ const OfficeGlitchSwarm: React.FC = () => {
               />
             )}
           </span>
+          {/* Подписи рядом нет, поэтому у значка свой текст: иначе для скринридера лопнувший
+              Глюк остался бы немой картинкой. */}
           <span
+            role="img"
+            aria-label="Глюк лопнул"
             style={{
               ...GLITCH_CHIP,
+              padding: '1px 4px',
+              lineHeight: 0,
               borderColor: 'var(--green)',
               color: 'var(--green)',
               animation: 'toast-fade 0.25s ease-out forwards',
             }}
           >
-            ✓
+            <Icon name="check" />
           </span>
         </div>
       ))}
@@ -393,6 +400,8 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const upgrades = useGameStore((s) => s.state.upgrades);
   const notation = useGameStore((s) => s.state.settings.notation);
   const quipsSeenCount = useGameStore((s) => s.state.quipsSeen.length);
+  // Выключатель частиц из «Настроек»: пыль в воздухе Сцены — один из них.
+  const particles = useGameStore((s) => s.state.settings.particles);
   const requestPrestige = useGameStore((s) => s.requestPrestige);
   const prestigeReady = useStateSlice(canPrestige);
   const finale = useStateSlice(isContentFinale);
@@ -547,7 +556,8 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
             className="pixel-btn pixel-btn-gold"
             style={{ fontSize: '1rem', padding: '10px 16px' }}
           >
-            🚀 Совершить Престиж
+            <Icon name="rocket" />
+            Совершить Престиж
           </button>
         )}
 
@@ -790,7 +800,7 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
             с полом, а не светится поверх затемнения. Держит порядок разметка: у пыли и у
             скрима одинаковый z-index 1, а при равном z-index рисуется тот, кто позже в DOM. */}
         <div className="scene__motes">
-          {MOTES.slice(0, moteCount(totalAgents)).map((_, i) => (
+          {MOTES.slice(0, particles ? moteCount(totalAgents) : 0).map((_, i) => (
             <span key={i} className="mote" style={moteStyle(i)} />
           ))}
         </div>

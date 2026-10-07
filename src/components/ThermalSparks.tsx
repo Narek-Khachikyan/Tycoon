@@ -1,5 +1,5 @@
 import React from 'react';
-import { useStateSlice } from '../store/useGameStore';
+import { useGameStore, useStateSlice } from '../store/useGameStore';
 import { sparksView } from '../store/selectors';
 import { useMotionAllowed } from './EventSprites';
 
@@ -12,8 +12,8 @@ import { useMotionAllowed } from './EventSprites';
  * нагрев раньше, чем прочитает подпись.
  *
  * Количество и скорость привязаны к состоянию, а не к времени: при `prefers-reduced-motion`
- * узлы вообще не создаются (проверка `useMotionAllowed`), потому что CSS-гейт умеет сделать
- * элемент неподвижным, но не умеет его убрать — и иначе они жили бы в DOM вечно.
+ * узлы вообще не создаются («меньше анимации» через `useMotionAllowed` и выключатель частиц),
+ * потому что CSS-гейт умеет сделать элемент неподвижным, но не умеет его убрать — и иначе они жили бы в DOM вечно.
  */
 
 const SPARK = Array.from({ length: 9 }, (_, i) => {
@@ -27,11 +27,13 @@ const SPARK = Array.from({ length: 9 }, (_, i) => {
 
 export const ThermalSparks: React.FC = () => {
   const { count, hot, duration, opacity } = useStateSlice(sparksView);
-  // Реактивное чтение настройки, а не ref из эффекта: компонент больше не перерисовывается
-  // каждым тиком, и ref, выставленный после первого рендера, остался бы ложным до смены жара.
-  const allowed = useMotionAllowed();
+  // Выключатель частиц из «Настроек» и «меньше анимации» — реактивным чтением, а не ref из
+  // эффекта: компонент больше не перерисовывается каждым тиком, и ref, выставленный после
+  // первого рендера, остался бы ложным до смены жара. Правило то же, что у `effectAllowed`.
+  const particles = useGameStore((s) => s.state.settings.particles);
+  const motion = useMotionAllowed();
 
-  if (count === 0 || !allowed) return null;
+  if (count === 0 || !particles || !motion) return null;
 
   // Цвет берётся от жара, а не от акцента Поколения: искры жара обязаны читаться как
   // нагрев на любом из восьми Поколений, где акцент бывает синим или зелёным.

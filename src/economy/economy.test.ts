@@ -1633,7 +1633,18 @@ describe('save', () => {
       T0,
     );
     expect(s.version).toBe(SAVE_VERSION);
-    expect(s.settings).toEqual({ notation: 'sci', muted: true, reducedMotion: false, volume: DEFAULT_VOLUME });
+    expect(s.settings).toEqual({
+      notation: 'sci',
+      muted: true,
+      reducedMotion: false,
+      volume: DEFAULT_VOLUME,
+      particles: true,
+      floaters: true,
+      shake: true,
+      ticker: true,
+      musicVolume: 1,
+      sfxVolume: 1,
+    });
     expect(s.tokens).toBe(1234);
     expect(s.totalTokens).toBe(5678);
     expect(s.agents).toEqual({ [first.id]: 7 });
