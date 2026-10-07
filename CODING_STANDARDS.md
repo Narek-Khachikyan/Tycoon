@@ -108,9 +108,14 @@ components/    presentation: reads state, calls actions
   (`rich`); there is no fixture directory. Drive late-game volumes: a fresh state hides the rounding
   and overflow bugs in `formatNumber`, `maxAffordable` and prestige gains.
 
-## Checking the UI by hand
+## Checking the UI in a browser
 
-Component behaviour is checked by hand, not by browser automation.
+Component behaviour is checked in a real browser driven by Playwright — the CLI, an MCP server or a
+throwaway script — and never by committed browser tests: Playwright is not a declared dependency,
+like `npx tsx` above, and its scripts live outside the tree. Run it against your own `npm run dev`
+port in a fresh browser context, so no real save is read or overwritten; for a hit-stop or
+`:active` state, send real input (`mouse.down`/`keyboard.press`), since a synthetic DOM event
+doesn't trigger CSS `:active`. Screenshots go to the PR, not into git.
 
 - Every layout band from `src/layout.ts`: three columns at or above `THREE_COL_MIN`, one tab at a
   time below it, and the compressed header at or below `NARROW_MAX`, where the footer's AA
