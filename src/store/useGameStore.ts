@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { useShallow } from 'zustand/react/shallow';
 import { CATALOG, MODEL_BY_ID } from '../economy/catalog';
 import {
   advanceTime,
@@ -97,7 +98,7 @@ export interface BurstEvent {
   prestige?: { generation: number; computeGain: number; challengeId?: 'no-synergy' | 'no-click' };
 }
 
-interface OfflineReport {
+export interface OfflineReport {
   seconds: number;
   earned: number;
   /** Сколько кристаллов дозрело за простой: их собирает applyOffline, и без этой строки игрок
@@ -1279,3 +1280,16 @@ toggleMute: () => {
 });
 
 installSaveFlush();
+
+/**
+ * Срез состояния для компонента: перерисовка только тогда, когда изменился сам срез.
+ *
+ * Тик кладёт в стор новый `GameState` двадцать раз в секунду, поэтому подписка на `s.state`
+ * целиком перерисовывала бы компонент на каждом тике. Срезы из `selectors.ts` плоские и состоят
+ * из того, что компонент рисует, а поверхностное сравнение `useShallow` отсекает тик, в котором
+ * на экране ничего не изменилось. Селектор может вернуть и примитив: для него сравнение — обычное
+ * `Object.is`.
+ */
+export function useStateSlice<T>(select: (state: GameState) => T): T {
+  return useGameStore(useShallow((store) => select(store.state)));
+}

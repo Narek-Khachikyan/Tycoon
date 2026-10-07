@@ -1,5 +1,6 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { motionAllowed, useGameStore, type ActiveTab } from './store/useGameStore';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { motionAllowed, useGameStore, useStateSlice, type ActiveTab } from './store/useGameStore';
+import { thermalTone } from './store/selectors';
 import { Header } from './components/Header';
 import { NewsTicker } from './components/NewsTicker';
 import { ClickColumn } from './components/ClickColumn';
@@ -191,10 +192,15 @@ export const App: React.FC = () => {
     return () => observer.disconnect();
   }, [viewport.single, viewport.narrow]);
 
-  // Температура одним атрибутом на корне
-  const overheated = useGameStore((s) => s.state.heat);
-  const stunned = useGameStore((s) => s.state.overheatedAt > 0 && s.state.lastTick - s.state.overheatedAt < 3500);
-  const thermalState = stunned ? 'stunned' : overheated > 0.5 ? 'hot' : 'calm';
+  // Температура одним атрибутом на корне. Подписка на тон, а не на сам перегрев: перегрев
+  // меняется на каждом тике, и корень перерисовывал бы всё дерево вместе с собой.
+  const thermalState = useStateSlice(thermalTone);
+
+  // Колбэки шапки стабильны, иначе её React.memo не сработал бы ни разу: стрелка в разметке
+  // новая на каждом рендере корня.
+  const openAchievements = useCallback(() => setAchievementsOpen(true), []);
+  const openStats = useCallback(() => setStatsOpen(true), []);
+  const openSettings = useCallback(() => setSettingsOpen(true), []);
 
   return (
     <div
@@ -220,9 +226,9 @@ export const App: React.FC = () => {
       }}
     >
       <Header
-        onOpenAchievements={() => setAchievementsOpen(true)}
-        onOpenStats={() => setStatsOpen(true)}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenAchievements={openAchievements}
+        onOpenStats={openStats}
+        onOpenSettings={openSettings}
       />
 
       <NewsTicker />

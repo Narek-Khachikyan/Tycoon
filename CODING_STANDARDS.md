@@ -48,6 +48,13 @@ components/    presentation: reads state, calls actions
   toast, a write) is a store action, covered in `useGameStore.test.ts`.
 - **A transition is `(GameState) => GameState` and returns the same object when nothing changed.**
   The store checks `next !== state` to skip sounds, toasts and re-renders.
+- **Components subscribe to slices, never to `state`.** The tick stores a new `GameState` twenty
+  times a second, so `useGameStore((s) => s.state)` re-renders its component at 20 Hz even when no
+  number on screen moved. Read one primitive (`useGameStore((s) => s.state.generation)`), a stable
+  reference (`s.state.agents` changes on a purchase, not on a tick) or a view from
+  `src/store/selectors.ts` through `useStateSlice`: flat, already formatted, rounded to what the
+  eye can tell apart. `selectors.test.ts` asserts each view stays equal across idle ticks. A window
+  that needs most of the state (`StatsBody`, `PrestigeBody`) subscribes only while it is open.
 - **One clock, one persistence path.** `App.tsx`'s 50 ms tick drives `advanceTime`. Every
   `localStorage` write goes through the store's save: throttled to `SAVE_INTERVAL_MS` (1 s) for the
   tick and the Клик, written at once on every other player action, flushed on
@@ -129,8 +136,14 @@ doesn't trigger CSS `:active`. Screenshots go to the PR, not into git.
 
 - Judge at representative volumes: all eight Поколения, and Токены up to the `1e300` the tests
   already drive.
-- Hot paths: `advanceTime` every 50 ms, per-render income in the shop, serialization on save, audio
-  scheduling.
+- Hot paths: `advanceTime` every 50 ms, per-tick income in the shop (`incomeGain` per card),
+  serialization on save, audio scheduling.
+- Count re-renders on a production build, not in dev: install
+  `__REACT_DEVTOOLS_GLOBAL_HOOK__.onCommitFiberRoot` before the page loads and count the function
+  components whose fiber carries `PerformedWork` in each commit. A subtree that bailed out keeps its
+  old flags, so count a fiber once, and build with `minify: false` to keep component names. At idle
+  in a late run only what moves should re-render: the mascots' bob, a card whose printed deficit
+  just changed.
 
 ## Documentation
 

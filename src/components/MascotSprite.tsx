@@ -53,6 +53,20 @@ export function mascotBob(ageMs: number, seed: number): number {
   return -Math.round((wave * 0.5 + 0.5) * BOB_PX);
 }
 
+/**
+ * Фильтр прогретого Маскота; пустая строка, пока офис холодный.
+ *
+ * Покачивание и его тон — из одного числа, иначе картинка меняет тон, а не двигаясь. Сепия в 12%
+ * и подъём яркости на 6%: офис должен казаться прогретым, а не перекрашенным. Ниже этого тона
+ * Маскот остаётся своим, выше — перестаёт узнаваться как спрайт.
+ */
+function heatFilter(heat: number): string {
+  const warm = Math.min(1, Math.max(0, heat));
+  return warm > 0.03
+    ? `brightness(${(1 + warm * 0.06).toFixed(3)}) sepia(${(warm * 0.12).toFixed(3)}) saturate(${(1 + warm * 0.1).toFixed(3)})`
+    : '';
+}
+
 /** Фаза Лаборатории в оборотах: id короткий, но уже не равен у двух лабораторий. */
 const labPhase = (lab: LabId): number => {
   let h = 0;
@@ -65,9 +79,10 @@ const labPhase = (lab: LabId): number => {
  *
  * **Покачивание считается здесь, а не вешается классом.** Класс с анимацией пришлось бы гасить
  * ещё одним правилом в index.css, а файл не наш; здесь достаточно одного числа из `lastTick` —
- * того же тика, который и так перерисовывает офис двадцать раз в секунду. Часы читаются только
- * для `animated`: в ростере и в списке магазина Маскот статичен, и подписка на тик была бы там
- * лишней перерисовкой двадцать раз в секунду.
+ * того же тика, который двигает игру двадцать раз в секунду. Часы читаются только для
+ * `animated`: в ростере и в списке магазина Маскот статичен, и подписка на тик была бы там
+ * лишней. Подписка при этом — на готовый целый пиксель сдвига, а не на сами часы, поэтому
+ * Маскот перерисовывается только когда сдвинулся.
  *
  * **Перегрев виден на самом Маскоте.** Покачивание теплеет тоном нагрева, а не только рамкой
  * Сцены: офис должен выглядеть прогретым в упор, иначе нагрев читается только по подписи. Тон
@@ -76,25 +91,19 @@ const labPhase = (lab: LabId): number => {
  * Раскладку, тень и счётчик под Маскотом считает OfficeColumn: это свойства стоящего в комнате,
  * а не спрайта, и здесь их повторять нельзя.
  */
-export const MascotSprite: React.FC<MascotProps> = ({
+const MascotSpriteView: React.FC<MascotProps> = ({
   lab,
   size = 32,
   animated = false,
   className = '',
 }) => {
   const motion = useMotionAllowed();
-  const tick = useGameStore((s) => (animated ? s.state.lastTick : 0));
-  const heat = useGameStore((s) => s.state.heat);
-
-  // Покачивание и его тон — из одного числа, иначе картинка меняет тон, а не двигаясь.
-  const bob = animated && motion ? mascotBob(tick, labPhase(lab)) : 0;
-  const warm = Math.min(1, Math.max(0, heat));
-  // Сепия в 12% и подъём яркости на 6%: офик должен казаться прогретым, а не перекрашенным.
-  // Ниже этого тона Маскот остаётся своим, выше — перестаёт узнаваться как спрайт.
-  const filter =
-    warm > 0.03
-      ? `brightness(${(1 + warm * 0.06).toFixed(3)}) sepia(${(warm * 0.12).toFixed(3)}) saturate(${(1 + warm * 0.1).toFixed(3)})`
-      : undefined;
+  // Подписка на готовый сдвиг и готовый фильтр, а не на часы и перегрев: тик двигает оба числа
+  // двадцать раз в секунду, а картинке нужен целый пиксель сдвига (четыре значения) и строка
+  // фильтра, которая меняется на сотой доле жара. Поэтому Маскот перерисовывается тогда, когда
+  // он действительно сдвинулся или потеплел.
+  const bob = useGameStore((s) => (animated && motion ? mascotBob(s.state.lastTick, labPhase(lab)) : 0));
+  const filter = useGameStore((s) => heatFilter(s.state.heat));
 
   return (
     <img
@@ -112,8 +121,10 @@ export const MascotSprite: React.FC<MascotProps> = ({
         // transform только когда Маскот двигается: пустой style.transform на строке магазина
         // создавал бы лишний слой композиции без причины.
         ...(bob !== 0 ? { transform: `translateY(${bob}px)` } : undefined),
-        ...(filter ? { filter } : undefined),
+        ...(filter !== '' ? { filter } : undefined),
       }}
     />
   );
 };
+
+export const MascotSprite = React.memo(MascotSpriteView);

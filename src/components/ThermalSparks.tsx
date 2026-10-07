@@ -1,6 +1,7 @@
-import React, { useEffect, useRef } from 'react';
-import { useGameStore, motionAllowed, reduceMotionMedia } from '../store/useGameStore';
-import { TEMP_MAX } from '../economy/thermal';
+import React from 'react';
+import { useStateSlice } from '../store/useGameStore';
+import { sparksView } from '../store/selectors';
+import { useMotionAllowed } from './EventSprites';
 
 /**
  * Искры жара над шкалой Температуры: тем больше и горячее, чем выше жар.
@@ -11,17 +12,9 @@ import { TEMP_MAX } from '../economy/thermal';
  * нагрев раньше, чем прочитает подпись.
  *
  * Количество и скорость привязаны к состоянию, а не к времени: при `prefers-reduced-motion`
- * узлы вообще не создаются (проверка `motionAllowed`), потому что CSS-гейт умеет сделать
+ * узлы вообще не создаются (проверка `useMotionAllowed`), потому что CSS-гейт умеет сделать
  * элемент неподвижным, но не умеет его убрать — и иначе они жили бы в DOM вечно.
  */
-
-/** Три ступени количества: непрерывный ряд из двадцати частиц бьёт по кадру на 20 тиках
- *  в секунду, а ступени дают читаемый «больше жара — больше искр» без рваного счёта. */
-const TIERS = [0, 4, 9] as const;
-
-/** Порог жара для каждой ступени. Верхняя ступень включается на 0.55 перегрева — раньше
- *  перегрева, чтобы игрок видел искры до того, как увидит шкалу целиком. */
-const TIER_AT = [0, 0.22, 0.55];
 
 const SPARK = Array.from({ length: 9 }, (_, i) => {
   const a = (i / 9) * Math.PI * 2;
@@ -33,30 +26,16 @@ const SPARK = Array.from({ length: 9 }, (_, i) => {
 });
 
 export const ThermalSparks: React.FC = () => {
-  const heat = useGameStore((s) => s.state.heat);
-  const temp = useGameStore((s) => s.state.temp);
+  const { count, hot, duration, opacity } = useStateSlice(sparksView);
+  // Реактивное чтение настройки, а не ref из эффекта: компонент больше не перерисовывается
+  // каждым тиком, и ref, выставленный после первого рендера, остался бы ложным до смены жара.
+  const allowed = useMotionAllowed();
 
-  // Один раз на смонтированную настройку, а не на каждый жар: `motionAllowed()` дёргает
-  // matchMedia, и вызывать его двадцать раз в секунду дороже, чем весь рендер искр.
-  const allowed = useRef(false);
-  useEffect(() => {
-    allowed.current = motionAllowed();
-    const mq = reduceMotionMedia();
-    // Именованный обработчик, а не две стрелки: removeEventListener с чужой функцией
-    // молча ничего не снимает, и каждое перемонтирование оставляло живой слушатель.
-    const onChange = () => { allowed.current = motionAllowed(); };
-    mq?.addEventListener('change', onChange);
-    return () => mq?.removeEventListener('change', onChange);
-  }, []);
-
-  if (!allowed.current && heat < TIER_AT[1]) return null;
-
-  const count = TIERS[TIER_AT.filter((at) => heat >= at).length - 1];
-  if (count === 0 || !allowed.current) return null;
+  if (count === 0 || !allowed) return null;
 
   // Цвет берётся от жара, а не от акцента Поколения: искры жара обязаны читаться как
   // нагрев на любом из восьми Поколений, где акцент бывает синим или зелёным.
-  const color = heat > 0.6 ? 'var(--thermal-hot)' : 'var(--accent-color)';
+  const color = hot ? 'var(--thermal-hot)' : 'var(--accent-color)';
 
   return (
     <div
@@ -86,8 +65,8 @@ export const ThermalSparks: React.FC = () => {
               animationDelay: s.delay,
               // Скорость растёт с жаром: при 0.6 перегрева искра живёт 0.5 с, при 0.95 — 0.28.
               // Это и есть главный признак «горит», а не «мигает».
-              animationDuration: `${(0.5 - heat * 0.24).toFixed(2)}s`,
-              opacity: 0.5 + Math.min(0.5, temp / TEMP_FOR_FULL),
+              animationDuration: `${duration}s`,
+              opacity,
             } as React.CSSProperties
           }
         />
@@ -96,5 +75,3 @@ export const ThermalSparks: React.FC = () => {
   );
 };
 
-/** Температура, при которой искры горят в полную силу: край шкалы. */
-const TEMP_FOR_FULL = TEMP_MAX;

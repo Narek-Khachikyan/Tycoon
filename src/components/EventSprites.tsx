@@ -614,7 +614,8 @@ export function sceneBands(plateH: number): SceneBands {
 /* ── Дрон ──────────────────────────────────────────────────────────────────────────── */
 
 /** Пролёт Дрона: сколько длится и как далеко уходит за края. */
-const DRONE_FLIGHT_MS = 2600;
+/** Сколько длится пролёт Дрона через Сцену. */
+export const DRONE_FLIGHT_MS = 2600;
 const DRONE_LIFT = 10;
 
 export interface DroneFlight {

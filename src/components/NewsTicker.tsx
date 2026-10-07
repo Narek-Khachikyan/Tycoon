@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useGameStore } from '../store/useGameStore';
+import React, { useEffect, useRef, useState } from 'react';
+import { useGameStore, useStateSlice } from '../store/useGameStore';
 import { EVENT_MIN_MS } from '../economy/events';
 import { newsPool, RUMORS, tickerLine } from '../economy/news';
 import { Icon } from './Icon';
@@ -56,12 +56,10 @@ export const NewsTicker: React.FC = () => {
   // Пул заголовков нужен ленте, а не только подбору: копии заполняются разными новостями,
   // иначе в начале игры игрок трижды подряд читал одну фразу.
   //
-  // Берётся состояние и считается пул в `useMemo`, а не селектором `newsPool(s.state)`:
-  // селектор возвращал бы новый массив на каждый вызов, и zustand увидел бы изменение при
-  // каждом тике — лента перерисовывалась бы двадцать раз в секунду ради строки, которая меняется
-  // раз в пятнадцать секунд.
-  const state = useGameStore((s) => s.state);
-  const pool = useMemo(() => newsPool(state), [state]);
+  // Подписка на сам пул: он новый массив на каждый вызов, но поверхностное сравнение видит те же
+  // строки, и лента перерисовывается, только когда состав заголовков действительно сменился, а
+  // не двадцать раз в секунду ради строки, которая меняется раз в пятнадцать секунд.
+  const pool = useStateSlice(newsPool);
   const refreshNews = useGameStore((s) => s.refreshNews);
   // У слуха своё действие, а не `catchEvent`: то живёт внутри окна события, и слух не имеет
   // права занимать чужое окно — у него нет ни Золотого Токена, ни его срока.

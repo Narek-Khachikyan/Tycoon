@@ -44,7 +44,9 @@ function useIsSingleCol(): boolean {
  */
 export const QuipBubble: React.FC<QuipBubbleProps> = ({ placement = "office" }) => {
   const lastQuip = useGameStore((s) => s.lastQuip);
-  const agents = useGameStore((s) => s.state.agents);
+  // Пустой ли офис, а не сам список Агентов: пузырь ставится по-разному, и этого одного бита
+  // ему достаточно — список же меняется на каждой покупке.
+  const empty = useGameStore((s) => Object.values(s.state.agents).every((n) => (n ?? 0) <= 0));
   const isSingle = useIsSingleCol();
 
   if (!lastQuip) return null;
@@ -54,7 +56,6 @@ export const QuipBubble: React.FC<QuipBubbleProps> = ({ placement = "office" }) 
     return null;
   }
 
-  const empty = Object.values(agents).every((n) => (n ?? 0) <= 0);
   const lab = lastQuip.lab ? LABS[lastQuip.lab] : null;
   const isPrompt = placement === "prompt";
 
@@ -113,12 +114,13 @@ interface QuipLogProps {
  * Modals.tsx буквально: если каркас поменяется, это место надо поправить вместе с ним.
  */
 export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
-  const state = useGameStore((s) => s.state);
+  // Читает только список услышанных реплик: он растёт на новой реплике, а не на каждом тике.
+  const quipsSeen = useGameStore((s) => s.state.quipsSeen);
   // Хук обязан стоять до раннего выхода: иначе окно то открывалось бы с ловушкой, то без неё.
   const cardRef = useDialogFocus<HTMLDivElement>(isOpen, onClose);
   if (!isOpen) return null;
 
-  const seen = new Set(state.quipsSeen);
+  const seen = new Set(quipsSeen);
   const found = QUIPS.filter((q) => seen.has(q.id));
 
   return (
