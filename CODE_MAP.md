@@ -1,9 +1,8 @@
 # CODE_MAP.md
 
-One line per module: what it owns, and the reading order it expects. Read this when you are about
-to open a module you have not opened. `AGENTS.md` holds the invariants; this file holds the map,
-and the map is the first thing to go stale — when you add, delete or split a module, change this
-file in the same commit, or the next agent will not find what you built.
+One line per module: what it owns, and the reading order it expects. The map is the first thing to
+go stale — when you add, delete or split a module, change this file in the same commit, or the next
+agent will not find what you built.
 
 ## The shape of it
 
@@ -17,8 +16,8 @@ render/, audio/, layout.ts, index.css
 scripts/, tools/
 ```
 
-The dependency edge that matters: `components/` must never import a money calculation. All
-arithmetic lives in `economy/`, and the store is the only module allowed to produce a side effect.
+The dependency edge that matters: `components/` get every number by calling `economy/` and never
+re-implement its arithmetic, and the store is the only module allowed to produce a side effect.
 
 ## `src/economy/` — every game rule, pure, free of React and the DOM
 
@@ -28,9 +27,10 @@ arithmetic lives in `economy/`, and the store is the only module allowed to prod
 | `state.ts` | `GameState`, `newGame(now)`, `SAVE_VERSION`. The shape of the contract — read before changing any field. |
 | `save.ts` | `migrate`, `MIGRATIONS`, `importSave`/`exportSave`, `CORRUPT_SAVE_KEY` and the quarantine of corrupt bytes. Read alongside `state.ts`. |
 | `catalog.ts` | `buildCatalog` → `CATALOG`, the Ранг ladder, the balance constants (`GEN_SCALE`, `MOD_SPREAD`, `genScale`, `PRESTIGE_DIVISOR_UNITS`). ADR-0001 in code form. |
-| `upgrades.ts` | Апгрейды and the `Upgrade` union; also `START_TOKENS_UNITS`. |
-| `perks.ts` | Перки and the `PerkEffect` union. |
-| `achievements.ts` | Достижения, including the shadow ones that feed nothing. |
+| `upgrades.ts` | Апгрейды and the `Upgrade` union. |
+| `perks.ts` | Перки and the `PerkEffect` union; also `START_TOKENS_UNITS`. |
+| `achievements.ts` | Достижения. |
+| `shadow.ts` | The shadow Достижения, which feed nothing. |
 | `events.ts` | The Событие pool, its windows, and the constants `GLOSSARY` and `NewsTicker` quote. |
 | `glitches.ts` | Глюки, the red-event tables behind Восстание моделей, and the Откуп rules. |
 | `crystal.ts` | Compute-crystal growth and the permanent stock bonus. |
@@ -44,14 +44,11 @@ arithmetic lives in `economy/`, and the store is the only module allowed to prod
 | `format.ts` | `formatNumber`, `formatCount`, `formatDuration` — the only way a number reaches the screen. |
 | `economy.test.ts` | The main safety net, grouped by area, and the place invariant 3 is enforced. |
 
-Tests sit beside them for `challenges`, `crystal`, `format`, `goals`, `onboarding`, `quips`, `save`
-and `shadow`.
-
 ## `src/store/useGameStore.ts`
 
 The only module that mutates state or causes a side effect: each tick's `advanceTime`, the
-`localStorage` save (throttled to `SAVE_INTERVAL_MS`, forced on player actions, flushed on page
-hide), offline accrual on load, sounds, toasts, click floaters — plus UI-only slices such as the
+`localStorage` save (throttled to `SAVE_INTERVAL_MS`, forced on every player action but a Клик,
+flushed on page hide), offline accrual on load, sounds, toasts, click floaters — plus UI-only slices such as the
 active tab, buy amount and sell mode. Anything that needs a side effect goes through an action here.
 `useGameStore.test.ts` is the safety net for those actions.
 
@@ -61,7 +58,7 @@ active tab, buy amount and sell mode. Anything that needs a side effect goes thr
 | --- | --- |
 | `labs.ts` | The Лаборатория roster. Adding one means editing the `LabId` union and `LABS` together. |
 | `generations.ts` | The manual cut of real models per Поколение as *seeds*, with fallback AA values and `pin` overrides. |
-| `aa-snapshot.json` | **Generated.** Rewrite it only through `npm run sync:aa`, or pin the number on the seed. |
+| `aa-snapshot.json` | **Generated** by `npm run sync:aa` — invariant 4. |
 | `glossary.ts` | The «Справка» definitions shown in the info modal; its timings are asserted against the code constants. |
 | `prompts.ts` | The canonical Переписка request→reply pairs, including the first eight the store shipped with. |
 | `quips.ts` | Talking-model lines, per Лаборатория, no mechanics attached. |
@@ -70,11 +67,11 @@ active tab, buy amount and sell mode. Anything that needs a side effect goes thr
 ## `src/components/` — presentation only
 
 - **Columns:** `ClickColumn` (the Клик, the Токен counter, the dial), `OfficeColumn` (Сцены and
-  mascots), `ShopColumn` (Модели, Апгрейды, Перки, Слух AA).
+  mascots), `ShopColumn` (Модели, Апгрейды, Перки, Справка AA).
 - **Chrome:** `Header`, `NewsTicker`, `Toasts`, `Footer` — and `Footer.tsx` holds the Artificial
   Analysis attribution the build must never lose.
-- **Modals:** `Modals.tsx` holds `SettingsModal`, the export/import UI and the rest; it owns
-  `useDialogFocus`.
+- **Modals:** `Modals.tsx` holds `SettingsModal`, the export/import UI and the rest; it and
+  `QuipBubble` trap focus through `useDialogFocus.ts`.
 - **Overlays:** `PrestigeOverlay`, `OnboardingCoach`, `GoldenToken`, `QuipBubble`, `GoalsBanner`,
   `MilestoneStrip`.
 - **Scene and sprite drawing:** `MascotSprite`, `WorkstationSprite`, `EventSprites`, `SceneEvents`.
@@ -100,7 +97,7 @@ its own, so text contrast never depends on what the painting happened to put the
 - `index.css` — theme variables, `pixel-*` classes, and every animation. Keyframes live here.
 - `index.test.ts` — asserts CSS and cleanup wiring by reading sources as text.
 - `issues.test.ts` — one `describe` per fixed issue, each pinning its regression. Also the enforced
-  banned-word list for `glossary.ts` and the quip tables.
+  banned-word list for `glossary.ts`; `economy/quips.test.ts` holds the same list for the quip table.
 - `node-fs.d.ts` — the single `readFileSync` declaration the source-reading tests need; the repo
   carries no `@types/node`.
 
@@ -113,13 +110,11 @@ its own, so text contrast never depends on what the painting happened to put the
   each milestone lands: `npx tsx tools/sim.ts`, `--prestige`, `--gen 90`. Read this before changing
   the ladder; the comment at the top says why it exists.
 - `public/scenes/scene-1..4.png`, `public/sprites/` — committed art. `public/sprites/raw/` is
-  gitignored source art, and `npm run sprites` is a dead command.
+  gitignored source art.
 - `docs/adr/` — the decisions, reached by topic: AA snapshot and Ранг balance; the neutral UI base
   and four Сцены; pixel font for numbers only; pair Синергия and Поколение perks; the Престиж
-  overlay; Температура as a live parameter; the unified palette with eight Поколение accents. Two
-  files share the `0006-` prefix, so refer to them by title.
+  overlay; Температура as a live parameter; the unified palette with eight Поколение accents.
 - `docs/vision.md`, `docs/DECISIONS.md`, `docs/PROGRESS.md`, `docs/research/` — working notes from
   the synthesis of the two overhaul branches. History, not instructions.
 - `docs/agents/` — how the engineering skills consume the tracker, the triage labels and the domain
   docs.
-- `node_modules/` — read-only reference for library APIs.
