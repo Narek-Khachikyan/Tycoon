@@ -14,7 +14,7 @@
  * Контекст и мастер-шина не наши: ими владеет `sound.ts`, и громкость игрока применяет он.
  */
 
-import { audioBus, runningBus, type AudioBus, type SoundSettings } from './sound';
+import { effectBus, runningBus, type AudioBus, type SoundSettings } from './sound';
 
 /**
  * Потолок суммы голосов одного звукового сигнала.
@@ -128,9 +128,6 @@ function blip({ ctx, master }: AudioBus, v: Voice): void {
   osc.stop(end + STOP_TAIL);
 }
 
-/** Шина для сигнала от нажатия: мьют не создаёт даже контекста. */
-const sfxBus = (settings: SoundSettings): AudioBus | null => (settings.muted ? null : audioBus(settings));
-
 /**
  * Переключатель: сегментированный контрол, режим «покупать/продавать».
  *
@@ -140,7 +137,7 @@ const sfxBus = (settings: SoundSettings): AudioBus | null => (settings.muted ? n
  * по-разному даже вперемешку, а ползущий вверх сигнал читался бы как «ещё».
  */
 export function playToggleSound(settings: SoundSettings): void {
-  const bus = sfxBus(settings);
+  const bus = effectBus(settings);
   if (!bus) return;
 
   blip(bus, { waveform: 'square', freq: wobble(620, 0.02), peak: 0.0435, attack: 0.002, decay: 0.06 });
@@ -184,7 +181,7 @@ export function playMilestoneSound(settings: SoundSettings): void {
  * отличаться на слух даже в соседстве с подтверждением окна.
  */
 export function playPrestigeConfirmSound(settings: SoundSettings): void {
-  const bus = sfxBus(settings);
+  const bus = effectBus(settings);
   if (!bus) return;
 
   // G3 → D3 за 60 мс: короткий «клац», а не нота.
