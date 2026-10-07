@@ -10,9 +10,6 @@ right and this file is stale — fix this file in the same change.
 ## Understand before changing
 
 - Ask when the ambiguity changes the outcome; otherwise assume, and say which you assumed.
-- Before adding code, know the **blast radius**: who reads this, what crosses the boundary, what
-  breaks if it is wrong. A change to `GameState`, to a catalog id or to `SAVE_VERSION` is a change
-  to live player data — see invariant 1 in `AGENTS.md`.
 
 ## Design
 
@@ -60,16 +57,21 @@ right and this file is stale — fix this file in the same change.
 - `npm install` from the committed lockfile. React, Vite, TypeScript, Zustand and Vitest move only
   when the task is about them.
 - Before adding anything, check what the project already has and weigh the maintenance cost out
-  loud. `tools/sim.ts` runs under `npx tsx`, which is not a declared dependency; the repo carries no
-  `@types/node`, and `src/node-fs.d.ts` declares exactly the one call its source-reading tests need.
+  loud.
 
 ## Tests
 
+- Name every test `*.test.ts`: `vite.config.ts` includes only `src/**/*.test.ts`, so a `.test.tsx`
+  is skipped silently. Run one case with `npm test -- -t '<name>'`.
+- A bug fix ships with a test that goes **red** on the bug. `src/issues.test.ts` collects such
+  regressions, one `describe('Issue #N: …')` per fixed issue.
 - Assert observable behaviour, public contracts and invariants — not implementation shape. A test
   that only proves a callback is wired mirrors the line it checks.
 - The exception, and it is a real one: when the contract *is* the source — the CSS gate under
   `[data-motion="reduced"]`, a cleanup handler — read the file as text with `readFileSync` and
-  assert on it. `src/index.test.ts` and `src/issues.test.ts` do this.
+  assert on it. `src/index.test.ts` and `src/issues.test.ts` do this. The repo carries no
+  `@types/node`: `src/node-fs.d.ts` declares exactly the one call those tests need, so extend it
+  rather than adding the package.
 - Group by area in `describe` blocks and assert over the **whole catalog**, not one hand-picked
   generation. Invariant 3 lives as tests, and a test that shrinks its loop is a deleted invariant.
 - Assert on values, not golden snapshots of markup. An async test waits on the real signal, or
@@ -79,6 +81,18 @@ right and this file is stale — fix this file in the same change.
   a suite that only ever sees a fresh state hides the rounding and overflow bugs in `formatNumber`,
   `maxAffordable` and prestige gains.
 
+## Checking the UI by hand
+
+Component behaviour is checked by hand, not by browser automation.
+
+- Every layout band from `src/layout.ts`: three columns at or above `THREE_COL_MIN`, one tab at a
+  time below it, and the compressed header at or below `NARROW_MAX`, where the footer's AA
+  attribution must still show.
+- The states you touched: empty first run, no income yet, the offline report at its cap, Престиж
+  confirmation, the content finale, an import error.
+- To reach a late state on a throwaway origin, export a run as a code from «Настройки» and import it
+  there.
+
 ## Documentation
 
 - Most code changes need no doc change. The code records the implementation; what you cannot read
@@ -86,15 +100,14 @@ right and this file is stale — fix this file in the same change.
 - Internal docs hold decisions and their reasons, cross-component constraints, and traps that are
   hard to find from source. Before adding a paragraph, ask what a maintainer would get wrong
   without it; if the code answers it, leave it out.
-- Leave fields, methods and control flow to the code; the one file catalog is `CODE_MAP.md`, and it
-  goes stale faster than code does.
+- **Leave to the tree what the tree already answers.** Fields, methods, control flow, counts, file
+  lists and test inventories go stale silently and cost a reader more than a `ls` would.
+  `CODE_MAP.md` is an ownership map for the same reason: it records boundaries and traps, not files.
 - When a documented decision changes, rewrite the affected text in place so one account remains.
 - `CONTEXT.md` and `docs/adr/` are the internal docs. `README.md` is for players and stays thin: what
   the game is, how to run it, what Температура means. A merged PR is the implementation record — do
   not commit plans, research notes, screenshots or checklists.
 - No new doc files unless the developer asks.
-- **Leave to the tree what the tree already answers.** Counts, file lists and test inventories go
-  stale silently and cost a reader more than a `ls` would.
 
 ## Performance
 
@@ -120,9 +133,3 @@ Reached only when the developer asks for one. The developer pushes.
 - **Babysitting:** poll checks and comments newer than the last push, verify each finding against
   the source, fix the real ones, dismiss false positives in writing. Stay quiet when nothing is new.
   Stop when checks are green on the latest commit.
-
-## Reporting back
-
-Your final message states, briefly: what changed, how it was verified, what remains unverified,
-and anything out of scope you noticed. Communicate blockers and risks the moment they appear, not
-in the final paragraph.

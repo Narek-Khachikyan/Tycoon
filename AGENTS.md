@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Token Clicker: a browser idle/clicker where the player hires real AI models that generate Токены and climbs through Поколения via Престиж. React + Vite + Zustand, one page, no backend. `README.md` is the player's; this file is for you, and it is a **router** — invariants, gotchas, verification, pointers. Everything else lives in `CODE_MAP.md`, `CODING_STANDARDS.md`, `CONTEXT.md`, `docs/adr/`, or the code itself. Prefer those over a second copy here.
+Token Clicker: a browser idle/clicker where the player hires real AI models that generate Токены and climbs through Поколения via Престиж. React + Vite + Zustand, one page, no backend. `README.md` is the player's; this file is the router for you — invariants, guardrails, the verify gate, and pointers to the rest.
 
 ## Never compromise on these
 
@@ -15,43 +15,22 @@ Token Clicker: a browser idle/clicker where the player hires real AI models that
 - **You stop at a verified working tree.** The developer commits, pushes and opens the PR. Never commit, publish or deploy on your own initiative.
 - **Kill only what you spawned.** Stop a server by the PID you captured at spawn. Never `pkill -f` or kill a PID found by matching a name or path; your own process can match.
 - **Keep credentials and personal data out of code, logs, fixtures and messages.** Invariant 4 is the sharp case, not the only one.
-- **Say what you did not verify.** An expectation is not a result: name what stayed in the **fog of war** and anything out of scope you noticed.
+- **Your browser profile holds a real save.** `npm run dev` is the only server; Vite takes the next free port and every origin keeps its own save, so note the port you got and check UI in a private window or on a throwaway port.
+- **One game clock, one persistence path.** `App.tsx`'s 50 ms tick drives `advanceTime`, and every `localStorage` write goes through the store's throttled save. New code hangs off that tick through the store; a bounded one-shot `setTimeout` (a toast's dwell) is the only other timer it starts.
+- **Report the fog of war.** Raise blockers and risks the moment they appear. The final message states what changed, how it was verified, what stayed unverified — an expectation is not a result — and anything out of scope you noticed.
 - A rule that fights the task in front of you gets flagged out loud, with sign-off, before you break it.
-
-## Gotchas the code does not confess
-
-- `npm run sprites` points at `scripts/chroma-key.py`, which is not in the repo. The command is dead — flag it rather than relying on it. Raw source art under `public/sprites/raw` is gitignored.
-- `App.tsx` owns the only game clock: one 50 ms `setInterval` that drives `advanceTime`. Persistence is throttled to `SAVE_INTERVAL_MS` (1 s), force-written on every player action except a Клик (which rides the throttle with the tick), and flushed on `visibilitychange`/`pagehide` — it is not a write per tick. Every write goes through that one path. The repeating timers that already exist are `NewsTicker`'s 15 s news rotation, `ClickColumn`'s counter interpolation, `PrestigeOverlay`'s overlay animation and `music.ts`'s audio scheduler; a one-shot `setTimeout` (a toast's dwell, a modal's exit) is not a timer under this rule. A new component reads the existing tick through the store instead of starting a repeating timer of its own.
-- `npm run dev` is the only server. Vite takes the next free port, and every origin keeps its own save, so remember which port you got. Manual UI checks use a private window or a throwaway port, never the profile holding real progress; «Настройки» can export a run as a code and import it back.
-- Audio stays silent until a user gesture: `AudioContext` resumes only after one, so a muted game before the first click is not a bug to chase.
-- `tools/sim.ts` is the balance simulator and runs under `npx tsx`, which is not a dependency here.
 
 ## Verify
 
 - `npm test` before you finish any economy, save, content or layout change. `npx tsc -b` is the only static gate: there is no linter, no formatter and no CI.
-- One case: `npm test -- -t '<name>'`. `vite.config.ts` includes only `src/**/*.test.ts`, so name every test `.test.ts` — a `.test.tsx` is skipped silently; component behaviour is checked by hand.
-- A bug fix ships with a test that goes **red** on the bug.
-- Before calling it done, know its **blast radius**: entry points, states, and anything crossing the save contract — this repo has one client and no API, so the surface is the UI's states and `src/economy/`. A one-way door is a bug unless the irreversibility is deliberate and said out loud.
-- UI is checked by hand at both widths (≥1000 px and below) and in the states you touched — empty first run, no income yet, the offline report at its cap, Prestige confirmation, the content finale, an import error. No browser automation.
-
-## Rules that attach to a place
-
-- **Money math lives in `src/economy/`.** Components read state and call store actions; only the store and `src/economy/` construct or change `GameState`.
-- **A transition that changes nothing returns the same object.** The store checks `next !== state` to skip sounds, toasts and re-renders; keep the identity contract when you add one.
-- **Numbers reach the screen only through `formatNumber`, `formatCount` and `formatDuration`.**
-- **One number decides the layout.** `THREE_COL_MIN` in `src/layout.ts` is the desktop/mobile switch — read it there rather than hard-coding a width.
+- Know the **blast radius** before calling it done: who reads what you changed, which UI states it reaches, and whether it crosses the save contract. A one-way door is a bug unless the irreversibility is deliberate and said out loud.
 
 ## Pointers
 
 Reach for these before you decide, not after.
 
-- **Opening a module you have not opened?** `CODE_MAP.md` — one line per module, its reading order, and the invariants that hang off it.
-- **Writing or reviewing code?** `CODING_STANDARDS.md` — the standard applied to what is in front of you: design, comments, naming, tests, docs, dependencies, performance, and the PR shape the developer asks for.
-- **Touching balance, the AA data flow, Синергия or Поколение perks, the palette and Сцены, the pixel font, the Престиж overlay, or Температура?** Read the matching ADR in `docs/adr/` first. If your change contradicts one, say so out loud instead of overriding it.
-- **Naming a domain concept** — in code, a commit, a test name, an issue title? `CONTEXT.md` holds the definition and the synonyms to avoid. A concept that is not there is either invented language or a real gap; say which.
-- **Issue tracker, triage labels, domain-doc conventions?** `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, `docs/agents/domain.md`.
-
-## Two words with fixed meanings
-
-- **seed** — one row in `src/data/generations.ts`: a real Модель, its Лаборатория, its Поколение, and its fallback AA values.
-- **snapshot** — `src/data/aa-snapshot.json`: metrics fetched from Artificial Analysis by `npm run sync:aa` and committed. It is imported straight into the bundle, so everything in it is public.
+- **Opening or adding a module?** `CODE_MAP.md` — who owns what, the reading order, and the rules that attach to a place (money math, transitions, number formatting, layout).
+- **Writing or reviewing code, a test, a hand UI check, or a PR?** `CODING_STANDARDS.md`.
+- **Touching balance, the AA data flow, Синергия or Поколение perks, the palette and Сцены, the pixel font, the Престиж overlay, or Температура?** The matching ADR in `docs/adr/` first; if your change contradicts one, say so out loud instead of overriding it.
+- **Naming a domain concept** — in code, a commit, a test, an issue? `CONTEXT.md`, including seed and snapshot. A concept that is not there is either invented language or a real gap; say which.
+- **Issue tracker, triage labels, domain-doc conventions?** `docs/agents/`.
