@@ -5,6 +5,7 @@ import { LABS, LAB_IDS, type LabId } from '../data/labs';
 import { canPrestige, isContentFinale, labIncomeShare } from '../economy/engine';
 import { labAgents, labWork, SYNERGY_PER_AGENT, synergyUpgradeId } from '../economy/upgrades';
 import { formatCount, formatNumber } from '../economy/format';
+import { Icon } from './Icon';
 import { MascotSprite } from './MascotSprite';
 import { Num } from './Num';
 import { STATION_SURFACE_ROW, WorkstationSprite } from './WorkstationSprite';
@@ -276,15 +277,21 @@ const OfficeGlitchSwarm: React.FC = () => {
               />
             )}
           </span>
+          {/* Подписи рядом нет, поэтому у значка свой текст: иначе для скринридера лопнувший
+              Глюк остался бы немой картинкой. */}
           <span
+            role="img"
+            aria-label="Глюк лопнул"
             style={{
               ...GLITCH_CHIP,
+              padding: '1px 4px',
+              lineHeight: 0,
               borderColor: 'var(--green)',
               color: 'var(--green)',
               animation: 'toast-fade 0.25s ease-out forwards',
             }}
           >
-            ✓
+            <Icon name="check" />
           </span>
         </div>
       ))}
@@ -472,7 +479,8 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
             className="pixel-btn pixel-btn-gold"
             style={{ fontSize: '1rem', padding: '10px 16px' }}
           >
-            🚀 Совершить Престиж
+            <Icon name="rocket" />
+            Совершить Престиж
           </button>
         )}
 
