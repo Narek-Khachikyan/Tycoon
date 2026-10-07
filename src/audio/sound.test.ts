@@ -11,6 +11,7 @@
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  audioBus,
   clickVolumeForStreak,
   masterVolume,
   playAchievementSound,
@@ -26,6 +27,7 @@ import {
   playQuipSound,
   playRestartSound,
   playUpgradeSound,
+  setAudioHidden,
   type SoundSettings,
 } from './sound';
 import {
@@ -44,7 +46,7 @@ import {
   updateMusic,
   type MusicParams,
 } from './music';
-import { playMilestoneSound, SFX_PEAK_CEILING } from './sfx';
+import { playMilestoneSound, playPrestigeConfirmSound, playToggleSound, SFX_PEAK_CEILING } from './sfx';
 import { playCoolingSound, playHallucinationSound, updateThermalAudio } from './thermal';
 
 const T0 = 1_700_000_000_000;
@@ -190,6 +192,8 @@ class FakeAudioContext {
 }
 
 const ctx = new FakeAudioContext();
+/** Сколько раз звуковой модуль создавал AudioContext: нужен тесту «скрытие не будит звук». */
+let contextsBuilt = 0;
 
 /** Мастер-шина создаётся первой, музыкальная — сразу за ней: порядок в audioBus фиксирован. */
 const masterNode = (): FakeGain => ctx.gains[0];
@@ -248,6 +252,7 @@ beforeAll(() => {
   // экземпляр: иначе тест смотрел бы в пустой объект, а звук писал бы в свой.
   vi.stubGlobal('window', {
     AudioContext: function SingleAudioContext() {
+      contextsBuilt += 1;
       return ctx;
     },
   });
@@ -438,6 +443,103 @@ describe('громкость каналов поверх мастера', () => 
     nextClickMoment();
     playClickSound(mix({ volume: 1, sfxVolume: -3 }));
     expect(playerLevel(ctx.oscillators[0])).toBe(0);
+  });
+});
+
+// ---------- Фоновая вкладка ----------
+
+describe('тишина скрытой страницы', () => {
+  const masterLevel = (): number | undefined => masterNode().gain.points.at(-1)?.value;
+
+  afterEach(() => {
+    setAudioHidden(false, SETTINGS);
+  });
+
+  it('закрывает мастер-шину, пока страница скрыта, и возвращает громкость игрока, когда она видна', () => {
+    playClickSound(SETTINGS);
+    expect(masterLevel()).toBeCloseTo(0.8);
+
+    setAudioHidden(true, SETTINGS);
+    expect(masterLevel()).toBe(0);
+
+    setAudioHidden(false, SETTINGS);
+    expect(masterLevel()).toBeCloseTo(0.8);
+  });
+
+  it('глушит и непрерывный голос, и музыку: они идут через ту же мастер-шину', () => {
+    startMusic(SETTINGS);
+    updateThermalAudio(SETTINGS, { temp: 0.8, heat: 0.2 });
+    setAudioHidden(true, SETTINGS);
+
+    // Тик, пришедший из скрытой вкладки, зовёт те же функции с теми же настройками игрока:
+    // он не должен открыть шину обратно.
+    updateThermalAudio(SETTINGS, { temp: 0.9, heat: 0.2 });
+    updateMusic(music());
+    expect(masterLevel()).toBe(0);
+  });
+
+  it('не создаёт источников для эффектов, пока страница скрыта, и звучит снова после возврата', () => {
+    setAudioHidden(true, SETTINGS);
+    playClickSound(SETTINGS);
+    playBuySound(SETTINGS);
+    playAchievementSound(SETTINGS);
+    playPrestigeSound(SETTINGS);
+    playCoolingSound(SETTINGS);
+    playHallucinationSound(SETTINGS);
+    playMilestoneSound(SETTINGS);
+    playToggleSound(SETTINGS);
+    playPrestigeConfirmSound(SETTINGS);
+    expect(ctx.oscillators).toHaveLength(0);
+    expect(ctx.noise).toHaveLength(0);
+
+    setAudioHidden(false, SETTINGS);
+    playBuySound(SETTINGS);
+    expect(ctx.oscillators.length).toBeGreaterThan(0);
+  });
+
+  it('не отпирает то, что игрок заглушил сам: мьют переживает возвращение', () => {
+    const muted: SoundSettings = { ...SETTINGS, muted: true };
+    playClickSound(SETTINGS);
+    setAudioHidden(true, muted);
+    setAudioHidden(false, muted);
+    expect(masterLevel()).toBe(0);
+  });
+
+  it('возвращается с громкостью, выставленной к моменту возврата, а не к моменту ухода', () => {
+    playClickSound(SETTINGS);
+    setAudioHidden(true, SETTINGS);
+    setAudioHidden(false, { ...SETTINGS, volume: 0.3 });
+    expect(masterLevel()).toBeCloseTo(0.3);
+  });
+
+  it('не открывается обратно от запроса шины с полной громкостью, пока страница скрыта', () => {
+    playClickSound(SETTINGS);
+    setAudioHidden(true, SETTINGS);
+    audioBus({ ...SETTINGS, volume: 1 });
+    expect(masterLevel()).toBe(0);
+  });
+
+  it('не заводит голос Температуры под скрытой страницей и заводит его после возврата', async () => {
+    vi.resetModules();
+    const fresh = await import('./sound');
+    const thermal = await import('./thermal');
+    fresh.setAudioHidden(true, SETTINGS);
+    thermal.updateThermalAudio(SETTINGS, { temp: 0.5, heat: 0 });
+    expect(ctx.oscillators).toHaveLength(0);
+    expect(ctx.noise).toHaveLength(0);
+
+    fresh.setAudioHidden(false, SETTINGS);
+    thermal.updateThermalAudio(SETTINGS, { temp: 0.5, heat: 0 });
+    expect(ctx.oscillators.length).toBeGreaterThan(0);
+  });
+
+  it('не создаёт AudioContext сама: до первого жеста звука нет, и скрытие его не будит', async () => {
+    vi.resetModules();
+    const fresh = await import('./sound');
+    const before = contextsBuilt;
+    fresh.setAudioHidden(true, SETTINGS);
+    fresh.setAudioHidden(false, SETTINGS);
+    expect(contextsBuilt).toBe(before);
   });
 });
 

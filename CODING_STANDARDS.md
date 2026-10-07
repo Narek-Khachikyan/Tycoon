@@ -70,7 +70,10 @@ components/    presentation: reads state, calls actions
   effect to `bus.sfx`, a note to `bus.musicBus` — and writes its own level, never a volume. A
   signal fired by the tick rather than a press goes through `runningBus()`, or it would pile up on
   a sleeping context and burst on the first click. `music.ts` is the single music loop; it reads
-  the current settings every tick.
+  the current settings every tick. A hidden page is silenced on that same master, but by its own
+  flag rather than the player's mute: the store calls `setAudioHidden` on `visibilitychange`, and
+  every effect takes its bus from `effectBus()` or `runningBus()`, which return null while it
+  holds — never test `settings.muted` by hand.
 - **`npm run sprites` is dead**: `scripts/chroma-key.py` is not in the repo. Flag it rather than
   rely on it.
 - `docs/vision.md`, `docs/DECISIONS.md`, `docs/PROGRESS.md` and `docs/research/` are history, not
@@ -97,10 +100,12 @@ components/    presentation: reads state, calls actions
   touches, named after the behaviour the player gets — not after the issue number. The issue
   number belongs in the PR (`Closes #N`).
 - Assert values and contracts, not markup snapshots, wiring, or the text of the source. A regex
-  over a `.tsx` passes on code that is broken and fails on code that is fine. The one exception is
-  `src/index.test.ts`: nothing else parses `index.css`, so it checks the file's structure (balanced
-  braces, no `@keyframes` inside `@media`) through `readFileSync`. There is no `@types/node`:
-  extend `src/node-fs.d.ts` rather than adding the package.
+  over a `.tsx` passes on code that is broken and fails on code that is fine. The two exceptions
+  read `index.css` through `readFileSync`: `src/index.test.ts` checks the file's structure
+  (balanced braces, no `@keyframes` inside `@media`), and `src/palette.test.ts` reads the `:root`
+  palette, the `color-mix` shares in `.app-root` and the eight accents from `generations.ts`, and
+  asserts the ADR-0007 pairs at 4.5:1 — change a surface or a fill and it tells you which pair
+  fell. There is no `@types/node`: extend `src/node-fs.d.ts` rather than adding the package.
 - Use the real pure functions of `src/economy/` in store tests; mock only what node cannot run
   (audio). A mock that re-implements a rule asserts the mock, not the game.
 - Assert over the **whole catalog**, not one hand-picked Поколение; a test that shrinks its loop is

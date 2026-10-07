@@ -57,6 +57,7 @@ import {
   playQuipSound,
   playRestartSound,
   playUpgradeSound,
+  setAudioHidden,
 } from '../audio/sound';
 import type { LabId } from '../data/labs';
 import { PROMPT_TEMPLATES } from '../data/prompts';
@@ -196,6 +197,9 @@ interface GameStore {
    *  условия отказа живут там, а не в окне. */
   prestigePrompt: boolean;
   activeTab: ActiveTab;
+  /** Скрыта ли страница. Вне GameState: это «где сейчас игрок», а не состояние Забега, и в сейв
+   *  оно не попадает — молчание не настройка, и мьют с ползунком остаются такими, как есть. */
+  tabHidden: boolean;
   buyAmount: BuyAmount;
   sellMode: boolean;
   toasts: ToastMessage[];
@@ -271,6 +275,9 @@ interface GameStore {
   setBuyAmount: (amt: BuyAmount) => void;
   setSellMode: (mode: boolean) => void;
   setActiveTab: (tab: ActiveTab) => void;
+  /** Страница скрыта (фоновая вкладка, свёрнутое окно): звук молчит, пока она такая. Зовётся
+   *  подпиской на `visibilitychange`; повтор того же значения ничего не делает. */
+  setTabHidden: (hidden: boolean) => void;
   setNotation: (notation: Notation) => void;
   toggleMute: () => void;
   setReducedMotion: (on: boolean) => void;
@@ -499,6 +506,42 @@ function installSaveFlush(): void {
   window.addEventListener('pagehide', flushSave);
 }
 
+/**
+ * Как часто тик переписывает заголовок вкладки.
+ *
+ * Число, а не тики, по той же причине, что и `SAVE_INTERVAL_MS`: тик идёт двадцать раз в секунду
+ * на переднем плане и раз в секунду (а то и реже) в фоне, и частота записи не должна зависеть
+ * от того, как браузер душит таймеры. Раз в секунду — потому что большего глаз в строке вкладки
+ * не различит, а каждая запись заголовка перерисовывает полосу вкладок.
+ */
+export const TITLE_INTERVAL_MS = 1000;
+
+/** То же имя, что в `<title>` страницы: заголовок без числа — это он. */
+const TITLE_NAME = 'Token Clicker';
+
+/** Момент последней записи заголовка; 0 = ещё не писали, и первый же тик запишет сразу. */
+let titleAt = 0;
+
+/**
+ * Пишет число Токенов в заголовок вкладки, не чаще раза в `TITLE_INTERVAL_MS`.
+ *
+ * Число идёт первым: узкая вкладка обрезает хвост, и то, ради чего заголовок меняют, обязано
+ * пережить обрезку. Слова «Токенов» рядом нет намеренно: форма числительного считается по
+ * целому, а запись «1,23 K» его не печатает, и любая фиксированная форма где-нибудь соврала бы.
+ * Нотация — та, что игрок выбрал в настройках, поэтому число совпадает с тем, что на экране.
+ */
+function syncTitle(): void {
+  if (typeof document === 'undefined') return;
+  const now = Date.now();
+  if (now - titleAt < TITLE_INTERVAL_MS) return;
+  titleAt = now;
+  const { tokens, settings } = useGameStore.getState().state;
+  const next = `${formatNumber(tokens, settings.notation)} · ${TITLE_NAME}`;
+  // Тот же текст не пишется: браузер заменяет узел заголовка и на равном значении, а читаемое
+  // число в «1,50 M» стоит на месте десятки секунд.
+  if (document.title !== next) document.title = next;
+}
+
 /** Системная настройка движения. Литерал живёт здесь один раз: тот же запрос читает
  *  CSS-гейт в index.css, а JS нужен ещё и сам список — для слушателя смены настройки. */
 export const REDUCE_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
@@ -714,6 +757,7 @@ export const useGameStore = create<GameStore>((set, get) => {
     offlineReport: initial.offline,
     prestigePrompt: false,
     activeTab: 'click',
+    tabHidden: false,
     buyAmount: 1,
     sellMode: false,
     toasts: initial.notice ? [initial.notice] : [],
@@ -778,6 +822,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       // Голос идёт после set, чтобы читать уже новое состояние, и до записи в localStorage:
       // звук не должен ждать завершения сериализации.
       syncThermalVoice();
+      syncTitle();
 
       saveLater();
     },
@@ -1181,6 +1226,13 @@ export const useGameStore = create<GameStore>((set, get) => {
       set({ sellMode: mode });
     },
     setActiveTab: (tab: ActiveTab) => set({ activeTab: tab }),
+    // Звук получает настройки как есть: тишина живёт в звуковом модуле отдельно от мьюта и
+    // громкости, поэтому возвращение снимает её, не гадая, что игрок выбрал до ухода.
+    setTabHidden: (hidden: boolean) => {
+      if (get().tabHidden === hidden) return;
+      set({ tabHidden: hidden });
+      setAudioHidden(hidden, get().state.settings);
+    },
 
     // Настройки объединены в одну запись по одной причине: любая из них меняет GameState, а
     // GameState — это сейв. Переключатель молча уехал бы в localStorage только с ближайшим тиком,
@@ -1333,3 +1385,18 @@ toggleMute: () => {
 });
 
 installSaveFlush();
+
+/**
+ * Следит за видимостью страницы и передаёт её стору.
+ *
+ * Первое чтение — сразу: вкладка, открытая в фоне (средняя кнопка, восстановление сессии),
+ * загружается скрытой, и события видимости не будет, пока игрок на неё не перейдёт.
+ */
+function installTabVisibility(): void {
+  if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return;
+  const sync = (): void => useGameStore.getState().setTabHidden(document.visibilityState === 'hidden');
+  sync();
+  document.addEventListener('visibilitychange', sync);
+}
+
+installTabVisibility();

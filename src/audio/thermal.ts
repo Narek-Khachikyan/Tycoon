@@ -14,7 +14,7 @@
  * температуру, которую видит на шкале. Всё идёт через канал эффектов `sound.ts`: громкость и мьют
  * игрока применяются там.
  */
-import { audioBus, noiseBuffer, runningBus, type SoundSettings } from './sound';
+import { audioBus, isAudioHidden, noiseBuffer, runningBus, type SoundSettings } from './sound';
 
 /**
  * Живой голос. Держится между вызовами, поэтому `updateThermalAudio` на каждом тике ничего
@@ -45,10 +45,10 @@ export interface ThermalAudioParams {
  * Один вызов на тик, а не событие: параметры ползучие, и пересоздавать источники каждые
  * 50 мс было бы и слышно, и дорого. `start()` вызывается ровно один раз за жизнь голоса,
  * а всё остальное — `setTargetAtTime`, который по определению плавный и не щёлкает.
- * Пока звук выключен, голос не создаётся вовсе; уже созданный глушит мастер.
+ * Пока звук выключен или страница скрыта, голос не создаётся вовсе; уже созданный глушит мастер.
  */
 export function updateThermalAudio(settings: SoundSettings, { temp, heat }: ThermalAudioParams): void {
-  if (settings.muted && !voice) return;
+  if ((settings.muted || isAudioHidden()) && !voice) return;
   const bus = audioBus(settings);
   if (!bus) return;
   const { ctx, sfx } = bus;

@@ -18,7 +18,8 @@ import { audioBus, type AudioBus, type SoundSettings } from './sound';
 vi.mock('./sound', () => {
   const audioBus = vi.fn((): AudioBus | null => null);
   // Контекст подделки всегда «звучит», поэтому сигналы из тика ведут себя как от нажатия.
-  return { audioBus, runningBus: vi.fn((s: SoundSettings) => (s.muted ? null : audioBus())) };
+  const unlessMuted = (s: SoundSettings): AudioBus | null => (s.muted ? null : audioBus());
+  return { audioBus, effectBus: vi.fn(unlessMuted), runningBus: vi.fn(unlessMuted) };
 });
 
 const ON: SoundSettings = { muted: false, volume: 1, musicVolume: 1, sfxVolume: 1 };

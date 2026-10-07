@@ -10,6 +10,9 @@
  * Музыка приходит из music.ts, но контекст и граф остаются здесь: второй AudioContext на
  * страницу браузер не даёт.
  *
+ * Скрытая страница молчит тем же путём, что и мьют, но отдельным флагом: тишина фона — не
+ * настройка игрока, и снимается сама, не трогая ни мьют, ни ползунок.
+ *
  * AudioContext создаётся лениво и один на страницу. Без жеста игрока он остаётся suspended, и
  * звука нет: браузер не даёт звучать без жеста, и никакой код этого не обойдёт — это не баг. Ошибку
  * resume() глотаем, иначе каждое касание до первого клика сыпало бы в консоль unhandled rejection.
@@ -64,6 +67,42 @@ const applied: { master: number | null; music: number | null; sfx: number | null
   music: null,
   sfx: null,
 };
+/** Страница скрыта: мастер закрыт, эффекты не создают источников. Живёт на модуле, а не в
+ *  настройках игрока: это «где игрок сейчас», и в сейв оно не попадает. */
+let hidden = false;
+
+/** Что мастер обязан держать сейчас: тишина скрытой страницы перекрывает и мьют, и ползунок. */
+const targetVolume = (settings: SoundSettings): number => (hidden ? 0 : masterVolume(settings));
+
+/** Скрыта ли страница; читают те, кто держит собственное состояние звука и не должен
+ *  заводить его впустую (непрерывный голос Температуры). */
+export function isAudioHidden(): boolean {
+  return hidden;
+}
+
+/**
+ * Страница скрыта или снова видна.
+ *
+ * Мастер переписывается сразу, а не на следующем тике: тик скрытой вкладки приходит раз в
+ * секунду или реже, и звук тянулся бы всё это время после ухода. Настройки приходят аргументом
+ * — модуль их не хранит, поэтому возвращение читает мьют и ползунок на момент возврата. Если
+ * звук ещё ни разу не просили, контекста нет и будить его незачем: до первого жеста браузер
+ * всё равно молчит, и первый же озвученный звук застанет верный флаг.
+ */
+export function setAudioHidden(isHidden: boolean, settings: SoundSettings): void {
+  hidden = isHidden;
+  if (!audioCtx || !masterNode) return;
+  applyMasterVolume(masterNode, audioCtx.currentTime, settings);
+}
+
+/** Записывает громкость мастера, если она изменилась. Короткое сглаживание, а не скачок:
+ *  мьют, ползунок и уход вкладки двигают мастер, пока звучат гул и музыка, и ступенька щёлкала бы. */
+function applyMasterVolume(master: GainNode, now: number, settings: SoundSettings): void {
+  const volume = targetVolume(settings);
+  if (volume === applied.master) return;
+  master.gain.setTargetAtTime(volume, now, 0.01);
+  applied.master = volume;
+}
 
 /**
  * Контекст игры, общий для всех модулей звука.
@@ -119,6 +158,7 @@ export function audioBus(settings: SoundSettings): AudioBus | null {
     masterNode = ctx.createGain();
     masterNode.connect(ctx.destination);
   }
+  applyMasterVolume(masterNode, now, settings);
   if (!musicNode) {
     musicNode = ctx.createGain();
     // Музыки ещё нет, поэтому шина закрыта: startMusic открывает её, а лишний молчащий узел
@@ -134,31 +174,27 @@ export function audioBus(settings: SoundSettings): AudioBus | null {
     sfxNode = ctx.createGain();
     sfxNode.connect(masterNode);
   }
-  // Короткое сглаживание, а не скачок: мьют и ползунки двигают громкость, пока звучат гул и
-  // музыка, и мгновенная ступенька щёлкала бы.
-  const levels = {
-    master: masterVolume(settings),
-    music: channelVolume(settings, 'music'),
-    sfx: channelVolume(settings, 'sfx'),
-  };
-  if (levels.master !== applied.master) {
-    masterNode.gain.setTargetAtTime(levels.master, now, 0.01);
-    applied.master = levels.master;
+  // Короткое сглаживание, а не скачок, как и у мастера: ползунки двигают громкость, пока звучат
+  // гул и музыка, и мгновенная ступенька щёлкала бы.
+  const music = channelVolume(settings, 'music');
+  if (music !== applied.music) {
+    musicChannelNode.gain.setTargetAtTime(music, now, 0.01);
+    applied.music = music;
   }
-  if (levels.music !== applied.music) {
-    musicChannelNode.gain.setTargetAtTime(levels.music, now, 0.01);
-    applied.music = levels.music;
-  }
-  if (levels.sfx !== applied.sfx) {
-    sfxNode.gain.setTargetAtTime(levels.sfx, now, 0.01);
-    applied.sfx = levels.sfx;
+  const sfx = channelVolume(settings, 'sfx');
+  if (sfx !== applied.sfx) {
+    sfxNode.gain.setTargetAtTime(sfx, now, 0.01);
+    applied.sfx = sfx;
   }
   return { ctx, sfx: sfxNode, musicBus: musicNode };
 }
 
-/** Шина для эффекта: мьют не создаёт даже контекста, лишний звук всё равно не прозвучит. */
-function effectBus(settings: SoundSettings): AudioBus | null {
-  if (settings.muted) return null;
+/**
+ * Шина для эффекта: мьют и скрытая страница не создают даже контекста, лишний звук всё равно не
+ * прозвучит. Экспортируется ради sfx.ts: вторая такая проверка там разошлась бы с этой.
+ */
+export function effectBus(settings: SoundSettings): AudioBus | null {
+  if (settings.muted || hidden) return null;
   return audioBus(settings);
 }
 
