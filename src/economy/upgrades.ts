@@ -302,7 +302,7 @@ export const UPGRADE_BY_ID: Record<string, Upgrade> = Object.fromEntries(
   UPGRADES_BY_GEN.flat().map((u) => [u.id, u]),
 );
 
-export function labAgents(state: GameState, lab: LabId): number {
+export function labAgents(state: Pick<GameState, 'generation' | 'agents'>, lab: LabId): number {
   return CATALOG[state.generation].models
     .filter((m) => m.lab === lab)
     .reduce((s, m) => s + (state.agents[m.id] ?? 0), 0);
@@ -310,7 +310,7 @@ export function labAgents(state: GameState, lab: LabId): number {
 
 /** Высший Апгрейд Модели, купленный хотя бы у одной Модели Лаборатории, или -1, пока не куплен
  *  ни один: Апгрейды Моделей покупаются поштучно, и у Лаборатории их столько же, сколько Моделей. */
-export function labTopTier(state: GameState, lab: LabId): number {
+export function labTopTier(state: Pick<GameState, 'generation' | 'upgrades'>, lab: LabId): number {
   let top = -1;
   for (const m of CATALOG[state.generation].models) {
     if (m.lab !== lab) continue;
@@ -323,7 +323,7 @@ export function labTopTier(state: GameState, lab: LabId): number {
 
 /** Название работы, которой занята Лаборатория, по её высшему Апгрейду; пусто, пока их нет.
  *  Строка уже игровая, поэтому интерфейс не дублирует названия тиров. */
-export function labWork(state: GameState, lab: LabId): string {
+export function labWork(state: Pick<GameState, 'generation' | 'upgrades'>, lab: LabId): string {
   const top = labTopTier(state, lab);
   return top >= 0 ? MODEL_TIERS[top].name : '';
 }

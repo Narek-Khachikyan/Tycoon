@@ -380,6 +380,13 @@ describe('income and click', () => {
     expect(incomeGain(s, CATALOG[1].models[0].id, 3)).toBe(0);
     expect(incomeGain(s, 'no-such-model', 3)).toBe(0);
   });
+  it('takes a total income the caller already has instead of counting it again', () => {
+    const s = buyAgents(rich(cold(newGame(T0))), first.id, 10);
+    const known = totalIncome(s);
+    expect(incomeGain(s, first.id, 5, s.lastTick, known)).toBe(incomeGain(s, first.id, 5));
+    // Подставленный итог — единственное, что вычитается: функция его не перепроверяет.
+    expect(incomeGain(s, first.id, 5, s.lastTick, 0)).toBeCloseTo(totalIncome(buyAgents(s, first.id, 5)));
+  });
   it('leaves the input state untouched when measuring a marginal income', () => {
     const s = buyAgents(rich(cold(newGame(T0))), first.id, 10);
     const before = { ...s.agents };
@@ -421,6 +428,11 @@ describe('lab readout', () => {
         expect(shares[LAB_IDS.indexOf(l)] > 0).toBe(inRoster);
       }
     }
+  });
+  it('takes a total income the caller already has for the lab share too', () => {
+    const meta = g0.models.filter((m) => m.lab === 'meta');
+    const s = buyAgents(buyAgents(rich(cold(newGame(T0))), meta[0].id, 5), g0.models[0].id, 5);
+    expect(labIncomeShare(s, 'meta', totalIncome(s))).toBe(labIncomeShare(s, 'meta'));
   });
   it('reads a lab without agents as zero rather than NaN', () => {
     const s = cold(newGame(T0));
