@@ -19,6 +19,7 @@ import { PrestigeOverlay } from './components/PrestigeOverlay';
 import { Icon, type IconName } from './components/Icon';
 import { CATALOG } from './economy/catalog';
 import { totalIncome } from './economy/engine';
+import { TEMP_MAX } from './economy/thermal';
 import { startMusic, updateMusic } from './audio/music';
 import {
   clickColWidth,
@@ -35,8 +36,7 @@ import {
  * Насколько «включилась» игра для музыки: логарифм Дохода, зажатый в 0..1.
  *
  * Логарифм, потому что Доход за Забег проходит шесть порядков, а линейная шкала либо молчала
- * бы первые десять минут, либо упиралась в потолок после первго Престижа. Считается здесь, а
- * не в музыке, чтобы нормализация была одной строкой и проверялась тестом.
+ * бы первые десять минут, либо упиралась в потолок после первого Престижа.
  */
 const musicIntensity = (income: number): number =>
   income <= 0 ? 0 : Math.min(1, Math.log10(1 + income) / 6);
@@ -96,15 +96,14 @@ export const App: React.FC = () => {
       // dt может оказаться большим, если вкладка была в фоне или машина спала.
       // Ограничивает начисление advanceTime() — иначе простой обошёл бы лимит оффлайна.
       tick(dt);
-      // Музыка читает тот же тик, а не живёт своим интервалом: иначе два таймера решали бы
-      // одно и то же и разошлись бы на тике. Интенсивность — логарифм Дохода, поэтому на
-      // первой минуте она уже слышна, а не начинается с нуля; приглушение держится, пока
-      // открыто окно События, иначе музыка спорила бы с его стингером.
+      // Параметры музыки идут с того же тика: шедулер лупа только расставляет ноты, а что
+      // играть, решает состояние игры на этом кадре.
       const s = useGameStore.getState().state;
       updateMusic({
+        settings: s.settings,
         intensity: musicIntensity(totalIncome(s)),
+        temp01: s.temp / TEMP_MAX,
         generation: s.generation,
-        ducking: s.event !== null,
       });
     }, 50);
 

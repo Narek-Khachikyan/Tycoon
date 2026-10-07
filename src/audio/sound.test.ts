@@ -11,9 +11,7 @@
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  audioBus,
   clickVolumeForStreak,
-  finalVolume,
   masterVolume,
   playAchievementSound,
   playBuySound,
@@ -38,12 +36,16 @@ import {
   calcMusicLayers,
   calcStepSeconds,
   calcTransposition,
+  duckMusic,
   isMusicPlaying,
   planSteps,
   startMusic,
   stopMusic,
   updateMusic,
+  type MusicParams,
 } from './music';
+import { playMilestoneSound, SFX_PEAK_CEILING } from './sfx';
+import { playCoolingSound, playHallucinationSound, updateThermalAudio } from './thermal';
 
 const T0 = 1_700_000_000_000;
 const SETTINGS: SoundSettings = { muted: false, volume: 0.8 };
@@ -79,6 +81,11 @@ class FakeParam {
     this.value = value;
     return this;
   }
+  setTargetAtTime(value: number, at: number): this {
+    this.points.push({ at, value });
+    this.value = value;
+    return this;
+  }
   cancelScheduledValues(at: number): this {
     const keep = this.points.filter((p) => p.at < at);
     this.points.length = 0;
@@ -106,6 +113,7 @@ class FakeGain extends FakeNode {
 class FakeOscillator extends FakeNode {
   type = 'sine';
   readonly frequency = new FakeParam(440);
+  readonly detune = new FakeParam(0);
   readonly starts: number[] = [];
   readonly stops: number[] = [];
   start(at: number): void {
@@ -272,17 +280,11 @@ describe('громкость игрока', () => {
     expect(masterVolume(безПоля)).toBe(1);
   });
 
-  it('итоговая громкость — мастер, умноженный на пик эффекта', () => {
-    expect(finalVolume({ muted: false, volume: 0.5 }, 0.12)).toBeCloseTo(0.06);
-    expect(finalVolume({ muted: true, volume: 0.5 }, 0.12)).toBe(0);
-  });
-
-  it('мастер-шина получает громкость игрока, и пик эффекта домножается на неё', () => {
+  it('громкость игрока применяется один раз — на мастере, а эффект пишет свой уровень', () => {
     clickLevel({ muted: false, volume: 0.5 });
-    expect(masterVolume(SETTINGS)).toBeCloseTo(0.8);
     expect(masterNode().gain.points.at(-1)?.value).toBeCloseTo(0.5);
     const click = ctx.gains[ctx.gains.length - 1];
-    expect(click.gain.peak).toBeCloseTo(finalVolume({ muted: false, volume: 0.5 }, clickVolumeForStreak(60_000)));
+    expect(click.gain.peak).toBeCloseTo(clickVolumeForStreak(60_000));
   });
 
   it('при мьюте ни один источник не создаётся', () => {
@@ -295,6 +297,10 @@ describe('громкость игрока', () => {
   it('ни один источник не подключается к колонкам напрямую: всё проходит через мастер-шину', () => {
     playPrestigeSound(SETTINGS);
     playGlitchPopSound(SETTINGS);
+    playMilestoneSound(SETTINGS);
+    playCoolingSound(SETTINGS);
+    playHallucinationSound(SETTINGS);
+    updateThermalAudio(SETTINGS, { temp: 0.8, heat: 0.5 });
     startMusic(SETTINGS);
     advance(800);
 
@@ -401,8 +407,17 @@ describe('звуки значимых действий', () => {
 
 // ---------- Формулы музыки ----------
 
+/** Параметры музыки на тике: всё по умолчанию, кроме переданного. */
+const music = (over: Partial<MusicParams> = {}): MusicParams => ({
+  settings: SETTINGS,
+  intensity: 0.5,
+  temp01: 0.5,
+  generation: 0,
+  ...over,
+});
+
 describe('темп и транспозиция', () => {
-  it('темп идёт от 90 к 120 BPM по интенсивности и зажимается в границы', () => {
+  it('темп идёт от 90 к 120 BPM по Температуре и зажимается в границы', () => {
     expect(calcMusicBpm(0)).toBe(90);
     expect(calcMusicBpm(1)).toBe(120);
     expect(calcMusicBpm(0.5)).toBe(105);
@@ -416,21 +431,22 @@ describe('темп и транспозиция', () => {
     expect(calcStepSeconds(120)).toBeCloseTo(1 / 8);
   });
 
-  it('Поколение поднимает луп на два полутона, потолок — восемь Поколений', () => {
-    expect(calcTransposition(1)).toBe(0);
-    expect(calcTransposition(2)).toBe(2);
-    expect(calcTransposition(3)).toBe(4);
-    expect(calcTransposition(8)).toBe(14);
+  it('каждое Поколение поднимает луп на два полутона, начиная со второго', () => {
+    // Индекс Поколения с нуля — тот же, что в состоянии игры.
     expect(calcTransposition(0)).toBe(0);
+    expect(calcTransposition(1)).toBe(2);
+    expect(calcTransposition(2)).toBe(4);
+    expect(calcTransposition(7)).toBe(14);
+    expect(calcTransposition(-3)).toBe(0);
     expect(calcTransposition(999)).toBe(14);
-    expect(calcBaseFrequency(3)).toBeCloseTo(calcBaseFrequency(1) * 2 ** (4 / 12));
+    expect(calcBaseFrequency(2)).toBeCloseTo(calcBaseFrequency(0) * 2 ** (4 / 12));
   });
 
-  it('каждая нота Поколения 3 выше своей ноты в первом ровно на четыре полутона', () => {
+  it('каждая нота третьего Поколения выше своей ноты в первом ровно на четыре полутона', () => {
     for (let step = 0; step < 64; step += 1) {
-      expect(calcArpFrequency(step, 3)).toBeCloseTo(calcArpFrequency(step, 1) * 2 ** (4 / 12));
-      const bass = calcBassFrequency(step, 3);
-      const base = calcBassFrequency(step, 1);
+      expect(calcArpFrequency(step, 2)).toBeCloseTo(calcArpFrequency(step, 0) * 2 ** (4 / 12));
+      const bass = calcBassFrequency(step, 2);
+      const base = calcBassFrequency(step, 0);
       if (bass !== null && base !== null) expect(bass).toBeCloseTo(base * 2 ** (4 / 12));
     }
   });
@@ -439,30 +455,30 @@ describe('темп и транспозиция', () => {
 describe('пентатоника', () => {
   /** Расстояние между нотами в полутонах, 1 — полутон, 6 — тритон. */
   const semitonesBetween = (a: number, b: number): number => {
-    const pc = (hz: number) => ((Math.round(12 * Math.log2(hz / calcBaseFrequency(1))) % 12) + 12) % 12;
+    const pc = (hz: number) => ((Math.round(12 * Math.log2(hz / calcBaseFrequency(0))) % 12) + 12) % 12;
     const diff = Math.abs(pc(a) - pc(b));
     return Math.min(diff, 12 - diff);
   };
 
-  it('арпеджио не строит ни полутонов, ни тритонов — фальшить нечем', () => {
+  it('арпеджио не строит полутонов — фальшить нечем', () => {
     for (let bar = 0; bar < 8; bar += 1) {
       const notes: number[] = [];
-      for (let step = 0; step < 16; step += 1) notes.push(calcArpFrequency(bar * 16 + step, 1));
+      for (let step = 0; step < 16; step += 1) notes.push(calcArpFrequency(bar * 16 + step, 0));
       for (const a of notes) for (const b of notes) expect(semitonesBetween(a, b)).not.toBe(1);
     }
   });
 
   it('бас молчит на всех шагах, кроме четырёх ударов в такте', () => {
-    const notes = Array.from({ length: 16 }, (_, step) => calcBassFrequency(step, 1));
+    const notes = Array.from({ length: 16 }, (_, step) => calcBassFrequency(step, 0));
     expect(notes.map((hz) => hz !== null)).toEqual([true, false, false, false, false, false, true, false, true, false, false, false, false, false, true, false]);
   });
 
   it('бас лежит под арпеджио и не выше квинты над своим корнем', () => {
     for (let step = 0; step < 32; step += 1) {
-      const bass = calcBassFrequency(step, 8);
+      const bass = calcBassFrequency(step, 7);
       if (bass === null) continue;
-      expect(bass).toBeLessThan(calcArpFrequency(step, 8));
-      expect(bass).toBeLessThanOrEqual(calcBaseFrequency(8) * 2 ** (7 / 12));
+      expect(bass).toBeLessThan(calcArpFrequency(step, 7));
+      expect(bass).toBeLessThanOrEqual(calcBaseFrequency(7) * 2 ** (7 / 12));
       expect(bass).toBeLessThan(250);
     }
   });
@@ -470,22 +486,28 @@ describe('пентатоника', () => {
 
 describe('слои музыки', () => {
   it('в первом Поколении на малой интенсивности играет только бас', () => {
-    const layers = calcMusicLayers(0, 1);
+    const layers = calcMusicLayers(0, 0);
     expect(layers.bass).toBeGreaterThan(0);
     expect(layers.arp).toBe(0);
   });
 
   it('интенсивность добавляет арпеджио и прибавляет басу', () => {
-    const early = calcMusicLayers(0.2, 1);
-    const late = calcMusicLayers(1, 1);
+    const early = calcMusicLayers(0.2, 0);
+    const late = calcMusicLayers(1, 0);
     expect(late.arp).toBeGreaterThan(early.arp);
-    expect(late.arp).toBeGreaterThan(0);
     expect(late.bass).toBeGreaterThan(early.bass);
   });
 
   it('с третьего Поколения арпеджио есть даже на нулевом Доходе', () => {
-    expect(calcMusicLayers(0, 3).arp).toBeGreaterThan(0);
-    expect(calcMusicLayers(0, 2).arp).toBe(0);
+    expect(calcMusicLayers(0, 2).arp).toBeGreaterThan(0);
+    expect(calcMusicLayers(0, 1).arp).toBe(0);
+  });
+
+  it('играет под эффектами: оба слоя вместе не громче потолка одного сигнала', () => {
+    for (let g = 0; g < 8; g += 1) {
+      const { bass, arp } = calcMusicLayers(1, g);
+      expect(bass + arp).toBeLessThanOrEqual(SFX_PEAK_CEILING);
+    }
   });
 });
 
@@ -511,6 +533,14 @@ describe('планирование нот', () => {
 // ---------- Жизненный цикл лупа ----------
 
 describe('музыкальный луп', () => {
+  /** Сколько нот луп поставит за `ms` при этих параметрах. */
+  const notesOver = (ms: number, over: Partial<MusicParams> = {}): number[] => {
+    ctx.clearSources();
+    updateMusic(music(over));
+    advance(ms);
+    return ctx.oscillators.flatMap((o) => o.starts);
+  };
+
   it('стартует, планирует ноты только в пределах горизонта и останавливается', () => {
     expect(isMusicPlaying()).toBe(false);
     startMusic(SETTINGS);
@@ -530,13 +560,13 @@ describe('музыкальный луп', () => {
     expect(ctx.oscillators.length).toBe(before);
   });
 
-  it('повторный startMusic не заводит второго лупа', () => {
-    const interval = vi.spyOn(globalThis, 'setInterval');
+  it('повторный startMusic не удваивает ноты', () => {
+    startMusic(SETTINGS);
+    const once = notesOver(2000).length;
     startMusic(SETTINGS);
     startMusic(SETTINGS);
-    startMusic(SETTINGS);
-    expect(interval).toHaveBeenCalledTimes(1);
-    interval.mockRestore();
+    // Фаза такта сдвигается на ноту туда-сюда; второй луп удвоил бы счёт.
+    expect(notesOver(2000).length).toBeLessThan(once * 1.5);
   });
 
   it('остановка незапущенного лупа и повторная остановка ничего не делают', () => {
@@ -559,30 +589,23 @@ describe('музыкальный луп', () => {
     expect(ctx.oscillators.length).toBeGreaterThan(0);
   });
 
-  it('дакинг приглушает музыку на пару секунд и отпускает её', () => {
+  it('жар разгоняет луп: на краю шкалы нот за то же время больше, чем в холоде', () => {
     startMusic(SETTINGS);
-    updateMusic({ intensity: 0.5, generation: 1, ducking: true });
-    expect(musicNode().gain.points.at(-1)?.value).toBeCloseTo(0.3);
-
-    advance(1000);
-    updateMusic({ intensity: 0.5, generation: 1 });
-    expect(musicNode().gain.points.at(-1)?.value).toBeCloseTo(0.3);
-
-    advance(1500);
-    updateMusic({ intensity: 0.5, generation: 1 });
-    expect(musicNode().gain.points.at(-1)?.value).toBeCloseTo(1);
+    const cold = notesOver(4000, { temp01: 0 }).length;
+    const hot = notesOver(4000, { temp01: 1 }).length;
+    expect(hot).toBeGreaterThan(cold);
   });
 
-  it('Поколение 3 звучит иначе, чем первое: слой сверху и выше на четыре полутона', () => {
+  it('третье Поколение звучит иначе, чем первое: слой сверху и выше на четыре полутона', () => {
     startMusic(SETTINGS);
-    updateMusic({ intensity: 0, generation: 1 });
+    updateMusic(music({ intensity: 0, generation: 0 }));
     advance(2000);
     const firstGen = ctx.oscillators.map(sourceHz);
     stopMusic();
     ctx.clearSources();
 
     startMusic(SETTINGS);
-    updateMusic({ intensity: 0, generation: 3 });
+    updateMusic(music({ intensity: 0, generation: 2 }));
     advance(2000);
     const thirdGen = ctx.oscillators.map(sourceHz);
 
@@ -590,14 +613,33 @@ describe('музыкальный луп', () => {
     expect(Math.min(...thirdGen)).toBeCloseTo(Math.min(...firstGen) * 2 ** (4 / 12));
   });
 
-  it('громкость игрока доходит и до музыки: шина берёт настройки последнего startMusic', () => {
+  it('приглушение — короткий провал под стингер, а не постоянное состояние', () => {
+    startMusic(SETTINGS);
+    duckMusic();
+    expect(musicNode().gain.points.at(-1)?.value).toBeCloseTo(0.3);
+
+    advance(1000);
+    updateMusic(music());
+    expect(musicNode().gain.points.at(-1)?.value).toBeCloseTo(0.3);
+
+    advance(1500);
+    updateMusic(music());
+    expect(musicNode().gain.points.at(-1)?.value).toBeCloseTo(1);
+  });
+
+  it('ползунок громкости и мьют доходят до мастера с ближайшего тика', () => {
     startMusic({ muted: false, volume: 0.25 });
     expect(masterNode().gain.points.at(-1)?.value).toBeCloseTo(0.25);
-    updateMusic({ intensity: 0.5, generation: 1 });
-    expect(masterNode().gain.points.at(-1)?.value).toBeCloseTo(0.25);
-    updateMusic({ intensity: 0.5, generation: 1 });
-    audioBus({ muted: true, volume: 1 });
-    updateMusic({ intensity: 0.5, generation: 1 });
-    expect(masterNode().gain.points.at(-1)?.value).toBeCloseTo(0.25);
+    updateMusic(music({ settings: { muted: false, volume: 0.7 } }));
+    expect(masterNode().gain.points.at(-1)?.value).toBeCloseTo(0.7);
+    updateMusic(music({ settings: { muted: true, volume: 0.7 } }));
+    expect(masterNode().gain.points.at(-1)?.value).toBe(0);
+  });
+
+  it('мьют не останавливает луп и не плодит молчащих нот, а снятие мьюта возвращает музыку', () => {
+    startMusic(SETTINGS);
+    expect(notesOver(2000, { settings: { muted: true, volume: 1 } })).toHaveLength(0);
+    expect(isMusicPlaying()).toBe(true);
+    expect(notesOver(2000).length).toBeGreaterThan(0);
   });
 });

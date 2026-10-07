@@ -33,7 +33,7 @@ Controls: mouse or tap. On a phone the three columns become three tabs at the bo
 
 - **Talking Models** — the signature of the game: Models answer in the voice of their Lab, adding «request → reply» pairs to the prompt feed. Collected lines are kept in the «Переписка» (Correspondence) and survive Prestige.
 - **Temperature gauge** — the risk-and-reward mechanic: the higher the temperature, the higher the Income (up to ~3x), but heat builds faster and Hallucinations arrive more often. At full Overheat the office cools down and Income drops for a while.
-- **Procedural music in the browser** — 8-bit Web Audio with no external audio files: a reactive synth with an arpeggio and bass, whose tempo grows with Income and whose pitch rises 2 semitones with every Generation.
+- **Procedural music in the browser** — 8-bit Web Audio with no external audio files: a reactive synth with an arpeggio and bass: its tempo follows the Temperature gauge, the arpeggio fills in as Income grows, and its pitch rises 2 semitones with every Generation.
 - **Graphics and juicy feedback** — pixel-art Lab mascots, honest hit-stop on click, heat sparks, shimmer over the office, and a careful `reducedMotion` for accessibility.
 - **Metrics from Artificial Analysis** — real model characteristics (Intelligence Index, generation speed, API price) in the AA reference.
 

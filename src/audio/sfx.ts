@@ -8,23 +8,19 @@
  *
  * Отсюда три обязательных свойства каждого голоса: громкость, при которой десять
  * одновременных сигналов не упираются в перегруз, ровный старт огибающей с нуля, и
- * маленький разброс высоты на каждый вызов. Правила не разбросаны по семи функциям, а
+ * маленький разброс высоты на каждый вызов. Правила не разбросаны по функциям, а
  * собраны в помощниках `blip` и `wobble` — иначе каждое из них пришлось бы помнить всем.
  *
- * Контекст один на игру и не наш: им владеет `sound.ts`. Реверберации тоже нет: сборка
- * графа на вызов стоила бы дороже всего модуля, а игровой сигнал должен звучать в том же
- * тике, в котором он вызван.
+ * Контекст и мастер-шина не наши: ими владеет `sound.ts`, и громкость игрока применяет он.
  */
 
-import { audioContext } from './sound';
-
-const getAudioContext = audioContext;
+import { audioBus, runningBus, type AudioBus, type SoundSettings } from './sound';
 
 /**
  * Потолок суммы голосов одного звукового сигнала.
  *
- * Игра складывает сигналы напрямую в `ctx.destination`, поэтому единственная защита от
- * перегруз — арифметика пиков: десять одновременных сигналов не должны перевалить 1.0.
+ * Мастер-шина только масштабирует сумму, поэтому единственная защита от перегруза —
+ * арифметика пиков: десять одновременных сигналов не должны перевалить 1.0.
  * Потолок ставится на сумму голосов одного сигнала, а не на голос: одновременные голоса
  * складываются, и потолок «на голос» ничего бы не ограничил.
  *
@@ -68,7 +64,7 @@ function wobble(freq: number, span = 0.03): number {
 interface VoiceBase {
   /**
    * Форма волны. Четыре типа покрывают весь набор: квадрат резкий, треугольник мягкий,
-   * синус стеклянный, пила горит. Одного типа для семи сигналов не хватило бы — сигналы
+   * синус стеклянный, пила горит. Одного типа на все сигналы не хватило бы — сигналы
    * начали бы сливаться в один тембр, и различать их пришлось бы по высоте.
    */
   waveform: OscillatorType;
@@ -108,10 +104,9 @@ type Voice =
  * наведения это 0.03 — щелчок перед нотой слышно лучше, чем саму ноту.
  *
  * Голос всегда умирает в тишину до `stop()`: без этого ухо ловит обрыв на хвосте, а у
- * `playMilestoneSound` и `playOverheatSound` хвост длинный, и обрыв слышался бы как
- * щелчок в конце события.
+ * `playMilestoneSound` хвост длинный, и обрыв слышался бы как щелчок в конце события.
  */
-function blip(ctx: AudioContext, v: Voice): void {
+function blip({ ctx, master }: AudioBus, v: Voice): void {
   const t0 = ctx.currentTime + (v.at ?? 0);
   const end = t0 + v.attack + v.decay;
 
@@ -127,11 +122,14 @@ function blip(ctx: AudioContext, v: Voice): void {
   gain.gain.linearRampToValueAtTime(v.peak, t0 + v.attack);
   gain.gain.exponentialRampToValueAtTime(0.001, end);
 
-  osc.connect(gain).connect(ctx.destination);
+  osc.connect(gain).connect(master);
 
   osc.start(t0);
   osc.stop(end + STOP_TAIL);
 }
+
+/** Шина для сигнала от нажатия: мьют не создаёт даже контекста. */
+const sfxBus = (settings: SoundSettings): AudioBus | null => (settings.muted ? null : audioBus(settings));
 
 /**
  * Переключатель: сегментированный контрол, режим «покупать/продавать».
@@ -141,57 +139,11 @@ function blip(ctx: AudioContext, v: Voice): void {
  * вверх — это отличие от Клика на той же высоте: два соседних действия обязаны звучать
  * по-разному даже вперемешку, а ползущий вверх сигнал читался бы как «ещё».
  */
-export function playToggleSound(muted: boolean): void {
-  if (muted) return;
-  const ctx = getAudioContext();
-  if (!ctx) return;
+export function playToggleSound(settings: SoundSettings): void {
+  const bus = sfxBus(settings);
+  if (!bus) return;
 
-  blip(ctx, { waveform: 'square', freq: wobble(620, 0.02), peak: 0.0435, attack: 0.002, decay: 0.06 });
-}
-
-/**
- * Отказ по неверному действию — не тот отказ, что у `playDenySound`.
- *
- * Гудение «не хватило Токенов» и «нельзя» — разные сообщения с разными триггерами: деньги
- * кончаются на каждом клике, а запрет случается один раз на попытку. Нисходящая терция
- * читается как «нет» в любом контексте, поэтому делить один звук на две задачи было бы ошибкой.
- *
- * Треугольник вместо квадрата: на низкой высоте квадрат превращается в кашу, две ноты
- * сливаются в одну, и вместо «нет» игрок слышит щелчок.
- */
-export function playErrorSound(muted: boolean): void {
-  if (muted) return;
-  const ctx = getAudioContext();
-  if (!ctx) return;
-
-  // G#3 вниз на большую терцию до F3. Интервал, а не высота, читается как отказ.
-  blip(ctx, { waveform: 'triangle', freq: wobble(207.65, 0.02), peak: 0.0339, attack: 0.003, decay: 0.08 });
-  blip(ctx, {
-    waveform: 'triangle',
-    freq: wobble(174.61, 0.02),
-    peak: 0.0339,
-    attack: 0.003,
-    decay: 0.14,
-    at: 0.085,
-  });
-}
-
-/**
- * Тик наведения по меню.
- *
- * Почти на грани слышимости и без свипа: игрок проводит курсор по списку Моделей десятками
- * касаний, и любой тон громче этого начинает звенеть на каждом проходе.
- *
- * Разброс высоты тут самый узкий в модуле — два процента вместо трёх. У тика наведения нет
- * хвоста, который сообщил бы о повторе, и разброс здесь почти не спасает от усталости тембра;
- * зато он слегка сбивает настройку, из-за которой одинаковые щелчки подряд сливаются в один.
- */
-export function playHoverSound(muted: boolean): void {
-  if (muted) return;
-  const ctx = getAudioContext();
-  if (!ctx) return;
-
-  blip(ctx, { waveform: 'sine', freq: wobble(1046.5, 0.02), peak: 0.0145, attack: 0.002, decay: 0.03 });
+  blip(bus, { waveform: 'square', freq: wobble(620, 0.02), peak: 0.0435, attack: 0.002, decay: 0.06 });
 }
 
 /**
@@ -208,62 +160,17 @@ export function playHoverSound(muted: boolean): void {
  * Задержка в 55 мс есть только между нотами трезвучия: первая нота стартует в текущий
  * момент контекста, и любая задержка первого голоса ощущалась бы как лаг.
  */
-export function playMilestoneSound(muted: boolean): void {
-  if (muted) return;
-  const ctx = getAudioContext();
-  if (!ctx) return;
+export function playMilestoneSound(settings: SoundSettings): void {
+  const bus = runningBus(settings);
+  if (!bus) return;
 
   // Тело аккорда: F4 в хоре. Держит звук дольше, чем верхнее трезвучие.
-  blip(ctx, { waveform: 'triangle', freq: wobble(349.23), peak: 0.0135, attack: 0.004, decay: 1.3, detune: -SHIMMER });
-  blip(ctx, { waveform: 'triangle', freq: wobble(349.23), peak: 0.0135, attack: 0.004, decay: 1.3, detune: SHIMMER });
+  blip(bus, { waveform: 'triangle', freq: wobble(349.23), peak: 0.0135, attack: 0.004, decay: 1.3, detune: -SHIMMER });
+  blip(bus, { waveform: 'triangle', freq: wobble(349.23), peak: 0.0135, attack: 0.004, decay: 1.3, detune: SHIMMER });
   // Мажорное треугольное трезвучие, разложенное на восходящие ноты.
-  blip(ctx, { waveform: 'triangle', freq: wobble(698.46), peak: 0.0121, attack: 0.004, decay: 0.85 });
-  blip(ctx, { waveform: 'triangle', freq: wobble(880), peak: 0.0121, attack: 0.004, decay: 0.85, at: 0.055 });
-  blip(ctx, { waveform: 'triangle', freq: wobble(1046.5), peak: 0.0121, attack: 0.004, decay: 0.95, at: 0.11 });
-}
-
-/**
- * Перегрев: Температура ушла в красную зону, Доход душится.
- *
- * Тревожно, но не грубо: игра не наказывает игрока за жар, а показывает, что пора остужать,
- * поэтому вместо писка идёт пила, падающая вниз, и пара синусов в расстрое — тот же приём,
- * каким дышит голос Температуры в `thermal.ts`, чтобы игрок узнал перегрев как продолжение
- * шкалы, а не как чужой сигнал из соседнего модуля.
- *
- * Свип непрерывный, в отличие от ступенчатых нот `playErrorSound`: падает не интервал, а
- * сама температура, и это разные вещи на слух.
- */
-export function playOverheatSound(muted: boolean): void {
-  if (muted) return;
-  const ctx = getAudioContext();
-  if (!ctx) return;
-
-  // Свип задаётся одной базой, чтобы отношение концов не плыло от вызова к вызову.
-  const sweep = wobble(880);
-  blip(ctx, {
-    waveform: 'sawtooth',
-    freq: sweep,
-    glide: sweep * 0.25,
-    glideTime: 0.45,
-    peak: 0.0339,
-    attack: 0.004,
-    decay: 0.5,
-  });
-  // Мерцание оседает вместе со свипом, но медленнее: перегрев виден по шкале дольше, чем
-  // длится сам сигнал.
-  const shimmer = wobble(659.25);
-  for (const cents of [-SHIMMER, SHIMMER]) {
-    blip(ctx, {
-      waveform: 'sine',
-      freq: shimmer,
-      glide: shimmer * (440 / 659.25),
-      glideTime: 0.5,
-      peak: 0.0145,
-      attack: 0.005,
-      decay: 0.55,
-      detune: cents,
-    });
-  }
+  blip(bus, { waveform: 'triangle', freq: wobble(698.46), peak: 0.0121, attack: 0.004, decay: 0.85 });
+  blip(bus, { waveform: 'triangle', freq: wobble(880), peak: 0.0121, attack: 0.004, decay: 0.85, at: 0.055 });
+  blip(bus, { waveform: 'triangle', freq: wobble(1046.5), peak: 0.0121, attack: 0.004, decay: 0.95, at: 0.11 });
 }
 
 /**
@@ -276,14 +183,13 @@ export function playOverheatSound(muted: boolean): void {
  * Тело взято ниже всех остальных сигналов модуля: кнопка, которая стирает Забег, должна
  * отличаться на слух даже в соседстве с подтверждением окна.
  */
-export function playPrestigeConfirmSound(muted: boolean): void {
-  if (muted) return;
-  const ctx = getAudioContext();
-  if (!ctx) return;
+export function playPrestigeConfirmSound(settings: SoundSettings): void {
+  const bus = sfxBus(settings);
+  if (!bus) return;
 
   // G3 → D3 за 60 мс: короткий «клац», а не нота.
   const body = wobble(196, 0.02);
-  blip(ctx, {
+  blip(bus, {
     waveform: 'triangle',
     freq: body,
     glide: body * (146.83 / 196),
@@ -293,7 +199,7 @@ export function playPrestigeConfirmSound(muted: boolean): void {
     decay: 0.09,
   });
   // Верхний тик — та самая защёлка, ради которой этот сигнал и существует.
-  blip(ctx, { waveform: 'sine', freq: wobble(880, 0.02), peak: 0.0242, attack: 0.002, decay: 0.03 });
+  blip(bus, { waveform: 'sine', freq: wobble(880, 0.02), peak: 0.0242, attack: 0.002, decay: 0.03 });
 }
 
 /**
@@ -308,10 +214,9 @@ export function playPrestigeConfirmSound(muted: boolean): void {
  * пингов в арпеджио. Расстроенная пара в основе — тот же хор, что у Вехи, только выше и
  * короче: блеск должен различаться с игровым сигналом, а не сливаться с ним.
  */
-export function playCrystalSound(muted: boolean): void {
-  if (muted) return;
-  const ctx = getAudioContext();
-  if (!ctx) return;
+export function playCrystalSound(settings: SoundSettings): void {
+  const bus = runningBus(settings);
+  if (!bus) return;
 
   // Сумма пиков здесь ниже, чем у Вехи или подтверждения Престижа, и это единственный сигнал
   // модуля, который реально накладывается сам на себя: кристаллы зреют очередью, и игрок
@@ -319,7 +224,7 @@ export function playCrystalSound(muted: boolean): void {
   // поднимать пики было бы попыткой вынести «блеск» в амплитуду вместо тембра.
   const base = wobble(2093);
   for (const cents of [-SHIMMER, SHIMMER]) {
-    blip(ctx, { waveform: 'sine', freq: base, peak: 0.0155, attack: 0.002, decay: 0.16, detune: cents });
+    blip(bus, { waveform: 'sine', freq: base, peak: 0.0155, attack: 0.002, decay: 0.16, detune: cents });
   }
-  blip(ctx, { waveform: 'sine', freq: base * 2.76, peak: 0.0126, attack: 0.002, decay: 0.07 });
+  blip(bus, { waveform: 'sine', freq: base * 2.76, peak: 0.0126, attack: 0.002, decay: 0.07 });
 }

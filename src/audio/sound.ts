@@ -34,19 +34,11 @@ export function masterVolume(settings: SoundSettings): number {
   return Math.min(1, Math.max(0, volume));
 }
 
-/**
- * Громкость, которая пишется в узел эффекта: мастер × пик самого эффекта.
- *
- * Единственное место, где встречаются уровень эффекта и громкость игрока. Эффекты не берут число
- * сами — они зовут это, и потому не могут остаться на фиксированной громкости.
- */
-export function finalVolume(settings: SoundSettings, level: number): number {
-  return masterVolume(settings) * level;
-}
-
 let audioCtx: AudioContext | null = null;
 let masterNode: GainNode | null = null;
 let musicNode: GainNode | null = null;
+/** Громкость, уже записанная в мастер: тик зовёт audioBus двадцать раз в секунду. */
+let appliedVolume: number | null = null;
 
 /**
  * Контекст игры, общий для всех модулей звука.
@@ -87,20 +79,24 @@ export interface AudioBus {
  * Шина (или null, если окна/AudioContext нет) с уже применённой громкостью игрока.
  *
  * Шины создаются один раз на контекст и переживают источники: подключение на каждый клик плодило
- * бы узлы, а отключать их всё равно пришлось бы вручную. Громкость применяется на каждом вызове,
- * поэтому ползунок в настройках меняет уровень без перезапуска звука.
+ * бы узлы, а отключать их всё равно пришлось бы вручную. Громкость игрока живёт только здесь, на
+ * мастере: источники пишут свой собственный уровень, иначе громкость применялась бы дважды.
  */
-const getAudioContext = audioContext;
-
 export function audioBus(settings: SoundSettings): AudioBus | null {
-  const ctx = getAudioContext();
+  const ctx = audioContext();
   if (!ctx) return null;
   const now = ctx.currentTime;
   if (!masterNode) {
     masterNode = ctx.createGain();
     masterNode.connect(ctx.destination);
   }
-  masterNode.gain.setValueAtTime(masterVolume(settings), now);
+  const volume = masterVolume(settings);
+  if (volume !== appliedVolume) {
+    // Короткое сглаживание, а не скачок: мьют и ползунок двигают мастер, пока звучат гул и
+    // музыка, и мгновенная ступенька щёлкала бы.
+    masterNode.gain.setTargetAtTime(volume, now, 0.01);
+    appliedVolume = volume;
+  }
   if (!musicNode) {
     musicNode = ctx.createGain();
     // Музыки ещё нет, поэтому шина закрыта: startMusic открывает её, а лишний молчащий узел
@@ -115,6 +111,18 @@ export function audioBus(settings: SoundSettings): AudioBus | null {
 function effectBus(settings: SoundSettings): AudioBus | null {
   if (settings.muted) return null;
   return audioBus(settings);
+}
+
+/**
+ * Шина для сигнала, который приходит из тика, а не от нажатия: только на уже звучащем контексте.
+ *
+ * До первого жеста контекст стоит, его время не идёт, и такие сигналы копились бы на одном
+ * моменте, чтобы выстрелить пачкой на первом касании. Сигнал от нажатия так не ограничен: само
+ * нажатие и будит контекст.
+ */
+export function runningBus(settings: SoundSettings): AudioBus | null {
+  const bus = effectBus(settings);
+  return bus && bus.ctx.state === 'running' ? bus : null;
 }
 
 /**
@@ -200,24 +208,23 @@ export function playVoice(t: Voice): void {
   osc.stop(t.start + t.dur);
 }
 
-/** Сек белого шума: из него делаются удары и шипение, а не «живой» тембр. */
-const NOISE_SEC = 1;
-let noiseBuffer: AudioBuffer | null = null;
+/** Две секунды белого шума: из него делаются удары, шипение и гул Температуры. */
+const NOISE_SEC = 2;
+let noise: AudioBuffer | null = null;
 
 /**
- * Буфер шума на контекст, а не на каждый удар.
+ * Буфер шума, один на страницу.
  *
- * Шум всегда один и тот же, поэтому начало воспроизведения берётся случайным сдвигом: иначе два
- * удара подряд звучали бы как два одинаковых сэмпла. Оциллятор для этого не годится — в шуме нужна
- * плотная полка, а не тон.
+ * Шум всегда один и тот же, поэтому одноразовые удары начинают его со случайного сдвига: иначе
+ * два удара подряд звучали бы как два одинаковых сэмпла.
  */
-function getNoiseBuffer(ctx: AudioContext): AudioBuffer {
-  if (!noiseBuffer) {
-    noiseBuffer = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * NOISE_SEC), ctx.sampleRate);
-    const data = noiseBuffer.getChannelData(0);
+export function noiseBuffer(ctx: AudioContext): AudioBuffer {
+  if (!noise) {
+    noise = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * NOISE_SEC), ctx.sampleRate);
+    const data = noise.getChannelData(0);
     for (let i = 0; i < data.length; i += 1) data[i] = Math.random() * 2 - 1;
   }
-  return noiseBuffer;
+  return noise;
 }
 
 interface Noise {
@@ -234,7 +241,7 @@ function playNoise(n: Noise): void {
   const filter = n.ctx.createBiquadFilter();
   const gain = n.ctx.createGain();
 
-  src.buffer = getNoiseBuffer(n.ctx);
+  src.buffer = noiseBuffer(n.ctx);
   filter.type = n.filter.type;
   filter.Q.value = n.filter.q;
   filter.frequency.setValueAtTime(n.filter.freq, n.start);
@@ -265,7 +272,7 @@ export function playClickSound(settings: SoundSettings): void {
     freq: [[0, 320], [0.05, 740]],
     start: bus.ctx.currentTime,
     dur: 0.05,
-    level: finalVolume(settings, level),
+    level,
   });
 }
 
@@ -283,7 +290,7 @@ export function playBuySound(settings: SoundSettings): void {
     glide: false,
     start: now,
     dur: 0.12,
-    level: finalVolume(settings, 0.12),
+    level: 0.12,
   });
 }
 
@@ -302,7 +309,7 @@ export function playUpgradeSound(settings: SoundSettings): void {
       freq: [[0, freq]],
       start: now + idx * 0.04,
       dur: 0.09,
-      level: finalVolume(settings, 0.1),
+      level: 0.1,
     });
   });
 }
@@ -326,7 +333,7 @@ export function playPrestigeSound(settings: SoundSettings): void {
     freq: [[0, 150], [0.35, 1200]],
     start: now,
     dur: 0.4,
-    level: finalVolume(settings, 0.15),
+    level: 0.15,
   });
 
   const notes = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6
@@ -338,7 +345,7 @@ export function playPrestigeSound(settings: SoundSettings): void {
       freq: [[0, freq]],
       start: now + 0.35 + idx * 0.13,
       dur: 0.2,
-      level: finalVolume(settings, 0.1),
+      level: 0.1,
     });
   });
 }
@@ -358,7 +365,7 @@ export function playAchievementSound(settings: SoundSettings): void {
       freq: [[0, freq]],
       start: now + idx * 0.07,
       dur: 0.14,
-      level: finalVolume(settings, 0.08),
+      level: 0.08,
     });
   });
 }
@@ -376,7 +383,7 @@ export function playAchievementSound(settings: SoundSettings): void {
  * чинить: браузер не даёт звучать без жеста, и никакой код этого не обойдёт.
  */
 export function playEventAlertSound(settings: SoundSettings): void {
-  const bus = effectBus(settings);
+  const bus = runningBus(settings);
   if (!bus) return;
   const now = bus.ctx.currentTime;
 
@@ -391,7 +398,7 @@ export function playEventAlertSound(settings: SoundSettings): void {
       freq: [[0, freq]],
       start: now + idx * 0.06,
       dur: hold,
-      level: finalVolume(settings, 0.09),
+      level: 0.09,
     });
   });
 }
@@ -409,7 +416,7 @@ export function playDenySound(settings: SoundSettings): void {
     freq: [[0, 140], [0.12, 90]],
     start: bus.ctx.currentTime,
     dur: 0.12,
-    level: finalVolume(settings, 0.1),
+    level: 0.1,
   });
 }
 
@@ -436,7 +443,7 @@ export function playQuipSound(settings: SoundSettings): void {
       freq: [[0, freq]],
       start: now + idx * 0.035,
       dur: 0.03,
-      level: finalVolume(settings, 0.05),
+      level: 0.05,
     });
   });
 }
@@ -459,7 +466,7 @@ export function playGlitchHitSound(settings: SoundSettings): void {
     out: bus.master,
     start: now,
     dur: 0.06,
-    level: finalVolume(settings, 0.05),
+    level: 0.05,
     filter: { type: 'bandpass', freq: 1900, q: 1.2 },
   });
   playVoice({
@@ -469,7 +476,7 @@ export function playGlitchHitSound(settings: SoundSettings): void {
     freq: [[0, 210], [0.07, 90]],
     start: now,
     dur: 0.07,
-    level: finalVolume(settings, 0.05),
+    level: 0.05,
   });
 }
 
@@ -490,14 +497,14 @@ export function playGlitchPopSound(settings: SoundSettings): void {
     freq: [[0, 760], [0.09, 170]],
     start: now,
     dur: 0.09,
-    level: finalVolume(settings, 0.1),
+    level: 0.1,
   });
   playNoise({
     ctx: bus.ctx,
     out: bus.master,
     start: now,
     dur: 0.08,
-    level: finalVolume(settings, 0.04),
+    level: 0.04,
     filter: { type: 'highpass', freq: 2500, q: 0.7 },
   });
   [1400, 2000, 2600, 2200, 3000].forEach((freq, idx) => {
@@ -508,7 +515,7 @@ export function playGlitchPopSound(settings: SoundSettings): void {
       freq: [[0, freq]],
       start: now + 0.06 + idx * 0.035,
       dur: 0.05,
-      level: finalVolume(settings, 0.05),
+      level: 0.05,
     });
   });
 }
@@ -533,7 +540,7 @@ export function playCrashSound(settings: SoundSettings): void {
     freq: [[0, 330], [0.5, 75]],
     start: now,
     dur: 0.5,
-    level: finalVolume(settings, 0.06),
+    level: 0.06,
     filter: { type: 'lowpass', freq: 900, freqTo: 260, q: 0.9 },
   });
   playVoice({
@@ -543,7 +550,7 @@ export function playCrashSound(settings: SoundSettings): void {
     freq: [[0, 345], [0.5, 79]],
     start: now,
     dur: 0.5,
-    level: finalVolume(settings, 0.06),
+    level: 0.06,
     filter: { type: 'lowpass', freq: 900, freqTo: 260, q: 0.9 },
   });
   playNoise({
@@ -551,7 +558,7 @@ export function playCrashSound(settings: SoundSettings): void {
     out: bus.master,
     start: now,
     dur: 0.3,
-    level: finalVolume(settings, 0.06),
+    level: 0.06,
     filter: { type: 'lowpass', freq: 420, q: 0.7 },
   });
 }
@@ -578,7 +585,7 @@ export function playFinaleSound(settings: SoundSettings): void {
       freq: [[0, freq]],
       start: now + idx * 0.1,
       dur: last ? 0.5 : 0.16,
-      level: finalVolume(settings, 0.1),
+      level: 0.1,
     });
   });
   // Квинта под последней нотой (A5 под E6) держит звук на месте, когда игрок уже закрыл окно.
@@ -589,7 +596,7 @@ export function playFinaleSound(settings: SoundSettings): void {
     freq: [[0, 880]],
     start: now + 0.6,
     dur: 0.5,
-    level: finalVolume(settings, 0.06),
+    level: 0.06,
   });
 }
 
@@ -612,7 +619,7 @@ export function playRestartSound(settings: SoundSettings): void {
     freq: [[0, 520], [0.2, 160]],
     start: now,
     dur: 0.2,
-    level: finalVolume(settings, 0.09),
+    level: 0.09,
     filter: { type: 'lowpass', freq: 1800, freqTo: 500, q: 0.9 },
   });
   playVoice({
@@ -622,6 +629,6 @@ export function playRestartSound(settings: SoundSettings): void {
     freq: [[0, 130], [0.22, 70]],
     start: now + 0.16,
     dur: 0.22,
-    level: finalVolume(settings, 0.07),
+    level: 0.07,
   });
 }

@@ -48,18 +48,21 @@ import {
   playAchievementSound,
   playBuySound,
   playClickSound,
-  playDenySound,
+  playCrashSound,
   playEventAlertSound,
+  playFinaleSound,
+  playGlitchHitSound,
+  playGlitchPopSound,
   playPrestigeSound,
   playQuipSound,
+  playRestartSound,
   playUpgradeSound,
-  audioContext,
 } from '../audio/sound';
 import type { LabId } from '../data/labs';
 import { PROMPT_TEMPLATES } from '../data/prompts';
 import { playCoolingSound, playHallucinationSound, updateThermalAudio } from '../audio/thermal';
-import { stopMusic, updateMusic } from '../audio/music';
-import { playMilestoneSound } from '../audio/sfx';
+import { duckMusic } from '../audio/music';
+import { playCrystalSound, playMilestoneSound, playPrestigeConfirmSound, playToggleSound } from '../audio/sfx';
 
 export type BuyAmount = 1 | 10 | 100 | 'max';
 export type ActiveTab = 'click' | 'office' | 'shop' | 'upgrades' | 'perks' | 'stats' | 'achievements' | 'settings';
@@ -599,51 +602,34 @@ export const useGameStore = create<GameStore>((set, get) => {
    */
   const announceThermal = (before: GameState, after: GameState, dt: number): void => {
     if (after.overheatedAt !== before.overheatedAt && after.overheatedAt > 0) {
-      playCoolingSound(after.settings.muted);
+      playCoolingSound(after.settings);
       pushToast('Перегрев', 'Модели перегрелись', 'Жар сброшен в холод. Доход падает, пока офис остывает.');
       return;
     }
     // Строгое падение кошелька при подросшем перегреве — только Галлюцинация: обычный тик
     // Токены не отнимает, а перегрев их не трогает вовсе (он уже разобран выше).
     if (after.heat > before.heat && after.tokens < before.tokens) {
-      playHallucinationSound(after.settings.muted);
+      playHallucinationSound(after.settings);
       return;
     }
     // Скачок выше обычного нагрева за dt: обычный нагрев не больше heatRate(TEMP_MAX)*dt,
     // а Галлюцинация добавляет сверху HALLUC_HEAT — порог между ними с запасом.
     const maxNormal = heatRate(TEMP_MAX) * Math.max(0, dt);
     if (after.heat - before.heat > maxNormal + HALLUC_HEAT / 2) {
-      playHallucinationSound(after.settings.muted);
+      playHallucinationSound(after.settings);
     }
   };
 
   /**
-   * Непрерывный голос Температуры и музыка.
+   * Непрерывный голос Температуры.
    *
-   * Отдельным действием, а не частью `tick`: он должен идти и тогда, когда тик не изменил
-   * состояние (жар меняет доход, но не обязательно кошелёк), и он не имеет права будить
-   * AudioContext сам — пробуждение живёт в `audioContext`, и вызов без жеста игрока просто
-   * не сделает ничего.
-   *
-   * Музыка идёт в том же месте и по той же причине: она читает то же поколение и ту же
-   * Температуру, что и голос, и обновлять их в разные моменты означало бы, что на секунду
-   * после смены Поколения игра выглядит по-новому, а звучит по-старому.
+   * Отдельным действием, а не частью `tick`: шкала обязана звучать и тогда, когда тик не изменил
+   * состояние, и сразу при движении ползунка. Музыку здесь не трогает: её параметры каждый кадр
+   * передаёт тот же цикл в App.tsx.
    */
   const syncThermalVoice = (): void => {
-    const ctx = audioContext();
-    if (!ctx) return;
     const s = get().state;
-    updateThermalAudio(ctx, {
-      temp: s.temp / TEMP_MAX,
-      heat: s.heat,
-      muted: s.settings.muted,
-    });
-    updateMusic(ctx, {
-      generation: s.generation,
-      temp: s.temp,
-      heat: s.heat,
-      muted: s.settings.muted,
-    });
+    updateThermalAudio(s.settings, { temp: s.temp / TEMP_MAX, heat: s.heat });
   };
 
   /**
@@ -685,6 +671,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       // Перка не оставило здесь мёртвую проверку.
       if (perkEffects(state.perks).some((e) => e.kind === 'eventAlert')) {
         playEventAlertSound(state.settings);
+        duckMusic();
       }
       if (spec) pushToast('Событие', spec.name, spec.desc);
       // Объявить окно и поймать его — разные вещи: окно могло достаться уже пойманным (импорт в
@@ -746,7 +733,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       // Звук один на событие, а не на веху: за тик их может закрыться несколько, и три
       // аккорда разом звучали бы как заминка, а не как награда.
       if (claimed.length > 0) {
-        playMilestoneSound(advanced.settings.muted);
+        playMilestoneSound(advanced.settings);
         // Несколько вех за тик сворачиваются в один тост с перечислением: очередь тостов
         // растёт вниз, и шесть карточек перекрыли бы половину экрана ровно тогда, когда
         // игрок смотрит на веху.
@@ -758,6 +745,8 @@ export const useGameStore = create<GameStore>((set, get) => {
       }
       // Расписание Глюка живёт в экономике и тикает вместе с событиями, поэтому стор видит спавн
       // только по счётчику id — и то лишь ради первого Глюка в жизни игрока.
+      // Кристалл, созревший у игрока на глазах, звенит; созревший в простое называет отчёт.
+      if (!longTick && advanced.crystals > state.crystals) playCrystalSound(advanced.settings);
       if (state.glitchSeq === 0 && advanced.glitchSeq === 1) {
         // Молчаливый спавн паразита, крадущего Доход, выглядел бы как ошибка. Следующие молчат —
         // их видно на экране.
@@ -856,8 +845,15 @@ export const useGameStore = create<GameStore>((set, get) => {
       // времени она не растёт никогда, а второй Агент того же Флагмана не меняет ничего: переход
       // возвращает тот же объект, и ни тост, ни звук не срабатывают.
       const risen = modelId === CATALOG[state.generation].flagship.id ? raiseUprising(bought) : bought;
+      // Финал контента звучит своей точкой вместо сигнала Восстания: два торжества разом
+      // слились бы в одно.
+      const finale = !isContentFinale(state) && isContentFinale(risen);
+      if (finale) {
+        playFinaleSound(state.settings);
+        duckMusic();
+      }
       if (risen !== bought) {
-        playUpgradeSound(state.settings);
+        if (!finale) playUpgradeSound(state.settings);
         pushToast('Восстание моделей', 'Восстание', UPRISING_LINES[risen.uprising]);
       }
       // Отметка о последней покупке — это голос офиса: следующий Клик заговорит
@@ -1013,7 +1009,7 @@ export const useGameStore = create<GameStore>((set, get) => {
         playBuySound(state.settings);
         pushToast('Грант получен', spec?.name ?? 'Грант', `+${tokens} Токенов`);
       } else if (amount < 0) {
-        playDenySound(state.settings);
+        playCrashSound(state.settings);
         pushToast('Крах', spec?.name ?? 'Крах', `${tokens} Токенов`);
       } else {
         playClickSound(state.settings);
@@ -1038,15 +1034,14 @@ export const useGameStore = create<GameStore>((set, get) => {
       // Глюка с таким id нет: клик ушёл в пустоту, и ни звука, ни смены состояния.
       if (hit === state) return;
       if (!popped) {
-        // Первые два удара только трясут паразита, поэтому берётся звук отказа.
-        playDenySound(state.settings);
+        playGlitchHitSound(state.settings);
         set({ state: hit });
         saveNow();
         return;
       }
       // Выплата идёт через earnTokens, поэтому попадает во все три счётчика, как и доход; саму
       // сумму считает экономика по `stolen` именно этого Глюка, а не по общему котлу.
-      playBuySound(state.settings);
+      playGlitchPopSound(state.settings);
       pushToast('Глюк лопнул', 'Глюк', `+${formatNumber(payout, state.settings.notation)} Токенов`);
       set({ state: awardEarned(earnTokens(hit, payout)) });
       saveNow();
@@ -1093,7 +1088,13 @@ export const useGameStore = create<GameStore>((set, get) => {
     // triggerPrestige напрямую, один клик стирал Забег без вопроса. Проверок здесь нет
     // намеренно — условия отказа живут в triggerPrestige, а вторая проверка в окне
     // разошлась бы с переходом.
-    requestPrestige: () => set({ prestigePrompt: true }),
+    requestPrestige: () => {
+      const { state } = get();
+      // Щелчок «защёлки» обещает переход, поэтому звучит, только когда переход возможен: окно
+      // открывается и для отказа, и объясняет его словами.
+      if (canPrestige(state) && !isContentFinale(state)) playPrestigeConfirmSound(state.settings);
+      set({ prestigePrompt: true });
+    },
     dismissPrestigePrompt: () => set({ prestigePrompt: false }),
 
     triggerPrestige: () => {
@@ -1101,6 +1102,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       // На финальном Поколении Престиж обнулил бы забег без перехода в новое Поколение.
       if (!canPrestige(state) || isContentFinale(state)) return;
       playPrestigeSound(state.settings);
+      duckMusic();
       const gain = prestigeGain(state);
       // Оверлей Престижа называет награду закрытого этим переходом Испытания.
       const done = state.activeChallenge as ChallengeDef['id'] | null;
@@ -1147,7 +1149,11 @@ export const useGameStore = create<GameStore>((set, get) => {
     },
 
     setBuyAmount: (amt: BuyAmount) => set({ buyAmount: amt }),
-    setSellMode: (mode: boolean) => set({ sellMode: mode }),
+    setSellMode: (mode: boolean) => {
+      if (get().sellMode === mode) return;
+      playToggleSound(get().state.settings);
+      set({ sellMode: mode });
+    },
     setActiveTab: (tab: ActiveTab) => set({ activeTab: tab }),
 
     // Настройки объединены в одну запись по одной причине: любая из них меняет GameState, а
@@ -1165,7 +1171,6 @@ toggleMute: () => {
         state: { ...s.state, settings: { ...s.state.settings, muted: !s.state.settings.muted } },
       }));
       get().syncThermalVoice();
-      if (get().state.settings.muted) stopMusic();
       saveNow();
     },
 
@@ -1239,6 +1244,8 @@ toggleMute: () => {
     },
 
     resetGame: () => {
+      // Звук по настройкам, с которыми игрок нажал сброс: свежая игра пришла бы без мьюта.
+      playRestartSound(get().state.settings);
       const fresh = newGame(Date.now());
       if (typeof window !== 'undefined') {
         // localStorage может быть заблокирован (SecurityError) — сброс не должен падать.

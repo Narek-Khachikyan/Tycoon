@@ -35,28 +35,47 @@ import {
   playAchievementSound,
   playBuySound,
   playClickSound,
+  playCrashSound,
   playEventAlertSound,
+  playFinaleSound,
+  playGlitchHitSound,
+  playGlitchPopSound,
   playPrestigeSound,
   playQuipSound,
   playUpgradeSound,
 } from '../audio/sound';
+import { playCrystalSound, playPrestigeConfirmSound, playToggleSound } from '../audio/sfx';
+import { duckMusic } from '../audio/music';
 
 /**
- * Звук заглушен целиком: в node нет ни AudioContext, ни окна, и любая попытка создать
- * источник упала бы на импорте модуля. `audioContext` отдаёт null — это честный ответ
- * «контекста нет», на который голос Температуры обязан выходить молча.
+ * Звук заглушен целиком: в node нет ни AudioContext, ни окна. `audioBus` отдаёт null — это
+ * честный ответ «контекста нет», на который музыка и сигналы sfx.ts обязаны выходить молча.
  */
 vi.mock('../audio/sound', () => ({
   playAchievementSound: vi.fn(),
   playBuySound: vi.fn(),
   playClickSound: vi.fn(),
-  playDenySound: vi.fn(),
+  playCrashSound: vi.fn(),
   playEventAlertSound: vi.fn(),
+  playFinaleSound: vi.fn(),
+  playGlitchHitSound: vi.fn(),
+  playGlitchPopSound: vi.fn(),
   playPrestigeSound: vi.fn(),
   playQuipSound: vi.fn(),
+  playRestartSound: vi.fn(),
   playUpgradeSound: vi.fn(),
-  audioContext: vi.fn(() => null),
+  playVoice: vi.fn(),
+  audioBus: vi.fn(() => null),
 }));
+
+/** Сигналы sfx.ts и приглушение музыки — тоже стороны действий стора, которые здесь проверяются. */
+vi.mock('../audio/sfx', () => ({
+  playCrystalSound: vi.fn(),
+  playMilestoneSound: vi.fn(),
+  playPrestigeConfirmSound: vi.fn(),
+  playToggleSound: vi.fn(),
+}));
+vi.mock('../audio/music', () => ({ duckMusic: vi.fn() }));
 
 /** Голос Температуры тоже заглушен: он создаёт осцилляторы и шумовой буфер. */
 vi.mock('../audio/thermal', () => ({
@@ -366,6 +385,71 @@ describe('hitting a glitch', () => {
     const before = state();
     store().hitGlitch(999);
     expect(state()).toBe(before);
+  });
+});
+
+describe('sounds of player actions', () => {
+  it('thuds on a glitch hit and pops only on the last one', () => {
+    reachedGeneration(2);
+    hire(CATALOG[2].models[0].id);
+    useGameStore.setState({ state: { ...state(), nextGlitchAt: state().lastTick } });
+    tick();
+    const id = state().glitches[0].id;
+    for (let i = 1; i < GLITCH_CLICKS; i++) store().hitGlitch(id);
+    expect(vi.mocked(playGlitchHitSound)).toHaveBeenCalledTimes(GLITCH_CLICKS - 1);
+    expect(vi.mocked(playGlitchPopSound)).not.toHaveBeenCalled();
+    store().hitGlitch(id);
+    expect(vi.mocked(playGlitchPopSound)).toHaveBeenCalledTimes(1);
+  });
+
+  it('sounds the crash only when it is charged, not on the warning press', () => {
+    hire(first.id, 1);
+    withVisibleWallet();
+    useGameStore.setState({ state: { ...state(), event: { kind: 'grant', startedAt: state().lastTick, red: true } } });
+    store().catchEvent();
+    expect(vi.mocked(playCrashSound)).not.toHaveBeenCalled();
+    store().catchEvent();
+    expect(vi.mocked(playCrashSound)).toHaveBeenCalledTimes(1);
+  });
+
+  it('chimes a crystal that ripens in front of the player, but not one ripened during an absence', () => {
+    useGameStore.setState({ state: { ...state(), crystalPlantedAt: state().lastTick - CRYSTAL_CYCLE_MS } });
+    tick();
+    expect(state().crystals).toBe(1);
+    expect(vi.mocked(playCrystalSound)).toHaveBeenCalledTimes(1);
+
+    freshStore();
+    vi.mocked(playCrystalSound).mockClear();
+    useGameStore.setState({ state: { ...state(), crystalPlantedAt: state().lastTick - CRYSTAL_CYCLE_MS + 30_000 } });
+    tick(60);
+    expect(state().crystals).toBe(1);
+    expect(vi.mocked(playCrystalSound)).not.toHaveBeenCalled();
+  });
+
+  it('plays the finale once, on the purchase that reaches it, and ducks the music under it', () => {
+    reachedGeneration(CATALOG.length - 1);
+    vi.mocked(duckMusic).mockClear();
+    hire(CATALOG[CATALOG.length - 1].flagship.id, 1);
+    expect(vi.mocked(playFinaleSound)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(duckMusic)).toHaveBeenCalled();
+    hire(CATALOG[CATALOG.length - 1].flagship.id, 1);
+    expect(vi.mocked(playFinaleSound)).toHaveBeenCalledTimes(1);
+  });
+
+  it('clicks the buy/sell switch only when it actually flips', () => {
+    store().setSellMode(true);
+    store().setSellMode(true);
+    expect(vi.mocked(playToggleSound)).toHaveBeenCalledTimes(1);
+    expect(store().sellMode).toBe(true);
+  });
+
+  it('latches the Prestige prompt with a click only when Prestige can go through', () => {
+    store().requestPrestige();
+    expect(store().prestigePrompt).toBe(true);
+    expect(vi.mocked(playPrestigeConfirmSound)).not.toHaveBeenCalled();
+    hire(g0.flagship.id, 1);
+    store().requestPrestige();
+    expect(vi.mocked(playPrestigeConfirmSound)).toHaveBeenCalledTimes(1);
   });
 });
 

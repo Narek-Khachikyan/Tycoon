@@ -8,25 +8,21 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  playCrystalSound,
-  playErrorSound,
-  playHoverSound,
-  playMilestoneSound,
-  playOverheatSound,
-  playPrestigeConfirmSound,
-  playToggleSound,
-} from './sfx';
-import { audioContext } from './sound';
+import { playCrystalSound, playMilestoneSound, playPrestigeConfirmSound, playToggleSound } from './sfx';
+import { audioBus, type AudioBus, type SoundSettings } from './sound';
 
 /**
- * Контекст подменён целиком: `sound.ts` в node честно отдаёт `null`, и на настоящем контексте
- * проверять было бы нечего. Модуль обязан брать контекст отсюда, а не создавать свой — второй
- * `AudioContext` означал бы два системных приоритета и рассинхрон между модулями.
+ * Шина подменена целиком: `sound.ts` в node честно отдаёт `null`, и на настоящем контексте
+ * проверять было бы нечего. Модуль обязан брать контекст и мастер отсюда, а не создавать свои.
  */
-vi.mock('./sound', () => ({
-  audioContext: vi.fn(() => null),
-}));
+vi.mock('./sound', () => {
+  const audioBus = vi.fn((): AudioBus | null => null);
+  // Контекст подделки всегда «звучит», поэтому сигналы из тика ведут себя как от нажатия.
+  return { audioBus, runningBus: vi.fn((s: SoundSettings) => (s.muted ? null : audioBus())) };
+});
+
+const ON: SoundSettings = { muted: false, volume: 1 };
+const MUTED: SoundSettings = { muted: true, volume: 1 };
 
 /** Момент контекста, с которого считаются все расписания: ненулевой, чтобы ошибка времени бросалась в глаза. */
 const NOW = 100;
@@ -41,8 +37,8 @@ const FLOAT_SLACK = 1e-6;
 /**
  * Потолок пиков одного сигнала, на который он обязан укладываться.
  *
- * Игра складывает сигналы прямо в `ctx.destination`, и шины с запасом у неё нет: единственная
- * защита от перегруз — арифметика пиков. Считается худший момент, а не сумма голосов: они гаснут
+ * Мастер-шина только масштабирует сумму, поэтому единственная защита от перегруза — арифметика
+ * пиков. Считается худший момент, а не сумма голосов: они гаснут
  * по очереди, и сумма голосов завышала бы требование втрое.
  */
 const PEAK_CEILING = 0.1;
@@ -126,6 +122,8 @@ class RecordedGain {
 
 interface Recording {
   context: AudioContext;
+  /** Мастер-шина игры: последняя остановка каждого голоса. */
+  master: object;
   oscillators: RecordedOscillator[];
   gains: RecordedGain[];
 }
@@ -148,18 +146,18 @@ function record(): Recording {
       return gain;
     },
   } as unknown as AudioContext;
-  return { context, oscillators, gains };
+  return { context, master: { id: 'master' }, oscillators, gains };
 }
 
 const use = (rec: Recording): void => {
-  vi.mocked(audioContext).mockReturnValue(rec.context);
+  vi.mocked(audioBus).mockReturnValue({ ctx: rec.context, master: rec.master } as unknown as AudioBus);
 };
 
 /** Прогон сигнала без заглушения и его запись. */
-const run = (play: (muted: boolean) => void): Recording => {
+const run = (play: (settings: SoundSettings) => void): Recording => {
   const rec = record();
   use(rec);
-  play(false);
+  play(ON);
   return rec;
 };
 
@@ -202,7 +200,7 @@ const simultaneousPeak = (rec: Recording): number => {
  * Отпечаток сигнала: форма волны, высоты и расстройка каждого голоса.
  *
  * Это то, что игрок различает на слух. Имя сигнала в отпечаток не входит намеренно — иначе
- * проверка на семь неповторимых строк прошла бы и для семи одинаковых звуков.
+ * проверка на неповторимые строки прошла бы и для одинаковых звуков.
  */
 const fingerprint = (rec: Recording): string =>
   rec.oscillators
@@ -222,13 +220,10 @@ const fingerprint = (rec: Recording): string =>
  */
 const AUDIBLE = { min: 20, max: 16_000 } as const;
 
-/** Все семь сигналов модуля: тест обязан знать их все, иначе пропуск нового останется незамеченным. */
-const SOUNDS: readonly (readonly [string, (muted: boolean) => void])[] = [
+/** Все сигналы модуля: тест обязан знать их все, иначе пропуск нового останется незамеченным. */
+const SOUNDS: readonly (readonly [string, (settings: SoundSettings) => void])[] = [
   ['playToggleSound', playToggleSound],
-  ['playErrorSound', playErrorSound],
-  ['playHoverSound', playHoverSound],
   ['playMilestoneSound', playMilestoneSound],
-  ['playOverheatSound', playOverheatSound],
   ['playPrestigeConfirmSound', playPrestigeConfirmSound],
   ['playCrystalSound', playCrystalSound],
 ];
@@ -242,25 +237,15 @@ afterEach(() => {
 });
 
 describe('mute', () => {
-  it('does not create a single node for any of the seven signals', () => {
+  it('does not create a single node for any signal', () => {
     for (const [name, play] of SOUNDS) {
       const rec = record();
       use(rec);
-      play(true);
+      play(MUTED);
       // Ни одного узла, а не «узлы есть, но с нулевой громкостью»: заглушенный звук не должен
       // даже доходить до графа, иначе десять заглушенных Кликов держали бы осцилляторы.
       expect([rec.oscillators.length, rec.gains.length], name).toEqual([0, 0]);
     }
-  });
-
-  it('does not even ask for the context while muted, and asks once when not', () => {
-    const rec = record();
-    use(rec);
-    playHoverSound(true);
-    expect(vi.mocked(audioContext)).not.toHaveBeenCalled();
-    playHoverSound(false);
-    expect(vi.mocked(audioContext)).toHaveBeenCalledTimes(1);
-    expect(rec.oscillators).toHaveLength(1);
   });
 });
 
@@ -304,7 +289,7 @@ describe('огибающая', () => {
         expect(last.method, name).toBe('exponentialRampToValueAtTime');
         expect(last.value, name).toBeGreaterThan(0);
         // Остановка после конца огибающей: обрыв ровно в тишине слышно как щелчок, а у Вехи
-        // и перегрева хвост длинный. Голос и его огибающая связаны через граф, а не через
+        // хвост длинный. Голос и его огибающая связаны через граф, а не через
         // порядок создания: перестановка узлов не должна ломать проверку.
         const owner = rec.oscillators.filter((osc) => osc.connections.includes(gain));
         expect(owner, name).toHaveLength(1);
@@ -319,7 +304,7 @@ describe('огибающая', () => {
       const rec = run(play);
       const sum = rec.gains.reduce((total, gain) => total + peakOf(gain), 0);
       expect(sum, name).toBeGreaterThan(0);
-      // Голоса одного сигнала складываются в destination, поэтому потолок считается на сумму.
+      // Голоса одного сигнала складываются на мастере, поэтому потолок считается на сумму.
       expect(sum, name).toBeLessThanOrEqual(PEAK_CEILING);
     }
   });
@@ -331,7 +316,7 @@ describe('огибающая', () => {
     // огибающей честно считается по форме, иначе проверка на сумму `peak` пропускала бы
     // сигнал, чьи голоса бьют одновременно.
     //
-    // Запас делится между всеми семью сигналами: десять кристаллов разом должны помещаться
+    // Запас делится между всеми сигналами: десять кристаллов разом должны помещаться
     // под 1.0, и это ограничение на КАЖДЫЙ сигнал, а не на набор. Отсюда 0.09, а не 0.1 —
     // при десяти копиях остаётся запас на то, что игрок нажал две разные кнопки.
     for (const [name, play] of SOUNDS) {
@@ -345,7 +330,7 @@ describe('огибающая', () => {
   it('varies the waveform instead of living on one timbre', () => {
     const waveforms = new Set(SOUNDS.flatMap(([, play]) => run(play).oscillators.map((osc) => osc.type)));
     // Квадрат слышно как «чип», треугольник как «мягкий», синус как «стекло», пила как «жар».
-    // Один тип на семь сигналов означал бы, что различает их только высота.
+    // Один тип на все сигналы означал бы, что различает их только высота.
     expect(waveforms.size).toBeGreaterThanOrEqual(3);
   });
 
@@ -354,7 +339,7 @@ describe('огибающая', () => {
       run(play).oscillators.some((osc) => Math.abs(osc.detune.ramps[0]?.value ?? 0) >= 5),
     ).length;
     // Расстройка снимает «призрак одного осциллятора»; без неё хор звучит как калибровочный тон.
-    expect(detuned).toBeGreaterThanOrEqual(3);
+    expect(detuned).toBeGreaterThanOrEqual(2);
   });
 });
 
@@ -362,7 +347,7 @@ describe('различимость', () => {
   it('gives every signal its own length, because a chord is told from a tick by its tail', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.5);
     // Длина — ось, по которой сигнал узнаётся, даже когда высоты совпадают: 30-миллисекундный
-    // тик наведения и секундная Веха перепутать невозможно.
+    // щелчок и секундную Веху перепутать невозможно.
     const lengths = SOUNDS.map(([, play]) => {
       const rec = run(play);
       return Math.max(...rec.oscillators.map((osc) => osc.stops[0])) - NOW;
@@ -385,7 +370,7 @@ describe('различимость', () => {
       for (const edge of [0, 1]) {
         vi.spyOn(Math, 'random').mockReturnValue(edge);
         use(rec);
-        play(false);
+        play(ON);
         heard.push(...pitches(rec));
       }
       vi.restoreAllMocks();
@@ -396,12 +381,11 @@ describe('различимость', () => {
     }
   });
 
-  it('gives seven signatures no ear could confuse', () => {
+  it('gives every signal a signature no ear could confuse', () => {
     // Ровно середина диапазона: разброса нет, и отпечаток — это чистый замысел, а не случайность.
     vi.spyOn(Math, 'random').mockReturnValue(0.5);
     const prints = SOUNDS.map(([, play]) => fingerprint(run(play)));
-    expect(prints).toHaveLength(7);
-    expect(new Set(prints).size).toBe(7);
+    expect(new Set(prints).size).toBe(SOUNDS.length);
   });
 
   it('never reuses one set of pitches across two signals', () => {
@@ -418,16 +402,6 @@ describe('различимость', () => {
         );
       }
     }
-  });
-
-  it('gives the hover tick and the milestone chord different weights', () => {
-    // Тик наведения обязан остаться на грани слышимости, а Веха — самым заметным сигналом
-    // модуля: иначе главный такт прогрессии теряется в меню.
-    vi.spyOn(Math, 'random').mockReturnValue(0.5);
-    const hoverPeak = run(playHoverSound).gains.reduce((total, gain) => total + peakOf(gain), 0);
-    const milestonePeak = run(playMilestoneSound).gains.reduce((total, gain) => total + peakOf(gain), 0);
-    expect(hoverPeak).toBeLessThan(0.05);
-    expect(milestonePeak).toBeGreaterThan(hoverPeak);
   });
 });
 
@@ -472,7 +446,7 @@ describe('задержка', () => {
     }
   });
 
-  it('plays every voice through a gain into the destination, so nothing bypasses the envelope', () => {
+  it('plays every voice through a gain into the master bus, so nothing bypasses the envelope or the volume', () => {
     for (const [name, play] of SOUNDS) {
       const rec = run(play);
       // Один голос — одна огибающая, и голос подключается ровно к ней: подключение мимо
@@ -482,9 +456,9 @@ describe('задержка', () => {
         expect(osc.connections, name).toEqual([rec.gains[index]]);
         expect(rec.gains[index].gain.ramps.length, name).toBeGreaterThan(0);
       }
-      // Всё, что не прошло через огибающую, в destination попадать не должно.
+      // Огибающая уходит в мастер, а не мимо него в колонки: иначе громкость игрока не дошла бы.
       for (const gain of rec.gains) {
-        expect(gain.connections, name).toEqual([rec.context.destination]);
+        expect(gain.connections, name).toEqual([rec.master]);
       }
     }
   });
