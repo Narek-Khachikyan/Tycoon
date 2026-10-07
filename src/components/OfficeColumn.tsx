@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { motionAllowed, useGameStore } from '../store/useGameStore';
+import { motionAllowed, useGameStore, useStateSlice } from '../store/useGameStore';
+import { glitchesOf, labShareView } from '../store/selectors';
 import { CATALOG } from '../economy/catalog';
 import { LABS, LAB_IDS, type LabId } from '../data/labs';
-import { canPrestige, isContentFinale, labIncomeShare } from '../economy/engine';
+import { canPrestige, isContentFinale } from '../economy/engine';
 import { labAgents, labWork, SYNERGY_PER_AGENT, synergyUpgradeId } from '../economy/upgrades';
 import { formatCount, formatNumber } from '../economy/format';
 import { Icon } from './Icon';
@@ -81,13 +82,9 @@ const SHADOW_H = STATION_H / 3;
 // от пола Сцены.
 const SHADOW_CENTER_Y = BOOTH_H - SHADOW_H / 2;
 
-// Ниже этой доли процент не различает Лаборатории: на восьми такая метка повторялась бы
-// пять раз из восьми и читалась бы как «у всех всё одинаково».
-const SHARE_MIN = 0.01;
-
 // Пыль в воздухе Сцены: точки, которые делают кадр живым, а не статичным. Таблица строится
-// один раз на модуль и сразу на максимум точек: OfficeColumn перерисовывается каждый тик,
-// и Math.random в теле компонента перемешивал бы пыль двадцать раз в секунду.
+// один раз на модуль и сразу на максимум точек: Math.random в теле компонента перемешивал бы
+// пыль на каждой перерисовке офиса.
 const MOTE_MIN = 18;
 const MOTE_MAX = 36;
 const MOTES = Array.from({ length: MOTE_MAX }, (_, i) => {
@@ -123,7 +120,7 @@ const moteStyle = (i: number): React.CSSProperties =>  ({
 
 // Плотность пыли растёт вместе с офисом: пустой кадр не должен выглядеть гуще забитого.
 // Шкала логарифмическая, потому что Агентов бывает и тысяча, и 1e300, а длина округляется
-// до целого — иначе список узлов пересоздавался бы двадцать раз в секунду.
+// до целого — иначе список узлов пересоздавался бы на каждой покупке.
 const moteCount = (agents: number): number => {
   // До первого найма Сцена не должна быть мёртвой: держим активный воздух (24 мотылька),
   // чтобы пустой офис дышал и жил с первых секунд игры.
@@ -154,10 +151,9 @@ let glitchNonceCounter = 0;
 
 /** Паразиты на Сцене: отклик на удар через масштаб и яркость, при лопании — мгновенный разлёт пикселей. */
 const OfficeGlitchSwarm: React.FC = () => {
-  const state = useGameStore((s) => s.state);
+  const glitches = useStateSlice(glitchesOf);
   const hitGlitch = useGameStore((s) => s.hitGlitch);
-  const notation = state.settings.notation;
-  const glitches = state.glitches;
+  const notation = useGameStore((s) => s.state.settings.notation);
 
   // Лопнувшие Глюки: кратковременный локальный отклик в точке лопания до 0.4с.
   const [popped, setPopped] = useState<PoppedGlitchItem[]>([]);
@@ -321,22 +317,106 @@ const sceneImgStyle = (filter: string): React.CSSProperties => ({
   filter,
 });
 
-export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
-  const state = useGameStore((s) => s.state);
+/**
+ * Одна строка ростера: имя Лаборатории, её Агенты, работа, доля в Доходе и Синергия. Подписана на
+ * Агентов и Апгрейды (они меняются покупкой) и на долю в Доходе целым процентом, поэтому тик
+ * строку не перерисовывает.
+ */
+const RosterRow: React.FC<{ labId: LabId; showShare: boolean }> = ({ labId, showShare }) => {
+  const generation = useGameStore((s) => s.state.generation);
+  const agents = useGameStore((s) => s.state.agents);
+  const upgrades = useGameStore((s) => s.state.upgrades);
+  const notation = useGameStore((s) => s.state.settings.notation);
+  // Доля читается только когда её покажут: на одной Лаборатории она всегда 100%, а считается
+  // полным проходом по Моделям.
+  const share = useStateSlice((s) => (showShare ? labShareView(s, labId) : -1));
+
+  const lab = LABS[labId];
+  const count = labAgents({ generation, agents }, labId);
+  const synergyPct = Math.round(count * SYNERGY_PER_AGENT * 100);
+  const synergyOn = upgrades.includes(synergyUpgradeId(generation, labId));
+  const work = labWork({ generation, upgrades }, labId);
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap', rowGap: '2px' }}>
+      {/* Цвет Лаборатории живёт только здесь: на --bg-card он не задаёт контраст
+          текста, а плашкой служит лишь ориентиром, у какой Маскот чья. */}
+      <span
+        style={{
+          width: '10px',
+          height: '10px',
+          backgroundColor: lab.color,
+          border: '1px solid var(--border)',
+          borderRadius: '2px',
+          flexShrink: 0,
+        }}
+      />
+      <span style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>{lab.name}</span>
+      {/* Имя Маскота не повторяется: он стоит в ленте прямо над ростером, и его
+          счётчик подписан под ним. Счётчик Агентов здесь остаётся: на Сцене он
+          мелкий и читается только вплотную, а в ростере это основное число строки,
+          и без него карточка в свежем сохранении держит одно имя. */}
+      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+        ×<Num>{formatNumber(count, notation)}</Num>{' '}
+        {formatCount(count, 'Агент', 'Агента', 'Агентов', notation)}
+      </span>
+      {/* Название работы приходит из MODEL_TIERS, а не пишется здесь строкой.
+          Без пиксельного шрифта: среди тиров есть «1M контекст», а строка с
+          кириллицей набирается Nunito (ADR-0003). */}
+      {work !== '' && (
+        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+          {work}
+        </span>
+      )}
+      {/* Доля в Доходе — величина сравнительная, и читается она только когда
+          различает: с одной Лабораторией она всегда 100%, а ниже процента
+          неотличима от нуля. На восьми Лабораториях такая мелочь занимала бы
+          пять строк из восьми и читалась как «у всех всё одинаково». */}
+      {share >= 0 && (
+        <span className="pixel-font" style={{ fontSize: '0.8rem', color: 'var(--text-main)' }}>
+          {share}%
+        </span>
+      )}
+      {synergyOn && (
+        <span
+          title={`Синергия: +${formatNumber(synergyPct, notation)}% к доходу всех моделей ${lab.name}`}
+          style={{ fontSize: '0.75rem', color: 'var(--gold)' }}
+        >
+          +<Num>{formatNumber(synergyPct, notation)}</Num>%
+        </span>
+      )}
+    </div>
+  );
+};
+
+/**
+ * Колонка Офиса: баннер цели, Сцена и ростер. Подписана на то, что меняется покупкой и Престижем
+ * (Поколение, Агенты, Апгрейды), а не на состояние: тик колонку не перерисовывает, а всё, что на
+ * Сцене живёт тиком — Глюки, Дрон, покачивание Маскотов, — подписано на свои срезы само.
+ */
+const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
+  const generation = useGameStore((s) => s.state.generation);
+  const agents = useGameStore((s) => s.state.agents);
+  const upgrades = useGameStore((s) => s.state.upgrades);
+  const notation = useGameStore((s) => s.state.settings.notation);
+  const quipsSeenCount = useGameStore((s) => s.state.quipsSeen.length);
+  // Выключатель частиц из «Настроек»: пыль в воздухе Сцены — один из них.
+  const particles = useGameStore((s) => s.state.settings.particles);
   const requestPrestige = useGameStore((s) => s.requestPrestige);
-  const notation = state.settings.notation;
+  const prestigeReady = useStateSlice(canPrestige);
+  const finale = useStateSlice(isContentFinale);
+  // Два поля, которых хватает для подсчёта Агентов по Лабораториям: так видно, что от состояния
+  // колонке нужны только они.
+  const roster = { generation, agents };
 
-  const gen = CATALOG[state.generation];
+  const gen = CATALOG[generation];
   const flagship = gen.flagship;
-  const flagshipOwned = (state.agents[flagship.id] ?? 0) >= 1;
-  const prestigeReady = canPrestige(state);
-  const finale = isContentFinale(state);
+  const flagshipOwned = (agents[flagship.id] ?? 0) >= 1;
 
-  const sceneIndex = Math.min(Math.floor(state.generation / 2), SCENE_COUNT - 1);
+  const sceneIndex = Math.min(Math.floor(generation / 2), SCENE_COUNT - 1);
 
-  // Художественный режим Сцены и жар поверх неё. Оба считаются здесь, а не в разметке:
-  // значения меняются каждый тик, и любое из них в состоянии означало бы второй источник
-  // правды о том, как выглядит кадр.
+  // Художественный режим Сцены и жар поверх неё. Оба считаются здесь, а не в разметке: любое
+  // из них в состоянии означало бы второй источник правды о том, как выглядит кадр.
   const grade = sceneGrade(sceneIndex);
   const heat = sceneHeatLayers();
 
@@ -367,17 +447,16 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
     }
   }, [sceneIndex]);
 
-  const activeLabs = LAB_IDS.filter((l) => labAgents(state, l) > 0);
-  const totalAgents = activeLabs.reduce((sum, l) => sum + labAgents(state, l), 0);
+  const activeLabs = LAB_IDS.filter((l) => labAgents(roster, l) > 0);
+  const totalAgents = activeLabs.reduce((sum, l) => sum + labAgents(roster, l), 0);
 
   // Окно «Переписки» — локальный UI-слой колонки, а не стор: кроме неё оно никому не нужно,
   // а счётчик собранных реплик читается прямо из состояния.
   const [quipLogOpen, setQuipLogOpen] = useState(false);
-  const quipsSeenCount = state.quipsSeen.length;
 
   // Прыжок Маскота при покупке Агента его Лаборатории. Предыдущие числа — в ref, как
-  // prevOwned в ModelRow: магазин перерисовывается каждый тик, и отмечать покупку в сторе
-  // значило бы гонять эффект по всей колонке двадцать раз в секунду. Сравнение идёт по всем
+  // prevOwned в ModelRow: отмечать покупку в сторе значило бы гонять эффект по всей колонке
+  // на каждом изменении состояния. Сравнение идёт по всем
   // LAB_IDS, а не по activeLabs: иначе появление первой покупки новой Лаборатории (0 → 1)
   // не отличить от первого рендера, и Маскот либо не прыгнул бы, либо прыгнули бы все сразу.
   const prevLabCounts = useRef<Partial<Record<LabId, number>>>({});
@@ -396,7 +475,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
       }
     }
     if (!known) {
-      for (const labId of LAB_IDS) prev[labId] = labAgents(state, labId);
+      for (const labId of LAB_IDS) prev[labId] = labAgents(roster, labId);
       return;
     }
     // Покупка растит ровно одну Лабораторию, поэтому прыгает первая выросшая; импорт
@@ -404,7 +483,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
     // путь, а не игровой отклик.
     for (const labId of LAB_IDS) {
       const before = prev[labId] ?? 0;
-      const now = labAgents(state, labId);
+      const now = labAgents(roster, labId);
       prev[labId] = now;
       if (now <= before) continue;
       setHoppingLabId(labId);
@@ -418,11 +497,9 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
       node.classList.add('mascot-hop');
       break;
     }
-  }, [state.agents]);
+  }, [agents]);
 
-  const synergyLabs = activeLabs.filter((l) =>
-    state.upgrades.includes(synergyUpgradeId(state.generation, l))
-  );
+  const synergyLabs = activeLabs.filter((l) => upgrades.includes(synergyUpgradeId(generation, l)));
 
   return (
     <div
@@ -445,7 +522,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
           или финала, поэтому появление через существующий toast-fade (только opacity,
           без движения) проигрывается один раз на смену текста. */}
       <div
-        key={`${state.generation}-${finale ? 'finale' : 'goal'}`}
+        key={`${generation}-${finale ? 'finale' : 'goal'}`}
         className="pixel-card"
         style={{
           flexShrink: 0,
@@ -709,7 +786,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
               <span
                 style={{ fontSize: '0.8rem', color: 'var(--text-main)', textShadow: BADGE_OUTLINE }}
               >
-                ×<Num>{formatNumber(labAgents(state, labId), notation)}</Num>
+                ×<Num>{formatNumber(labAgents(roster, labId), notation)}</Num>
               </span>
             </div>
           ))}
@@ -723,7 +800,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
             с полом, а не светится поверх затемнения. Держит порядок разметка: у пыли и у
             скрима одинаковый z-index 1, а при равном z-index рисуется тот, кто позже в DOM. */}
         <div className="scene__motes">
-          {MOTES.slice(0, state.settings.particles ? moteCount(totalAgents) : 0).map((_, i) => (
+          {MOTES.slice(0, particles ? moteCount(totalAgents) : 0).map((_, i) => (
             <span key={i} className="mote" style={moteStyle(i)} />
           ))}
         </div>
@@ -860,67 +937,9 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
           </div>
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px' }}>
-            {activeLabs.map((labId) => {
-              const lab = LABS[labId];
-              const count = labAgents(state, labId);
-              const synergyPct = Math.round(count * SYNERGY_PER_AGENT * 100);
-              const synergyOn = state.upgrades.includes(synergyUpgradeId(state.generation, labId));
-              const work = labWork(state, labId);
-              const share = labIncomeShare(state, labId);
-              return (
-                <div
-                  key={labId}
-                  style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap', rowGap: '2px' }}
-                >
-                  {/* Цвет Лаборатории живёт только здесь: на --bg-card он не задаёт контраст
-                      текста, а плашкой служит лишь ориентиром, у какой Маскот чья. */}
-                  <span
-                    style={{
-                      width: '10px',
-                      height: '10px',
-                      backgroundColor: lab.color,
-                      border: '1px solid var(--border)',
-                      borderRadius: '2px',
-                      flexShrink: 0,
-                    }}
-                  />
-                  <span style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>{lab.name}</span>
-                  {/* Имя Маскота не повторяется: он стоит в ленте прямо над ростером, и его
-                      счётчик подписан под ним. Счётчик Агентов здесь остаётся: на Сцене он
-                      мелкий и читается только вплотную, а в ростере это основное число строки,
-                      и без него карточка в свежем сохранении держит одно имя. */}
-                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                    ×<Num>{formatNumber(count, notation)}</Num>{' '}
-                    {formatCount(count, 'Агент', 'Агента', 'Агентов', notation)}
-                  </span>
-                  {/* Название работы приходит из MODEL_TIERS, а не пишется здесь строкой.
-                      Без пиксельного шрифта: среди тиров есть «1M контекст», а строка с
-                      кириллицей набирается Nunito (ADR-0003). */}
-                  {work !== '' && (
-                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                      {work}
-                    </span>
-                  )}
-                  {/* Доля в Доходе — величина сравнительная, и читается она только когда
-                      различает: с одной Лабораторией она всегда 100%, а ниже процента
-                      неотличима от нуля. На восьми Лабораториях такая мелочь занимала бы
-                      пять строк из восьми и читалась как «у всех всё одинаково». */}
-                  {activeLabs.length > 1 && share >= SHARE_MIN && (
-                    <span className="pixel-font" style={{ fontSize: '0.8rem', color: 'var(--text-main)' }}>
-                      {Math.round(share * 100)}%
-                    </span>
-                  )}
-                  {synergyOn && (
-                    <span
-                      title={`Синергия: +${formatNumber(synergyPct, notation)}% к доходу всех моделей ${lab.name}`}
-                      style={{ fontSize: '0.75rem', color: 'var(--gold)' }}
-                    >
-                      +<Num>{formatNumber(synergyPct, notation)}</Num>%
-                    </span>
-                  )}
-                </div>
-              );
-            })}
+            {activeLabs.map((labId) => (
+              <RosterRow key={labId} labId={labId} showShare={activeLabs.length > 1} />
+            ))}
           </div>
         )}
 
@@ -935,3 +954,5 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
     </div>
   );
 };
+
+export const OfficeColumn = React.memo(OfficeColumnView);

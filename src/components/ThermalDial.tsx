@@ -1,7 +1,7 @@
 import React from 'react';
-import { useGameStore } from '../store/useGameStore';
-import { TEMP_MAX, overloadShare, thermalRead } from '../economy/thermal';
-import { formatNumber } from '../economy/format';
+import { useGameStore, useStateSlice } from '../store/useGameStore';
+import { thermalView } from '../store/selectors';
+import { TEMP_MAX, overloadShare } from '../economy/thermal';
 import { ThermalSparks } from './ThermalSparks';
 
 /**
@@ -13,16 +13,11 @@ import { ThermalSparks } from './ThermalSparks';
  * сколько нужно, и не отпуская мышь.
  */
 export const ThermalDial: React.FC = () => {
-  const state = useGameStore((s) => s.state);
+  const view = useStateSlice(thermalView);
   const setTemp = useGameStore((s) => s.setTemp);
-  const read = thermalRead(state);
-  const notation = state.settings.notation;
 
   // Проценты шкалы, а не доли: CSS-переменная получает число, которое человек не делит в уме.
-  const pct = (read.temp / TEMP_MAX) * 100;
-  // Перегрев красит дорожку, а не только полосу: игрок должен видеть опасность на самой ручке,
-  // не отводя глаз на соседний рядок.
-  const heatPct = read.heat * 100;
+  const pct = (view.temp / TEMP_MAX) * 100;
 
   const setFromClientX = (e: React.PointerEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -47,11 +42,11 @@ export const ThermalDial: React.FC = () => {
     switch (e.key) {
       case 'ArrowRight':
       case 'ArrowUp':
-        setTemp(read.temp + step);
+        setTemp(view.temp + step);
         break;
       case 'ArrowLeft':
       case 'ArrowDown':
-        setTemp(read.temp - step);
+        setTemp(view.temp - step);
         break;
       case 'Home':
         setTemp(0);
@@ -65,25 +60,17 @@ export const ThermalDial: React.FC = () => {
     e.preventDefault();
   };
 
-  const status = read.stunned
-    ? 'Перегрев: Доход падает'
-    : read.heat > 0.75
-      ? 'Почти перегрев'
-      : read.heat > 0.4
-        ? 'Копится перегрев'
-        : 'Стабильно';
-
   return (
     <div
       style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '6px' }}
-      data-thermal={read.stunned ? 'stunned' : read.heat > 0.5 ? 'hot' : 'calm'}
+      data-thermal={view.tone}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
         {/* Подпись — слово из CONTEXT.md, а не «температура генерации»: игрок читает шкалу,
             а не спецификацию, и слово «Температура» здесь и в вики означает одно и то же. */}
         <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Температура</span>
-        <span style={{ fontSize: '0.75rem', color: read.stunned ? 'var(--danger)' : 'var(--text-muted)' }}>
-          {status}
+        <span style={{ fontSize: '0.75rem', color: view.stunned ? 'var(--danger)' : 'var(--text-muted)' }}>
+          {view.status}
         </span>
       </div>
 
@@ -99,8 +86,8 @@ export const ThermalDial: React.FC = () => {
           aria-label="Температура генерации"
           aria-valuemin={0}
           aria-valuemax={TEMP_MAX}
-          aria-valuenow={Number(read.temp.toFixed(2))}
-          aria-valuetext={`${read.temp.toFixed(2)} из ${TEMP_MAX}, Доход ×${read.mult.toFixed(2)}, ${status}`}
+          aria-valuenow={Number(view.temp.toFixed(2))}
+          aria-valuetext={view.valueText}
           aria-describedby="thermal-help"
           onPointerDown={(e) => {
             e.currentTarget.setPointerCapture(e.pointerId);
@@ -198,7 +185,7 @@ export const ThermalDial: React.FC = () => {
           aria-label="Перегрев"
           aria-valuemin={0}
           aria-valuemax={100}
-          aria-valuenow={Math.round(heatPct)}
+          aria-valuenow={view.heatNow}
           style={{
             position: 'relative',
             height: '6px',
@@ -210,11 +197,11 @@ export const ThermalDial: React.FC = () => {
           <div
             className="thermal-dial__heat"
             style={{
-              width: `${heatPct}%`,
+              width: `${view.heatBar}%`,
               height: '100%',
               // Цвет перегрева — белый кал, а не красный: он остаётся различимым на
               // акценте любого из восьми Поколений, где красный уходил бы в тот же тон.
-              backgroundColor: read.heat > 0.75 ? 'var(--thermal-hot)' : 'var(--accent-color)',
+              backgroundColor: view.heatHigh ? 'var(--thermal-hot)' : 'var(--accent-color)',
             }}
           />
         </div>
@@ -222,14 +209,10 @@ export const ThermalDial: React.FC = () => {
 
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
         <span>
-          Доход ×<span className="pixel-font">{formatNumber(read.mult, notation)}</span>
+          Доход ×<span className="pixel-font">{view.mult}</span>
         </span>
-        <span style={{ color: read.heat > 0.6 ? 'var(--thermal-hot)' : 'var(--text-muted)' }}>
-          {read.heat > 0.6
-            ? `перегрев ${Math.round(heatPct)}%`
-            : read.halluRate > 0
-              ? `галлюцинации ${Math.round(read.halluRate * 60)}/мин`
-              : 'риска нет'}
+        <span style={{ color: view.riskHot ? 'var(--thermal-hot)' : 'var(--text-muted)' }}>
+          {view.risk}
         </span>
       </div>
 
@@ -247,7 +230,7 @@ export const ThermalDial: React.FC = () => {
         }}
       >
         Тяни мышью или жми ← → с Ctrl. Чем горячее — тем выше Доход, но копится перегрев.
-        {read.stunned ? ' Сейчас оглушение: жар сброшен, Доход вернётся.' : ''}
+        {view.stunned ? ' Сейчас оглушение: жар сброшен, Доход вернётся.' : ''}
       </div>
     </div>
   );

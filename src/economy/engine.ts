@@ -361,8 +361,18 @@ export function shatterCrystal(state: GameState): GameState {
  *
  * Кошелёк не спрашивается намеренно: вопрос «на сколько вырастет, если купить» и вопрос «хватает
  * ли сейчас» — разные, и магазин показывает оба.
+ *
+ * `base` — Доход до покупки, если вызывающий его уже посчитал: магазин спрашивает прирост у каждой
+ * Модели из списка на каждом тике, и один и тот же полный проход по Моделям, повторённый на
+ * каждую карточку, вдвое дороже прохода по покупке.
  */
-export function incomeGain(state: GameState, modelId: string, n: number, now: number = state.lastTick): number {
+export function incomeGain(
+  state: GameState,
+  modelId: string,
+  n: number,
+  now: number = state.lastTick,
+  base?: number,
+): number {
   if (n <= 0) return 0;
   const model = MODEL_BY_ID[modelId];
   if (!model || model.generation !== state.generation) return 0;
@@ -370,7 +380,7 @@ export function incomeGain(state: GameState, modelId: string, n: number, now: nu
     ...state,
     agents: { ...state.agents, [modelId]: (state.agents[modelId] ?? 0) + n },
   };
-  return totalIncome(hired, now) - totalIncome(state, now);
+  return totalIncome(hired, now) - (base ?? totalIncome(state, now));
 }
 
 /** Доход Лаборатории: сумма Дохода её Моделей. Каждая Модель принадлежит ровно одной
@@ -383,10 +393,8 @@ function labIncome(state: GameState, lab: LabId, now: number): number {
 
 /** Доля Лаборатории в общем Доходе. Пока Агентов нет, общий Доход нулевой, и деление
  *  выдало бы NaN прямо на экране, поэтому такая Лаборатория читается как ноль. */
-export function labIncomeShare(state: GameState, lab: LabId): number {
-  const now = state.lastTick;
-  const total = totalIncome(state, now);
-  return total === 0 ? 0 : labIncome(state, lab, now) / total;
+export function labIncomeShare(state: GameState, lab: LabId, total: number = totalIncome(state)): number {
+  return total === 0 ? 0 : labIncome(state, lab, state.lastTick) / total;
 }
 
 export function clickValue(state: GameState, income?: number, now: number = state.lastTick): number {

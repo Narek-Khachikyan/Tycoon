@@ -1,7 +1,7 @@
 import React from 'react';
-import { useGameStore } from '../store/useGameStore';
-import { MILESTONES, nextMilestone, milestoneHint, milestoneReward } from '../economy/milestones';
-import { formatNumber } from '../economy/format';
+import { useStateSlice } from '../store/useGameStore';
+import { milestoneView } from '../store/selectors';
+import { MILESTONES } from '../economy/milestones';
 import { Num } from './Num';
 
 /**
@@ -16,9 +16,7 @@ import { Num } from './Num';
  * а не помогают.
  */
 export const MilestoneStrip: React.FC = () => {
-  const state = useGameStore((s) => s.state);
-  const notation = state.settings.notation;
-  const current = nextMilestone(state);
+  const { current, hint, reward, done } = useStateSlice(milestoneView);
 
   if (!current) return null;
 
@@ -37,14 +35,14 @@ export const MilestoneStrip: React.FC = () => {
           виден на расстоянии вытянутой руки. */}
       <div style={{ display: 'flex', gap: '2px', height: '10px' }} aria-hidden="true">
         {MILESTONES.map((m) => {
-          const done = state.milestones.includes(m.id);
+          const isDone = done.includes(m.id);
           return (
             <div
               key={m.id}
               style={{
                 flex: 1,
-                backgroundColor: done ? 'var(--accent-color)' : 'var(--bg-void)',
-                border: done ? '1px solid var(--accent-color)' : '1px solid var(--border)',
+                backgroundColor: isDone ? 'var(--accent-color)' : 'var(--bg-void)',
+                border: isDone ? '1px solid var(--accent-color)' : '1px solid var(--border)',
               }}
             />
           );
@@ -54,14 +52,14 @@ export const MilestoneStrip: React.FC = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' }}>
         <span style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>{current.title}</span>
         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-          {state.milestones.length} / {MILESTONES.length}
+          {done.length} / {MILESTONES.length}
         </span>
       </div>
-      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{milestoneHint(state, current)}</div>
+      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{hint}</div>
       {/* Награда видна сразу, а не по факту: игрок должен видеть, ради чего тянуть.
           Число и слово разбираются на части — «+2.50 K» не является числом (ADR-0003). */}
       <div style={{ fontSize: '0.75rem', color: 'var(--gold)' }}>
-        Награда: +<Num>{formatNumber(milestoneReward(state, current), notation)}</Num> Токенов
+        Награда: +<Num>{reward}</Num> Токенов
       </div>
     </div>
   );

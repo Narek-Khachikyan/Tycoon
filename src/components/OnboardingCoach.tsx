@@ -1,5 +1,5 @@
 import React from 'react';
-import { useGameStore } from '../store/useGameStore';
+import { useStateSlice } from '../store/useGameStore';
 import { coachStep } from '../economy/onboarding';
 
 /**
@@ -12,8 +12,8 @@ import { coachStep } from '../economy/onboarding';
  * игрок. Вход — только opacity через toast-fade, поэтому при reducedMotion картина та же.
  */
 export const OnboardingCoach: React.FC = () => {
-  const state = useGameStore((s) => s.state);
-  const step = coachStep(state);
+  // Шаг — запись из таблицы: у тика она та же самая, поэтому подсказка не перерисовывается.
+  const step = useStateSlice(coachStep);
 
   // Пройденный поток не занимает места: пустой шаг — это отсутствие карточки, а не пустая.
   if (!step) return null;

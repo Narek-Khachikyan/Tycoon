@@ -320,7 +320,7 @@ const ICONS: Record<IconName, readonly Rect[]> = {
 /** Весь набор: единственный список, по которому проверяется сетка и уникальность рисунков. */
 export const ICON_NAMES = Object.keys(ICONS) as IconName[];
 
-export const Icon: React.FC<{ name: IconName; size?: number }> = ({ name, size = 16 }) => (
+const IconView: React.FC<{ name: IconName; size?: number }> = ({ name, size = 16 }) => (
   <svg
     width={size}
     height={size}
@@ -338,3 +338,6 @@ export const Icon: React.FC<{ name: IconName; size?: number }> = ({ name, size =
     ))}
   </svg>
 );
+
+/** Иконка зависит только от имени и размера, поэтому перерисовка родителя её не трогает. */
+export const Icon = React.memo(IconView);

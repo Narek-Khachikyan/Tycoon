@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useGameStore } from '../store/useGameStore';
+import { useGameStore, useStateSlice } from '../store/useGameStore';
 import { MODEL_BY_ID } from '../economy/catalog';
 import { activeSpec, type EventSpec } from '../economy/events';
 import type { RedSpec } from '../economy/glitches';
@@ -101,16 +101,22 @@ const effectLine = (spec: Spec, red: boolean, notation: Notation): React.ReactNo
 };
 
 export const GoldenToken: React.FC = () => {
-  const state = useGameStore((s) => s.state);
+  // Карточка читает пять полей и на тике перерисовывается сознательно: её пульс, остаток окна и
+  // толчок от поимки считаются из `lastTick`. Остальное состояние ей не нужно.
+  //
+  // Поле `red` живёт в событии, а вид и его числа — в таблице, поэтому подпись читает и то и
+  // другое и обязана спросить оба: по одному виду неизвестно, обычное это событие или красное.
+  const { event, lastTick, heat, notation, spec } = useStateSlice((s) => ({
+    event: s.event,
+    lastTick: s.lastTick,
+    heat: s.heat,
+    notation: s.settings.notation,
+    spec: activeSpec(s),
+  }));
   const caught = useGameStore((s) => s.eventCaught);
   const crashArmedAt = useGameStore((s) => s.crashArmedAt);
   const catchEvent = useGameStore((s) => s.catchEvent);
   const motion = useMotionAllowed();
-
-  // Поле `red` живёт в событии, а вид и его числа — в таблице, поэтому подпись читает и то и
-  // другое и обязана спросить оба: по одному виду неизвестно, обычное это событие или красное.
-  const spec = activeSpec(state);
-  const event = state.event;
 
   const armed = Boolean(event && !caught && crashArmedAt === event.startedAt);
   const punchNonce = event ? `${event.startedAt}:${caught}:${armed}` : '';
@@ -121,9 +127,8 @@ export const GoldenToken: React.FC = () => {
 
   if (!spec || !event) return null;
 
-  const notation = state.settings.notation;
-  const leftMs = Math.max(0, event.startedAt + spec.durationMs - state.lastTick);
-  const windowAge = Math.max(0, state.lastTick - event.startedAt);
+  const leftMs = Math.max(0, event.startedAt + spec.durationMs - lastTick);
+  const windowAge = Math.max(0, lastTick - event.startedAt);
 
   const costsTokens = event.red && spec.kind === 'grant';
   const costPct = costsTokens ? Math.round(spec.share * 100) : 0;
@@ -139,11 +144,10 @@ export const GoldenToken: React.FC = () => {
   // Фаза пульса — возраст окна, поэтому он не нулевой уже на первом кадре и не «прыгает» при
   // перезагрузке страницы посреди окна. Период сокращается с перегревом: на горячем офисе
   // Токен зовёт клик заметно настойчивее.
-  const heat = state.heat;
   const period = 1600 - Math.round(Math.min(1, Math.max(0, heat)) * 700);
   const wave = Math.sin((windowAge % period) / period * Math.PI * 2);
 
-  const punchAge = state.lastTick - punchedAt;
+  const punchAge = lastTick - punchedAt;
   const punch = punchAge >= 0 && punchAge < PUNCH_MS ? Math.sin((punchAge / PUNCH_MS) * Math.PI) : 0;
 
   // Пойманное окно больше не зовёт: Токен тускнеет, кнопка говорит «Поймано». Тускнение — это

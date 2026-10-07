@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useGameStore } from '../store/useGameStore';
-import { glitchDrainMult } from '../economy/glitches';
-import { formatCount, formatNumber } from '../economy/format';
+import { useStateSlice } from '../store/useGameStore';
+import { droneView, glitchBandView } from '../store/selectors';
 import {
+  DRONE_FLIGHT_MS,
   droneDrop,
   droneFlight,
   GoldenToken,
@@ -17,11 +17,11 @@ import { Num } from './Num';
 /**
  * Событийный слой Сцены: Глюки, которые на ней живут, и пролёт Дрона.
  *
- * Таймеров нет: колонка Офиса перерисовывается каждый тик, и всё, что здесь двигается, —
- * дёрганье паразита, пролёт Дрона, падающая монета — считается из `state.lastTick` как
- * производная. Ни CSS-анимации, ни узлов, которые надо гасить правилом: при выключенном
- * движении слой просто не создаёт частицы, и включение настройки не пересоздаёт их на каждом
- * тике.
+ * Таймеров нет: всё, что здесь двигается, — пролёт Дрона, падающая монета — считается из
+ * `state.lastTick` как производная, а слой подписан на готовый срез и перерисовывается тиком,
+ * только пока что-то из этого действительно в воздухе. Ни CSS-анимации, ни узлов, которые надо
+ * гасить правилом: при выключенном движении слой просто не создаёт частицы, и включение
+ * настройки не пересоздаёт их на каждом тике.
  *
  * Текст на Сцене лежит либо на собственной затемнённой полосе, либо на собственном
  * затемнённом бейдже (ADR-0002). Голым текстом по живописи здесь не написано ничего:
@@ -74,13 +74,9 @@ const usePlateSize = (): [React.RefObject<HTMLDivElement | null>, { w: number; h
  * не видит почему.
  */
 export const SceneGlitchBand: React.FC = () => {
-  const state = useGameStore((s) => s.state);
-  if (state.glitches.length === 0) return null;
-
-  const notation = state.settings.notation;
-  const heat = state.heat;
-  const drain = glitchDrainMult(state);
-  const stolen = state.glitches.reduce((sum, g) => sum + g.stolen, 0);
+  const band = useStateSlice(glitchBandView);
+  if (!band) return null;
+  const { heat, drain, stolen, stolenWord } = band;
 
   return (
     // Сплошная подложка, а не градиент, как у HUD над ней: подпись обязана читаться на любой из
@@ -104,11 +100,10 @@ export const SceneGlitchBand: React.FC = () => {
     >
       <GlitchSprite size={16} heat={heat} />
       <span style={{ color: 'var(--text-main)', fontWeight: 600 }}>
-        Глюки: −<Num>{formatNumber(Math.round((1 - drain) * 100), notation)}</Num>% к доходу
+        Глюки: −<Num>{drain}</Num>% к доходу
       </span>
       <span style={{ color: 'var(--text-muted)' }}>
-        унесли <Num>{formatNumber(stolen, notation)}</Num>{' '}
-        {formatCount(stolen, 'Токен', 'Токена', 'Токенов', notation)}
+        унесли <Num>{stolen}</Num> {stolenWord}
       </span>
     </div>
   );
@@ -124,19 +119,17 @@ export const SceneGlitchBand: React.FC = () => {
  * месте дрон читался бы как забытая деталь офиса.
  */
 export const SceneDrone: React.FC = () => {
-  const startedAt = useGameStore((s) => s.state.event?.startedAt ?? 0);
-  const lastTick = useGameStore((s) => s.state.lastTick);
-  const heat = useGameStore((s) => s.state.heat);
-  const red = useGameStore((s) => s.state.event?.red ?? false);
+  // Пока Дрон не в воздухе, срез — null и слой не перерисовывается: окно События длиннее пролёта.
+  const view = useStateSlice((s) => droneView(s, DRONE_FLIGHT_MS));
   const motion = useMotionAllowed();
   const [plateRef, plate] = usePlateSize();
 
-  const flight =
-    motion && startedAt > 0 ? droneFlight(lastTick - startedAt, plate.w, DRONE_SIZE) : null;
-  if (!flight) return null;
+  const flight = motion && view ? droneFlight(view.elapsed, plate.w, DRONE_SIZE) : null;
+  if (!view || !flight) return null;
+  const { heat, red } = view;
 
   const bands = sceneBands(plate.h);
-  const drop = droneDrop(lastTick - startedAt);
+  const drop = droneDrop(view.elapsed);
 
   return (
     <div

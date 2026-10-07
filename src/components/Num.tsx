@@ -14,7 +14,7 @@ import React from 'react';
  * меняется на каждом тике), при пересоздании узла по key дёргалось бы непрерывно. Отклик
  * должен быть событием, а не фоном.
  */
-export const Num: React.FC<{ children: React.ReactNode; className?: string; bump?: boolean }> = ({
+const NumView: React.FC<{ children: React.ReactNode; className?: string; bump?: boolean }> = ({
   children,
   className,
   bump = false,
@@ -33,3 +33,9 @@ export const Num: React.FC<{ children: React.ReactNode; className?: string; bump
     </span>
   );
 };
+
+/**
+ * Число — лист дерева с двумя пропсами, и перерисовывать его, когда у родителя изменилась соседняя
+ * строка, незачем: карточка Модели несёт шесть таких чисел, а меняется за раз одно.
+ */
+export const Num = React.memo(NumView);

@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useGameStore, type EffectSwitch } from '../store/useGameStore';
+import { useGameStore, useStateSlice, type EffectSwitch, type OfflineReport } from '../store/useGameStore';
 import { ACHIEVEMENTS, nonShadowCount, shadowEarned } from '../economy/achievements';
 import { GLOSSARY } from '../data/glossary';
 import { ThermalSection } from './ThermalSection';
@@ -509,13 +509,16 @@ const ModalCount: React.FC<{ earned: number; total: number }> = ({ earned, total
 );
 
 export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
-  const state = useGameStore((s) => s.state);
+  // Окно читает только список Достижений: он меняется, когда выдано новое, а не на каждом тике,
+  // поэтому закрытое окно и открытое не перерисовываются от тика вовсе.
+  const achievements = useGameStore((s) => s.state.achievements);
   // Все пути закрытия (скрим, ✕, Esc из хука) идут через один запрос: мгновенного
   // onClose больше нет ни на одном пути.
   const { closing, requestClose } = useModalExit(isOpen, onClose);
   if (!isOpen) return null;
 
-  const unlockedSet = new Set(state.achievements);
+  const unlockedSet = new Set(achievements);
+  const earned = { achievements };
 
   return (
     <ModalFrame
@@ -529,7 +532,7 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
          списке, и прямой длиной счётчик шапал бы выше знаменателя. */
       title={
         <>
-          Достижения <ModalCount earned={nonShadowCount(state)} total={ACHIEVEMENTS.length} />
+          Достижения <ModalCount earned={nonShadowCount(earned)} total={ACHIEVEMENTS.length} />
         </>
       }
     >
@@ -588,7 +591,7 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
           </span>
           Теневые Достижения
         </span>
-        <ModalCount earned={shadowEarned(state)} total={SHADOW_ACHIEVEMENTS.length} />
+        <ModalCount earned={shadowEarned(earned)} total={SHADOW_ACHIEVEMENTS.length} />
       </div>
       <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
         Не дают силы и не входят в счёт выше — их берут ради рекордов.
@@ -619,12 +622,25 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
 };
 
 export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
-  const state = useGameStore((s) => s.state);
   // Все пути закрытия (скрим, ✕, Esc из хука) идут через один запрос: мгновенного
   // onClose больше нет ни на одном пути.
   const { closing, requestClose } = useModalExit(isOpen, onClose);
   if (!isOpen) return null;
+  return <StatsBody closing={closing} requestClose={requestClose} />;
+};
 
+interface ModalBodyProps {
+  closing: boolean;
+  requestClose: () => void;
+}
+
+/**
+ * Тело окна статистики. Отдельным компонентом ради подписки: окно читает почти каждое поле
+ * состояния — кошелёк, часы, счётчики, — поэтому подписывается на него целиком, но только пока
+ * открыто. Закрытое окно сюда не доходит и состояния не слушает.
+ */
+const StatsBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
+  const state = useGameStore((s) => s.state);
   const now = Date.now();
   const playTimeSec = (now - state.startedAt) / 1000;
   const runTimeSec = (now - state.runStartedAt) / 1000;
@@ -797,7 +813,9 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
 };
 
 export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
-  const state = useGameStore((s) => s.state);
+  // Настройки — объект, который меняется только настройкой игрока. Остальное, что нужно окну
+  // (выгрузка Забега, проверка перед импортом), читается в момент нажатия, а не подпиской.
+  const settings = useGameStore((s) => s.state.settings);
   // Все пути закрытия (скрим, ✕, Esc из хука, удачные импорт/сброс) идут через один
   // запрос: мгновенного onClose больше нет ни на одном пути.
   const { closing, requestClose } = useModalExit(isOpen, onClose);
@@ -843,7 +861,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   if (!isOpen) return null;
 
   const handleExport = () => {
-    const code = exportSave(state);
+    const code = exportSave(useGameStore.getState().state);
     navigator.clipboard.writeText(code).then(
       () => {
         // Повторная копия перевзводит таймер: иначе первый же таймер погасил бы статус
@@ -871,7 +889,8 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
     // Подтверждение рисуется внутри игры, как у сброса: системный диалог блокирующий,
     // оформлен системой, на английской системе говорит по-английски, а во встроенных
     // просмотрах вообще не показывается.
-    if ((state.totalTokens > 0 || state.prestiges > 0) && !confirmImport) {
+    const { totalTokens, prestiges } = useGameStore.getState().state;
+    if ((totalTokens > 0 || prestiges > 0) && !confirmImport) {
       setConfirmImport(true);
       return;
     }
@@ -918,14 +937,14 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
           <div style={SETTING_GROUP}>
             <button
               onClick={() => setNotation('short')}
-              className={`pixel-btn ${state.settings.notation === 'short' ? 'pixel-btn-accent' : ''}`}
+              className={`pixel-btn ${settings.notation === 'short' ? 'pixel-btn-accent' : ''}`}
               style={{ padding: '6px 10px', fontSize: '0.85rem', whiteSpace: 'nowrap' }}
             >
               Буквы (M, B)
             </button>
             <button
               onClick={() => setNotation('sci')}
-              className={`pixel-btn ${state.settings.notation === 'sci' ? 'pixel-btn-accent' : ''}`}
+              className={`pixel-btn ${settings.notation === 'sci' ? 'pixel-btn-accent' : ''}`}
               style={{ padding: '6px 10px', fontSize: '0.85rem', whiteSpace: 'nowrap' }}
             >
               1e6
@@ -943,11 +962,11 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
           </div>
           <button
             onClick={toggleMute}
-            className={`pixel-btn ${!state.settings.muted ? 'pixel-btn-accent' : ''}`}
+            className={`pixel-btn ${!settings.muted ? 'pixel-btn-accent' : ''}`}
             style={SETTING_CONTROL}
           >
-            <Icon name={state.settings.muted ? 'sound-off' : 'sound-on'} />{' '}
-            {state.settings.muted ? 'выключен' : 'включен'}
+            <Icon name={settings.muted ? 'sound-off' : 'sound-on'} />{' '}
+            {settings.muted ? 'выключен' : 'включен'}
           </button>
         </div>
 
@@ -961,21 +980,21 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
             </>
           }
           hint="Общая громкость: музыка и эффекты звучат поверх неё"
-          value={state.settings.volume}
+          value={settings.volume}
           onChange={setVolume}
         />
         <VolumeSlider
           id="settings-volume-music"
           label="Музыка"
           hint="Только музыка; ноль — без музыки"
-          value={state.settings.musicVolume}
+          value={settings.musicVolume}
           onChange={(v) => setChannelVolume('music', v)}
         />
         <VolumeSlider
           id="settings-volume-sfx"
           label="Эффекты"
           hint="Клики, покупки, события и гул жара; ноль — без эффектов"
-          value={state.settings.sfxVolume}
+          value={settings.sfxVolume}
           onChange={(v) => setChannelVolume('sfx', v)}
         />
 
@@ -988,11 +1007,11 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
             </div>
           </div>
           <button
-            onClick={() => setReducedMotion(!state.settings.reducedMotion)}
-            className={`pixel-btn ${state.settings.reducedMotion ? 'pixel-btn-accent' : ''}`}
+            onClick={() => setReducedMotion(!settings.reducedMotion)}
+            className={`pixel-btn ${settings.reducedMotion ? 'pixel-btn-accent' : ''}`}
             style={SETTING_CONTROL}
           >
-            {state.settings.reducedMotion ? 'Включено' : 'Выключено'}
+            {settings.reducedMotion ? 'Включено' : 'Выключено'}
           </button>
         </div>
 
@@ -1191,14 +1210,27 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
 export const OfflineModal: React.FC = () => {
   const offlineReport = useGameStore((s) => s.offlineReport);
   const dismiss = useGameStore((s) => s.dismissOfflineReport);
-  const state = useGameStore((s) => s.state);
-  const notation = state.settings.notation;
   // Esc здесь не закрывает: игрок должен забрать начисленное и увидеть сумму, поэтому окно
   // закрывается только своей кнопкой. Кнопка идёт через тот же closing-путь, что и
   // остальные окна: мгновенного dismiss больше нет.
   const { closing, requestClose } = useModalExit(offlineReport !== null, dismiss);
 
   if (!offlineReport) return null;
+  return <OfflineBody report={offlineReport} closing={closing} requestClose={requestClose} />;
+};
+
+/**
+ * Тело окна возвращения. Подписка на состояние живёт здесь, а не в оболочке: разбор по
+ * Лабораториям и подсказки покупки читают кошелёк, Агентов и Апгрейды, но окно открыто только
+ * после загрузки с простоем, а во все остальные тики оболочка не слушает состояние вовсе.
+ */
+const OfflineBody: React.FC<ModalBodyProps & { report: OfflineReport }> = ({
+  report: offlineReport,
+  closing,
+  requestClose,
+}) => {
+  const state = useGameStore((s) => s.state);
+  const notation = state.settings.notation;
 
   const capHours = offlineCapHours(state);
   const capSeconds = capHours * 3600;
@@ -1436,14 +1468,23 @@ export const OfflineModal: React.FC = () => {
 export const PrestigeModal: React.FC = () => {
   const isOpen = useGameStore((s) => s.prestigePrompt);
   const dismiss = useGameStore((s) => s.dismissPrestigePrompt);
-  const triggerPrestige = useGameStore((s) => s.triggerPrestige);
-  const openFinale = useGameStore((s) => s.openFinale);
-  const state = useGameStore((s) => s.state);
   // Хуки стоят до раннего выхода, иначе окно то ловило бы Esc, то нет. Выход — тем же
   // closing-путём, что и у остальных окон: мгновенный dismiss возвращал бы карточку в DOM
   // без последнего кадра анимации.
   const { closing, requestClose } = useModalExit(isOpen, dismiss);
   if (!isOpen) return null;
+  return <PrestigeBody closing={closing} requestClose={requestClose} />;
+};
+
+/**
+ * Тело окна подтверждения Престижа: разбор читает кошелёк, Агентов и Апгрейды, поэтому
+ * подписано на состояние, но только пока окно открыто.
+ */
+const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
+  const dismiss = useGameStore((s) => s.dismissPrestigePrompt);
+  const triggerPrestige = useGameStore((s) => s.triggerPrestige);
+  const openFinale = useGameStore((s) => s.openFinale);
+  const state = useGameStore((s) => s.state);
 
   const preview = prestigePreview(state);
   const gen = CATALOG[state.generation];
@@ -1619,13 +1660,10 @@ export const PrestigeModal: React.FC = () => {
  * с подтверждением в два шага («Точно начать заново?»), сбрасывающим Забег через resetGame.
  */
 export const FinaleModal: React.FC = () => {
-  const state = useGameStore((s) => s.state);
-  const resetGame = useGameStore((s) => s.resetGame);
   const finaleDismissed = useGameStore((s) => s.finaleDismissed);
   const dismissFinale = useGameStore((s) => s.dismissFinale);
-  const notation = state.settings.notation;
 
-  const isFinale = isContentFinale(state);
+  const isFinale = useStateSlice(isContentFinale);
   const [confirmReset, setConfirmReset] = useState(false);
 
   // Флаг «игрок закрыл» живёт в сторе вместе с openFinale: экран должен открываться сам при
@@ -1639,8 +1677,33 @@ export const FinaleModal: React.FC = () => {
   });
 
   if (!isOpen) return null;
+  return (
+    <FinaleBody
+      closing={closing}
+      requestClose={requestClose}
+      confirmReset={confirmReset}
+      setConfirmReset={setConfirmReset}
+    />
+  );
+};
 
-  const gen = CATALOG[state.generation];
+/**
+ * Тело экрана финала. Итоги — шесть чисел, и все они попадают на экран готовой строкой: открытое
+ * окно перерисовывается, когда меняется напечатанное (Токены всего растут), а не на каждом тике.
+ */
+const FinaleBody: React.FC<
+  ModalBodyProps & { confirmReset: boolean; setConfirmReset: (on: boolean) => void }
+> = ({ closing, requestClose, confirmReset, setConfirmReset }) => {
+  const resetGame = useGameStore((s) => s.resetGame);
+  const summary = useStateSlice((s) => ({
+    generation: s.generation,
+    prestiges: s.prestiges,
+    totalTokens: formatNumber(s.totalTokens, s.settings.notation),
+    compute: formatNumber(s.compute, s.settings.notation),
+    achieved: nonShadowCount(s),
+    quips: s.quipsSeen.length,
+  }));
+  const gen = CATALOG[summary.generation];
 
   const handleResetClick = () => {
     if (!confirmReset) {
@@ -1747,28 +1810,28 @@ export const FinaleModal: React.FC = () => {
         <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Поколение</div>
           <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--accent-color)' }}>
-            Поколение <Num>{state.generation + 1}</Num>: {gen.name}
+            Поколение <Num>{summary.generation + 1}</Num>: {gen.name}
           </div>
         </div>
 
         <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Престижей за всё время</div>
           <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>
-            <Num>{state.prestiges}</Num>
+            <Num>{summary.prestiges}</Num>
           </div>
         </div>
 
         <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Токенов всего</div>
           <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--green)' }}>
-            <Num>{formatNumber(state.totalTokens, notation)}</Num>
+            <Num>{summary.totalTokens}</Num>
           </div>
         </div>
 
         <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Compute в запасе</div>
           <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--accent-color)' }}>
-            <Num>{formatNumber(state.compute, notation)}</Num>
+            <Num>{summary.compute}</Num>
           </div>
         </div>
 
@@ -1777,14 +1840,14 @@ export const FinaleModal: React.FC = () => {
           {/* Числитель — nonShadowCount, а не achievements.length: id теневых лежат в том же
               списке, и прямой длиной счётчик на экране финала показывал «25 / 21». */}
           <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--gold)' }}>
-            <Num>{nonShadowCount(state)}</Num> / <Num>{ACHIEVEMENTS.length}</Num>
+            <Num>{summary.achieved}</Num> / <Num>{ACHIEVEMENTS.length}</Num>
           </div>
         </div>
 
         <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Реплик в Переписке</div>
           <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>
-            <Num>{state.quipsSeen.length}</Num>
+            <Num>{summary.quips}</Num>
           </div>
         </div>
       </div>
